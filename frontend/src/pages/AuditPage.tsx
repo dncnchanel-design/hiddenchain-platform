@@ -42,7 +42,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全审计" title="可信调用审计" description="按时间查看可信采集、授权、隐私计算、结果和凭证。" actions={<Button icon={RefreshCw} onClick={() => { void tasks.reload(); void timeline.reload(); }}>刷新</Button>} />
+      <PageHeader eyebrow="安全审计" title="可信调用审计" description="按时间查看可信采集、授权、隐私计算、结果和凭证。" actions={<Button icon={RefreshCw} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button>} />
       <div className="filter-bar">
         <label><span>审计对象</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
         {timeline.data?.task && <><div><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div><div><span>原始数据</span><StatusTag value="SUCCESS" label="未进入审计域" /></div></>}

@@ -36,6 +36,11 @@ export function DataSpacePage() {
   const agreements = data?.agreements || [];
   const assetCount = useMemo(() => new Set(entries.map((item: JsonRecord) => item.asset_type)).size, [entries]);
 
+  async function applyBatch() {
+    if (batchInput === batch) await reload();
+    else setBatch(batchInput);
+  }
+
   if (loading) return <LoadingState label="正在发现数据产品与连接器协议" />;
   if (error || !data) return <ErrorState message={error || "数据空间加载失败"} retry={reload} />;
 
@@ -53,8 +58,8 @@ export function DataSpacePage() {
         <StatusTag value="ACTIVE" label="可用" />
       </div>
       <div className="inline-actions" style={{ marginBottom: 16 }}>
-        <label className="field"><span>批次编号</span><input value={batchInput} onChange={(event) => setBatchInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setBatch(batchInput); if (batchInput === batch) void reload(); } }} /></label>
-        <Button icon={Database} onClick={() => { setBatch(batchInput); if (batchInput === batch) void reload(); }}>查询</Button>
+        <label className="field"><span>批次编号</span><input value={batchInput} onChange={(event) => setBatchInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void applyBatch(); } }} /></label>
+        <Button icon={Database} onClick={applyBatch}>查询</Button>
       </div>
       <div className="metrics-grid five">
         <Metric label="可调用数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />
