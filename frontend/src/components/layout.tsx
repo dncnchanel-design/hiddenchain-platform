@@ -144,8 +144,8 @@ export function AppShell() {
         </div>
         <nav className="portal-nav" aria-label="门户导航">
           <div className="portal-nav-inner">
-            <NavLink to="/overview" end><Home size={16} /><span>首页</span></NavLink>
-            <NavLink to="/workbench"><LayoutDashboard size={16} /><span>业务协同</span></NavLink>
+            <NavLink to="/workbench" end><Home size={16} /><span>我的工作台</span></NavLink>
+            <NavLink to="/overview"><LayoutDashboard size={16} /><span>平台能力</span></NavLink>
             {allowed.has("data-space") && <NavLink to="/data-space"><Network size={16} /><span>数据调用</span></NavLink>}
             {allowed.has("compute") && <NavLink to="/compute"><Network size={16} /><span>隐私计算</span></NavLink>}
             {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>场景验证</span></NavLink>}

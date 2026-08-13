@@ -3,6 +3,7 @@ import { CheckCircle2, Database, Fingerprint, Network, RefreshCw, ScrollText, Sh
 import { api, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { ALGORITHM_LABELS, UNIFIED_REQUIREMENT_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 const assetNames: Record<string, string> = {
@@ -69,7 +70,7 @@ export function DataSpacePage() {
         </Surface>
         <Surface title="三统一映射" note="目录标识、身份登记、接口要求统一后才能被调用">
           <div className="acceptance-list">
-            {data.protocol.three_unified.map((code: string) => <div key={code}><ShieldCheck size={18} /><span>{code.replaceAll("_", " ")}</span><StatusTag value="READY" label="统一" /></div>)}
+            {data.protocol.three_unified.map((code: string) => <div key={code}><ShieldCheck size={18} /><span>{UNIFIED_REQUIREMENT_LABELS[code] || code}</span><StatusTag value="READY" label="已统一" /></div>)}
           </div>
           <Notice>当前为标准对齐参考实现；SecretFlow、FISCO BCOS 和真实 DID/VC 仍通过适配器替换。</Notice>
         </Surface>
@@ -100,7 +101,7 @@ export function DataSpacePage() {
             { key: "provider_org_id", label: "提供方", render: (row) => shortHash(row.provider_org_id, 12) },
             { key: "consumer_org_id", label: "使用方", render: (row) => shortHash(row.consumer_org_id, 12) },
             { key: "requested_purpose", label: "用途" },
-            { key: "algorithm_code", label: "算法" },
+            { key: "algorithm_code", label: "计算方案", render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code },
             { key: "state", label: "状态", render: (row) => <StatusTag value={row.state} /> },
             { key: "use_count", label: "使用次数", render: (row) => `${row.use_count}/${row.max_uses}` },
             { key: "last_receipt_json", label: "回执", render: (row) => row.last_receipt_json?.receipt_hash ? <><CheckCircle2 size={15} /> 已记录</> : <><XCircle size={15} /> 待生成</> },
@@ -118,7 +119,7 @@ export function DataSpacePage() {
         <Surface title="可审计回执" note="ComputeReceipt 绑定策略、输入承诺与输出哈希">
           <div className="detail-grid">
             <div><span>策略执行</span><strong>PEP/PDP 已启用</strong></div>
-            <div><span>输出形式</span><strong>AGGREGATE_ONLY</strong></div>
+            <div><span>输出形式</span><strong>仅聚合结果</strong></div>
             <div><span>回执索引</span><strong><ScrollText size={15} /> 进入三阶段证据链</strong></div>
           </div>
         </Surface>

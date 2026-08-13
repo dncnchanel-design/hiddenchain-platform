@@ -3,6 +3,7 @@ import { Bot, Blocks, FileSearch, MessageSquareText, RefreshCw, Send, ShieldChec
 import { api, formatDate, post, shortHash } from "../api";
 import { Button, CodeValue, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 const kindIcons: Record<string, React.ElementType> = { AGENT_EVENT: Bot, CHAIN_EVIDENCE: Blocks, ANOMALY: ShieldCheck };
@@ -52,7 +53,13 @@ export function AuditPage() {
             <div className="audit-timeline">
               {(timeline.data?.events || []).map((event: JsonRecord) => {
                 const Icon = kindIcons[event.kind] || FileSearch;
-                return <div key={event.reference}><div className={`timeline-icon kind-${event.kind.toLowerCase()}`}><Icon size={17} /></div><div><span>{formatDate(event.time)}</span><strong>{event.title}</strong><small className="mono-text">{shortHash(event.reference, 12)}</small></div><StatusTag value={event.status} /></div>;
+                const title = String(event.title || "").split(" · ");
+                const readableTitle = event.kind === "CHAIN_EVIDENCE"
+                  ? `${STAGE_LABELS[title[0]] || title[0]} · ${EVIDENCE_TYPE_LABELS[title[1]] || title[1]}`
+                  : event.kind === "AGENT_EVENT"
+                    ? `${AGENT_LABELS[title[0]] || title[0]} · ${MESSAGE_TYPE_LABELS[title[1]] || title[1]}`
+                    : event.title;
+                return <div key={event.reference}><div className={`timeline-icon kind-${event.kind.toLowerCase()}`}><Icon size={17} /></div><div><span>{formatDate(event.time)}</span><strong>{readableTitle}</strong><small className="mono-text">{shortHash(event.reference, 12)}</small></div><StatusTag value={event.status} /></div>;
               })}
             </div>
           )}
@@ -66,7 +73,7 @@ export function AuditPage() {
             </div>
             <Button icon={Send} variant="primary" busy={asking} disabled={!taskId || !question.trim()} onClick={ask}>基于证据回答</Button>
             {askError && <Notice tone="warning">{askError}</Notice>}
-            {answer && <div className="agent-answer"><div><MessageSquareText size={18} /><strong>审计结论</strong></div><p>{answer.answer}</p><div className="citation-list">{answer.citations.map((item: JsonRecord) => <span key={item.evidence_id}><Blocks size={13} />{item.stage} · {shortHash(item.tx_hash, 8)}</span>)}</div><small>{answer.boundary}</small>{answer.fallback ? <small className="llm-proof llm-proof-fallback">本地模板回退：本次未调用 DeepSeek</small> : <small className="llm-proof">真实调用成功 · {answer.provider} · {answer.model} · {answer.duration_ms}ms · Token {answer.usage?.total_tokens ?? "-"} · 请求 {shortHash(answer.request_id, 12)} · 可信度 {answer.confidence}</small>}</div>}
+            {answer && <div className="agent-answer"><div><MessageSquareText size={18} /><strong>审计结论</strong></div><p>{answer.answer}</p><div className="citation-list">{answer.citations.map((item: JsonRecord) => <span key={item.evidence_id}><Blocks size={13} />{STAGE_LABELS[item.stage] || item.stage} · {shortHash(item.tx_hash, 8)}</span>)}</div><small>{answer.boundary}</small>{answer.fallback ? <small className="llm-proof llm-proof-fallback">本地模板回退：本次未调用 DeepSeek</small> : <small className="llm-proof">真实调用成功 · {answer.provider} · {answer.model} · {answer.duration_ms}ms · Token {answer.usage?.total_tokens ?? "-"} · 请求 {shortHash(answer.request_id, 12)} · 可信度 {answer.confidence}</small>}</div>}
           </div>
         </Surface>
       </div>

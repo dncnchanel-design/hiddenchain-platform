@@ -30,7 +30,7 @@ function ProtectedShell() {
 function LoginGate() {
   const { session, loading } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
-  return session ? <Navigate to="/overview" replace /> : <LoginPage />;
+  return session ? <Navigate to="/workbench" replace /> : <LoginPage />;
 }
 
 function Allowed({ code, children }: { code: string; children: React.ReactNode }) {
@@ -43,7 +43,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginGate />} />
       <Route element={<ProtectedShell />}>
-        <Route index element={<Navigate to="/overview" replace />} />
+        <Route index element={<Navigate to="/workbench" replace />} />
         <Route path="/overview" element={<Allowed code="overview"><OverviewPage /></Allowed>} />
         <Route path="/workbench" element={<Allowed code="workbench"><WorkbenchPage /></Allowed>} />
         <Route path="/data/generation" element={<Allowed code="generation-data"><DataPage mode="generation" /></Allowed>} />

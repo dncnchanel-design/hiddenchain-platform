@@ -5,6 +5,7 @@ import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { ROLE_IN_TASK_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 const stages = [
@@ -46,7 +47,8 @@ export function SettlementPage() {
     setMessage("");
     try {
       const result = await post<JsonRecord>(`/settlement/tasks/${selected.task_id}/run`, { compute_mode: "MPC_MOCK", algorithm_code: "ADAPTIVE_MARKET_SETTLEMENT_V2" });
-      setMessage(`可信闭环完成：${result.evidence.length} 项链上证据、${result.task.agent_event_count} 条 Agent 事件，审计结论 ${result.report?.conclusion || "PASS"}。`);
+      const conclusion = result.report?.conclusion === "PASS" ? "通过" : result.report?.conclusion === "REVIEW_REQUIRED" ? "需复核" : result.report?.conclusion || "已生成";
+      setMessage(`可信闭环完成：${result.evidence.length} 项链上证据、${result.task.agent_event_count} 条 Agent 事件，审计结论${conclusion}。`);
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "执行失败");
@@ -60,7 +62,7 @@ export function SettlementPage() {
 
   return (
     <>
-      <PageHeader eyebrow="应用验证场景" title="电力交易场景验证" description="电力交易只作为验证场景：用同一可信验证胶囊串联数据调用、隐私计算、结果回执与监管证据。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>发起场景验证</Button>}</>} />
+      <PageHeader eyebrow="应用验证场景" title="场景验证任务" description="选择一个任务，查看数据调用、隐私计算、结果回执和证据核验进度；电力交易只是当前演示场景。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>发起场景验证</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
         <Surface title="验证任务队列" note={`${data.tasks.length} 个可信验证胶囊`} className="master-panel">
@@ -99,7 +101,7 @@ export function SettlementPage() {
                 <div className="participant-list">
                   {selected.participants.map((item: JsonRecord) => {
                     const org = data.orgs.find((entry) => entry.org_id === item.org_id);
-                    return <div key={item.participant_id}><Users size={18} /><div><strong>{org?.org_name || item.org_id}</strong><span>{item.role_in_task}</span></div><StatusTag value={item.data_status} /></div>;
+                    return <div key={item.participant_id}><Users size={18} /><div><strong>{org?.org_name || item.org_id}</strong><span>{ROLE_IN_TASK_LABELS[item.role_in_task] || item.role_in_task}</span></div><StatusTag value={item.data_status} /></div>;
                   })}
                 </div>
               </Surface>
@@ -168,7 +170,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   }
 
   return (
-    <Modal title="发起电力交易场景验证" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成可信验证胶囊</Button></>}>
+    <Modal title="发起场景验证任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成可信验证胶囊</Button></>}>
       <div className="form-grid two">
         <Field label="任务名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field>
         <Field label="验证批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>

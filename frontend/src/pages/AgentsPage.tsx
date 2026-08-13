@@ -3,6 +3,7 @@ import { ArrowRight, Bot, CheckCircle2, KeyRound, Play, RefreshCw, ShieldCheck, 
 import { api, formatDate, post, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { AGENT_LABELS, MESSAGE_TYPE_LABELS, SCENARIO_LABELS, TOOL_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 type AgentResults = Record<string, JsonRecord>;
@@ -79,7 +80,7 @@ export function AgentsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Agent 原生架构" title="Agent 协同" description="六个专业 Agent 均可通过后端安全网关真实调用 DeepSeek，并保留请求凭证、耗时、Token 与签名事件。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+          <PageHeader eyebrow="智能体协作" title="智能体协同" description="平台智能体通过安全网关执行受授权任务，并保留请求凭证、耗时、用量与签名事件。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="agent-boundary"><ShieldCheck size={20} /><div><strong>三条强制边界</strong><span>不可直读原始数据 · 不可绕过 OPA/ODRL 策略 · 不可修改确定性结算结果</span></div></div>
       <Surface title="DeepSeek 运行状态" note="只有出现请求 ID、耗时和 Token 用量，才算真实调用成功">
         <div className="llm-status-panel">
@@ -95,9 +96,9 @@ export function AgentsPage() {
         </div>
         {actionError && <Notice tone="warning">{actionError}</Notice>}
       </Surface>
-      <Surface title="六 Agent 双闭环 Workflow" note="四场景业务闭环 + 身份、策略、证据治理闭环；每个 Agent 均有独立 DID">
+          <Surface title="智能体协作" note="每个智能体只执行受授权的任务，并留下可核验的输入输出摘要">
         <div className="agent-workflow">
-          {data.definitions.map((agent, index) => <div className="agent-node" key={agent.code}><div><Bot size={20} /><span>{index + 1}</span></div><strong>{agent.name}</strong><small>{agent.scenario_code}</small>{index < data.definitions.length - 1 && <ArrowRight size={18} />}</div>)}
+          {data.definitions.map((agent, index) => <div className="agent-node" key={agent.code}><div><Bot size={20} /><span>{index + 1}</span></div><strong>{agent.name}</strong><small>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</small>{index < data.definitions.length - 1 && <ArrowRight size={18} />}</div>)}
         </div>
       </Surface>
       <div className="agent-grid">
@@ -107,9 +108,9 @@ export function AgentsPage() {
             <article className={`agent-card ${result?.success === false ? "agent-card-failed" : result ? "agent-card-verified" : ""}`} key={agent.code}>
               <div className="agent-card-header"><div><Bot size={20} /><strong>{agent.name}</strong></div><StatusTag value={result?.success === false ? "FAILED" : result ? "SUCCESS" : "VALID"} label={result?.success === false ? "调用失败" : result ? "AI 已验证" : "DID 有效"} /></div>
               <CodeValue title={agent.did}>{shortHash(agent.did, 16)}</CodeValue>
-              <div className="agent-mandate"><span>{agent.scenario_code}</span>{agent.business_mandate}</div>
+              <div className="agent-mandate"><span>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</span>{agent.business_mandate}</div>
               <dl><dt>输入</dt><dd>{agent.input}</dd><dt>输出</dt><dd>{agent.output}</dd></dl>
-              <div className="tool-list"><Wrench size={15} />{agent.tools.map((tool: string) => <span key={tool}>{tool}</span>)}</div>
+              <div className="tool-list"><Wrench size={15} />{agent.tools.map((tool: string) => <span key={tool}>{TOOL_LABELS[tool] || tool}</span>)}</div>
               <textarea className="agent-instruction" rows={3} maxLength={500} value={instructions[agent.code] || ""} onChange={(event) => setInstructions((current) => ({ ...current, [agent.code]: event.target.value }))} />
               <Button icon={Play} variant="primary" busy={runningCode === agent.code} disabled={!taskId || batchRunning || Boolean(runningCode && runningCode !== agent.code)} onClick={() => invokeOne(agent)}>调用 DeepSeek</Button>
               {result?.success === false && <div className="agent-call-error">{result.error}</div>}
@@ -131,8 +132,8 @@ export function AgentsPage() {
           rows={events}
           columns={[
             { key: "sequence_no", label: "序号", render: (row) => String(row.sequence_no).padStart(2, "0") },
-            { key: "agent_code", label: "Agent" },
-            { key: "message_type", label: "标准消息" },
+            { key: "agent_code", label: "智能体", render: (row) => AGENT_LABELS[row.agent_code] || row.agent_code },
+            { key: "message_type", label: "事件类型", render: (row) => MESSAGE_TYPE_LABELS[row.message_type] || row.message_type },
             { key: "tool_name", label: "受控工具" },
             { key: "provider", label: "AI凭证", render: (row) => row.details_json?.request_id ? <span className="verify-ok"><Sparkles size={14} />{row.details_json.model} · {row.details_json.duration_ms}ms</span> : "本地确定性事件" },
             { key: "input_hash", label: "输入哈希", render: (row) => <CodeValue title={row.input_hash}>{shortHash(row.input_hash)}</CodeValue> },

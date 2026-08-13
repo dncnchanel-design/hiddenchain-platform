@@ -66,11 +66,11 @@ function RuleDetail({ rule, onClose }: { rule: JsonRecord; onClose: () => void }
     <Modal title={`${rule.rule_version} 规则包`} onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
       <div className="detail-grid">
         <div><span>RuleHash</span><CodeValue>{rule.rule_hash}</CodeValue></div>
-        <div><span>策略引用</span><strong>{(rule.policy_refs_json || []).join(" · ")}</strong></div>
+        <div><span>策略引用</span><strong>{(rule.policy_refs_json || []).map((item: string) => item === "policy:settlement-purpose" ? "限定验证用途" : item === "policy:no-raw-data-export" ? "禁止导出原文" : item).join(" · ")}</strong></div>
         <div><span>批准签名</span><strong>{rule.approver_signatures_json?.length || 0} 个</strong></div>
         <div><span>状态</span><StatusTag value={rule.status} /></div>
       </div>
-      <div className="code-block"><div>DETERMINISTIC SETTLEMENT DSL</div><code>{rule.formula_dsl}</code></div>
+      <div className="code-block"><div>确定性计算规则</div><code>{rule.formula_dsl}</code></div>
       <div className="parameter-grid">
         {Object.entries(rule.parameters_json || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{String(value)}</strong></div>)}
       </div>

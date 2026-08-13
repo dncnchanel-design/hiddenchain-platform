@@ -4,6 +4,7 @@ import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { REPORT_TEMPLATE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 export function ReportsPage() {
@@ -63,7 +64,7 @@ export function ReportsPage() {
           columns={[
             { key: "report_title", label: "报告名称" },
             { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
-            { key: "template_code", label: "模板" },
+            { key: "template_code", label: "模板", render: (row) => REPORT_TEMPLATE_LABELS[row.template_code] || row.template_code },
             { key: "evidence_refs_json", label: "证据引用", render: (row) => `${row.evidence_refs_json?.length || 0} 项` },
             { key: "report_hash", label: "报告哈希", render: (row) => <CodeValue title={row.report_hash}>{shortHash(row.report_hash)}</CodeValue> },
             { key: "risk_level", label: "风险结论", render: (row) => <StatusTag value={row.risk_level} /> },

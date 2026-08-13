@@ -3,9 +3,10 @@ import { Blocks, CheckCircle2, Eye, Fingerprint, RefreshCw, SearchCheck, ShieldC
 import { api, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { EVIDENCE_TYPE_LABELS, STAGE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
-const stageLabels: Record<string, string> = { PRE_COMPUTE: "算前授权", IN_COMPUTE: "算中回执", POST_COMPUTE: "算后结果" };
+const stageLabels = STAGE_LABELS;
 
 export function EvidencePage() {
   const [taskId, setTaskId] = useState("");
@@ -77,7 +78,7 @@ export function EvidencePage() {
           columns={[
             { key: "block_height", label: "区块高度", render: (row) => <span className="mono-text">#{row.block_height}</span> },
             { key: "stage", label: "阶段", render: (row) => <StatusTag value={row.stage} label={stageLabels[row.stage] || row.stage} /> },
-            { key: "biz_type", label: "证据类型" },
+            { key: "biz_type", label: "证据类型", render: (row) => EVIDENCE_TYPE_LABELS[row.biz_type] || row.biz_type },
             { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
             { key: "evidence_hash", label: "证据哈希", render: (row) => <CodeValue title={row.evidence_hash}>{shortHash(row.evidence_hash)}</CodeValue> },
             { key: "tx_hash", label: "交易哈希", render: (row) => <CodeValue title={row.tx_hash}>{shortHash(row.tx_hash)}</CodeValue> },

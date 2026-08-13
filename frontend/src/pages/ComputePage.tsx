@@ -5,22 +5,13 @@ import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 type ComputeTab = "SETTLEMENT" | "LOAD";
 
-const strategyLabels: Record<string, string> = {
-  FEDERATED_LEARNING: "联邦学习",
-  DIFFERENTIAL_PRIVACY_OUTPUT: "差分隐私输出",
-  PSI_MPC: "PSI + MPC",
-  DETERMINISTIC_RULE_ENGINE: "确定性规则引擎",
-  SECRET_SHARING_HE: "秘密共享 + 同态加密",
-  TEE_CONFIDENTIAL_COMPUTE: "TEE 机密计算",
-  POLICY_SANDBOX: "策略沙箱",
-};
-
 function strategyName(code: unknown) {
-  return strategyLabels[String(code)] || String(code || "-");
+  return ALGORITHM_LABELS[String(code)] || String(code || "-");
 }
 
 export function ComputePage() {
@@ -61,11 +52,11 @@ export function ComputePage() {
         <div className="strategy-grid">
           {data.strategies.map((item: JsonRecord) => (
             <article key={item.scenario_code}>
-              <header><Route size={18} /><span>{item.scenario_name}</span><StatusTag value="ACTIVE" label={item.sensitivity_level} /></header>
+              <header><Route size={18} /><span>{SCENARIO_LABELS[item.scenario_code] || item.scenario_name}</span><StatusTag value={item.sensitivity_level} /></header>
               <strong>{strategyName(item.primary)}</strong>
               <div>{item.supporting.map((code: string) => <span key={code}>{strategyName(code)}</span>)}</div>
               <p>{item.reason}</p>
-              <small>{item.latency_requirement} · {item.participant_count}方 · 仅聚合披露</small>
+              <small>{item.latency_requirement === "BATCH" ? "批处理" : item.latency_requirement === "MINUTE" ? "分钟级" : item.latency_requirement === "REAL_TIME" ? "实时" : item.latency_requirement} · {item.participant_count} 方 · 仅聚合披露</small>
             </article>
           ))}
         </div>
@@ -77,17 +68,17 @@ export function ComputePage() {
           columns={tab === "SETTLEMENT" ? [
             { key: "job_id", label: "计算编号", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{shortHash(row.job_id, 8)}</button> },
             { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
-            { key: "algorithm_code", label: "算法" },
-            { key: "adapter_code", label: "执行适配器" },
+            { key: "algorithm_code", label: "计算方案", render: (row) => strategyName(row.algorithm_code) },
+            { key: "adapter_code", label: "执行方式", render: (row) => row.adapter_code === "MOCK_SECRET_FLOW" ? "域内安全计算" : row.adapter_code },
             { key: "duration_ms", label: "耗时", render: (row) => `${row.duration_ms || 0} ms` },
             { key: "output_hash", label: "输出哈希", render: (row) => <CodeValue title={row.output_hash}>{shortHash(row.output_hash)}</CodeValue> },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
             { key: "created_at", label: "执行时间", render: (row) => formatDate(row.created_at) },
           ] : [
             { key: "analysis_name", label: "分析任务", render: (row) => <button className="table-link" onClick={() => setSelected(row)}>{row.analysis_name}</button> },
-            { key: "analysis_type", label: "分析类型" },
+            { key: "analysis_type", label: "分析类型", render: (row) => ({ PEAK_VALLEY: "峰谷特征", LOAD_CLUSTER: "负荷聚类", DR_POTENTIAL: "响应潜力" } as Record<string, string>)[row.analysis_type] || row.analysis_type },
             { key: "strategy", label: "自适应策略", render: (row) => strategyName(row.result_json?.compute_strategy?.primary) },
-            { key: "privacy_level", label: "隐私级别" },
+            { key: "privacy_level", label: "隐私级别", render: (row) => ({ AGGREGATED: "聚合输出", K_ANONYMIZED: "匿名化输出", DIFFERENTIAL_PRIVACY: "差分隐私输出" } as Record<string, string>)[row.privacy_level] || row.privacy_level },
             { key: "privacy_budget", label: "隐私预算" },
             { key: "dataset_ids_json", label: "参与数据域", render: (row) => `${row.dataset_ids_json?.length || 0} 个` },
             { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
@@ -104,9 +95,9 @@ export function ComputePage() {
 
 function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void }) {
   return (
-    <Modal title="ComputeReceipt 隐私计算回执" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
+    <Modal title="隐私计算回执" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
       <div className="detail-grid">
-        <div><span>执行适配器</span><strong>{job.adapter_code}</strong></div>
+        <div><span>执行方式</span><strong>{job.adapter_code === "MOCK_SECRET_FLOW" ? "域内安全计算" : job.adapter_code}</strong></div>
         <div><span>计算耗时</span><strong>{job.duration_ms} ms</strong></div>
         <div><span>输出哈希</span><CodeValue>{job.output_hash}</CodeValue></div>
         <div><span>状态</span><StatusTag value={job.status} /></div>
@@ -180,7 +171,7 @@ function AnalysisForm({ strategies, onClose, onCreated }: { strategies: JsonReco
     <Modal title="发起用户用电隐私分析" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={Play} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>执行隐私分析</Button></>}>
       <div className="form-grid two">
         <Field label="分析任务"><input value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="业务场景"><select value={scenario} onChange={(event) => setScenario(event.target.value)}>{strategies.map((item) => <option key={item.scenario_code} value={item.scenario_code}>{item.scenario_name}</option>)}</select></Field>
+        <Field label="业务场景"><select value={scenario} onChange={(event) => setScenario(event.target.value)}>{strategies.map((item) => <option key={item.scenario_code} value={item.scenario_code}>{SCENARIO_LABELS[item.scenario_code] || item.scenario_name}</option>)}</select></Field>
         <Field label="数据敏感等级"><select value={sensitivity} onChange={(event) => setSensitivity(event.target.value)}><option value="L2">L2 内部数据</option><option value="L3">L3 敏感数据</option><option value="L4">L4 核心敏感</option></select></Field>
         <Field label="时延要求"><select value={latency} onChange={(event) => setLatency(event.target.value)}><option value="BATCH">批处理</option><option value="MINUTE">分钟级</option><option value="REAL_TIME">实时</option></select></Field>
         <Field label="隐私级别"><select value={privacy} onChange={(event) => setPrivacy(event.target.value)}><option value="AGGREGATED">聚合披露</option><option value="K_ANONYMIZED">K 匿名</option><option value="DIFFERENTIAL_PRIVACY">差分隐私</option></select></Field>

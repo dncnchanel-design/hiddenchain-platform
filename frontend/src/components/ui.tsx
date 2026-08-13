@@ -1,5 +1,6 @@
 import type { ElementType, ReactNode } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, X } from "lucide-react";
+import { STATUS_LABELS } from "../types";
 
 export function PageHeader({
   title,
@@ -74,14 +75,14 @@ export function Button({
   );
 }
 
-const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY"]);
+const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW"]);
 const warning = new Set(["DRAFT", "PENDING", "AUTHORIZED", "COMPUTING", "EVIDENCED", "RUNNING", "MEDIUM", "REVIEW_REQUIRED"]);
 const negative = new Set(["FAILED", "DENY", "HIGH", "OPEN", "INVALID", "REVOKED"]);
 
 export function StatusTag({ value, label }: { value?: string | null; label?: string }) {
   const normalized = String(value || "UNKNOWN").toUpperCase();
   const tone = positive.has(normalized) ? "success" : warning.has(normalized) ? "warning" : negative.has(normalized) ? "danger" : "neutral";
-  return <span className={`status-tag status-${tone}`}>{label || value || "未知"}</span>;
+  return <span className={`status-tag status-${tone}`}>{label || STATUS_LABELS[normalized] || value || "未知"}</span>;
 }
 
 export function Metric({ label, value, meta, tone = "default" }: { label: string; value: ReactNode; meta?: string; tone?: "default" | "green" | "amber" | "red" }) {

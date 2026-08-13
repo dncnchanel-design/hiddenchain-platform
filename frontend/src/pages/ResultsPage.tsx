@@ -4,6 +4,7 @@ import { api, formatDate, formatMoney, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { FIELD_SCOPE_LABELS, RESULT_SCOPE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 export function ResultsPage() {
@@ -57,14 +58,14 @@ export function ResultsPage() {
         <div className="metric"><span>结果金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>演示假数据</small></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="结果回执清单" note={`当前字段范围：${session!.field_scopes.settlement_result}`}>
+      <Surface title="结果回执清单" note={`当前可见范围：${FIELD_SCOPE_LABELS[session!.field_scopes.settlement_result] || session!.field_scopes.settlement_result}`}>
         <DataTable
           keyField="result_id"
           rows={data.results}
           columns={[
             { key: "task_id", label: "验证任务", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{row.task_id}</button> },
-            { key: "org_id", label: "结果主体", render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || row.org_id : "交易汇总索引" },
-            { key: "result_scope", label: "披露范围" },
+            { key: "org_id", label: "结果主体", render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || row.org_id : "平台汇总结果" },
+            { key: "result_scope", label: "披露范围", render: (row) => RESULT_SCOPE_LABELS[row.result_scope] || row.result_scope },
             { key: "energy", label: "结算电量", render: (row) => `${row.result_json?.settlement_energy_mwh ?? "-"} MWh` },
             { key: "amount", label: "结算金额", render: (row) => formatMoney(row.result_json?.amount_yuan ?? row.result_json?.payable_amount_yuan) },
             { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
@@ -78,7 +79,7 @@ export function ResultsPage() {
         <div className="result-summary">
           <div><ShieldCheck size={22} /><span>结果哈希</span><CodeValue>{selected.result_hash}</CodeValue></div>
           <div><CheckCircle2 size={22} /><span>多方确认</span><StatusTag value={selected.confirm_status} /></div>
-          <div><FileSignature size={22} /><span>披露范围</span><strong>{selected.result_scope}</strong></div>
+          <div><FileSignature size={22} /><span>披露范围</span><strong>{RESULT_SCOPE_LABELS[selected.result_scope] || selected.result_scope}</strong></div>
         </div>
         <Notice tone="success">该凭证仅包含结果与可验证引用，不含双方计量明细或用户用电记录。</Notice>
       </Surface>}

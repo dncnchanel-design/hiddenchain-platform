@@ -3,6 +3,7 @@ import { Download, Eye, FileClock, Filter, RefreshCw, Search } from "lucide-reac
 import { api, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { ACTION_LABELS, TARGET_TYPE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 export function LogsPage() {
@@ -32,7 +33,7 @@ export function LogsPage() {
       <Surface>
         <div className="log-filters">
           <label><Search size={16} /><input placeholder="搜索主体、对象或 traceId" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-          <label><Filter size={16} /><select value={action} onChange={(event) => setAction(event.target.value)}><option value="">全部动作</option>{actions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label><Filter size={16} /><select value={action} onChange={(event) => setAction(event.target.value)}><option value="">全部动作</option>{actions.map((item) => <option key={item} value={item}>{ACTION_LABELS[item] || item}</option>)}</select></label>
           <span>显示 {rows.length} / {data.length} 条</span>
         </div>
       </Surface>
@@ -43,8 +44,8 @@ export function LogsPage() {
           columns={[
             { key: "occurred_at", label: "时间", render: (row) => formatDate(row.occurred_at) },
             { key: "actor_name", label: "操作主体" },
-            { key: "action_code", label: "动作" },
-            { key: "target_type", label: "对象类型" },
+            { key: "action_code", label: "动作", render: (row) => ACTION_LABELS[row.action_code] || row.action_code },
+            { key: "target_type", label: "对象类型", render: (row) => TARGET_TYPE_LABELS[row.target_type] || row.target_type },
             { key: "target_id", label: "对象编号", render: (row) => <CodeValue title={row.target_id}>{shortHash(row.target_id, 10)}</CodeValue> },
             { key: "trace_id", label: "Trace ID", render: (row) => <span className="mono-text">{shortHash(row.trace_id, 10)}</span> },
             { key: "result", label: "结果", render: (row) => <StatusTag value={row.result} /> },

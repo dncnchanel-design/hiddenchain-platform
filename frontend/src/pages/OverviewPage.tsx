@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatDate, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { useRemote } from "../hooks";
+import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 import { Button, DataTable, ErrorState, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 
@@ -112,7 +113,7 @@ export function OverviewPage() {
               <div className="scenario-fragment" key={item.code}>
                 <article>
                   <header><span><Icon size={19} /></span><small>0{index + 1}</small><StatusTag value={item.status} /></header>
-                  <strong>{item.name}</strong>
+                  <strong>{SCENARIO_LABELS[item.code] || item.name}</strong>
                   <b>{item.metric}</b>
                   <dl><dt>输入</dt><dd>{item.input}</dd><dt>输出</dt><dd>{item.output}</dd></dl>
                 </article>
