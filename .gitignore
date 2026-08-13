@@ -8,6 +8,7 @@ backend/runtime/vault/
 backend/tests/*.db
 runtime/public-url.txt
 runtime/logs/
+runtime/performance/
 runtime/*.db
 runtime/vault/
 frontend/node_modules/

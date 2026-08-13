@@ -25,6 +25,7 @@ const capabilityLabels: Record<string, string> = {
 
 export function DataSpacePage() {
   const [batch, setBatch] = useState("TB-2026-07-DEMO");
+  const [batchInput, setBatchInput] = useState("TB-2026-07-DEMO");
   const loader = () => Promise.all([
     api<JsonRecord>(`/data/catalog?trade_batch_no=${encodeURIComponent(batch)}`),
     api<JsonRecord>("/data-space/protocol"),
@@ -52,8 +53,8 @@ export function DataSpacePage() {
         <StatusTag value="ACTIVE" label="可用" />
       </div>
       <div className="inline-actions" style={{ marginBottom: 16 }}>
-        <label className="field"><span>批次编号</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
-        <Button icon={Database} onClick={reload}>查询</Button>
+        <label className="field"><span>批次编号</span><input value={batchInput} onChange={(event) => setBatchInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setBatch(batchInput); if (batchInput === batch) void reload(); } }} /></label>
+        <Button icon={Database} onClick={() => { setBatch(batchInput); if (batchInput === batch) void reload(); }}>查询</Button>
       </div>
       <div className="metrics-grid five">
         <Metric label="可调用数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />

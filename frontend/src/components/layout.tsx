@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -31,7 +31,9 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../auth";
+import { LoadingState } from "./ui";
 import { ROLE_LABELS } from "../types";
+import { preloadRoute } from "../routes";
 
 const navGroups = [
   {
@@ -83,6 +85,11 @@ export function AppShell() {
   const isAdmin = session?.user.role_code === "ADMIN";
   const title = isAdmin && location.pathname === "/overview" ? "系统管理员总览" : pageNames[location.pathname] || "可信数据协同平台";
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    setOpen(false);
+  }, [location.pathname]);
+
   if (!session) return null;
 
   return (
@@ -107,7 +114,7 @@ export function AppShell() {
               <div className="nav-group" key={group.label}>
                 <div className="nav-label">{group.label}</div>
                 {items.map(({ code, to, label, icon: Icon }) => (
-                  <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => isActive ? "active" : ""}>
+                  <NavLink key={to} to={to} onMouseEnter={() => preloadRoute(to)} onFocus={() => preloadRoute(to)} onClick={() => setOpen(false)} className={({ isActive }) => isActive ? "active" : ""}>
                     <Icon size={17} /><span>{isAdmin && code === "overview" ? "系统总览" : label}</span>
                   </NavLink>
                 ))}
@@ -135,13 +142,13 @@ export function AppShell() {
         </div>
         <nav className="portal-nav" aria-label="门户导航">
           <div className="portal-nav-inner">
-            <NavLink to="/workbench" end><Home size={16} /><span>我的工作台</span></NavLink>
-            <NavLink to="/overview"><LayoutDashboard size={16} /><span>平台能力</span></NavLink>
-            {allowed.has("data-space") && <NavLink to="/data-space"><Network size={16} /><span>数据目录</span></NavLink>}
-            {allowed.has("compute") && <NavLink to="/compute"><Network size={16} /><span>隐私计算</span></NavLink>}
-            {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>可信调用验证</span></NavLink>}
-            {allowed.has("audit") && <NavLink to="/audit"><ClipboardCheck size={16} /><span>安全监管</span></NavLink>}
-            {allowed.has("reports") && <NavLink to="/reports"><FileText size={16} /><span>审计报告</span></NavLink>}
+            <NavLink to="/workbench" end onMouseEnter={() => preloadRoute("/workbench")} onFocus={() => preloadRoute("/workbench")}><Home size={16} /><span>我的工作台</span></NavLink>
+            <NavLink to="/overview" onMouseEnter={() => preloadRoute("/overview")} onFocus={() => preloadRoute("/overview")}><LayoutDashboard size={16} /><span>平台能力</span></NavLink>
+            {allowed.has("data-space") && <NavLink to="/data-space" onMouseEnter={() => preloadRoute("/data-space")} onFocus={() => preloadRoute("/data-space")}><Network size={16} /><span>数据目录</span></NavLink>}
+            {allowed.has("compute") && <NavLink to="/compute" onMouseEnter={() => preloadRoute("/compute")} onFocus={() => preloadRoute("/compute")}><Network size={16} /><span>隐私计算</span></NavLink>}
+            {allowed.has("settlements") && <NavLink to="/settlements" onMouseEnter={() => preloadRoute("/settlements")} onFocus={() => preloadRoute("/settlements")}><Calculator size={16} /><span>可信调用验证</span></NavLink>}
+            {allowed.has("audit") && <NavLink to="/audit" onMouseEnter={() => preloadRoute("/audit")} onFocus={() => preloadRoute("/audit")}><ClipboardCheck size={16} /><span>安全监管</span></NavLink>}
+            {allowed.has("reports") && <NavLink to="/reports" onMouseEnter={() => preloadRoute("/reports")} onFocus={() => preloadRoute("/reports")}><FileText size={16} /><span>审计报告</span></NavLink>}
             <div className="portal-nav-tools"><Search size={15} /><span>系统在线</span><i /></div>
           </div>
         </nav>
@@ -160,7 +167,7 @@ export function AppShell() {
             <ChevronDown size={15} />
           </div>
         </header>
-        <main className="page-content"><Outlet /></main>
+        <main key={location.pathname} className="page-content page-enter"><Suspense fallback={<div className="route-loading"><LoadingState label="正在打开工作台" /></div>}><Outlet /></Suspense></main>
         <footer className="portal-footer">
           <div className="portal-footer-inner">
             <div className="portal-footer-brand"><strong>隐链明算</strong><span>可信数据平台</span></div>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { api, post } from "./api";
+import { api, invalidateApiCache, post } from "./api";
 import type { SessionPayload } from "./types";
 
 interface AuthContextValue {
@@ -17,6 +17,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem("hiddenchain_token");
+    invalidateApiCache();
     setSession(null);
     setLoading(false);
   }, []);

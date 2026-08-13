@@ -1,4 +1,4 @@
-import type { ElementType, ReactNode } from "react";
+import { useState, type ElementType, type MouseEvent, type ReactNode } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, X } from "lucide-react";
 import { STATUS_LABELS } from "../types";
 
@@ -61,15 +61,25 @@ export function Button({
   icon: Icon,
   variant = "secondary",
   busy = false,
+  onClick,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & {
   icon?: ElementType;
   variant?: ButtonVariant;
   busy?: boolean;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void | Promise<unknown>;
 }) {
+  const [pending, setPending] = useState(false);
+  const isBusy = busy || pending;
+  function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    const result = onClick?.(event);
+    if (!result || typeof (result as PromiseLike<unknown>).then !== "function") return;
+    setPending(true);
+    void Promise.resolve(result).finally(() => setPending(false)).catch(() => undefined);
+  }
   return (
-    <button className={`button button-${variant}`} {...props} disabled={busy || props.disabled}>
-      {busy ? <LoaderCircle className="spin" size={16} /> : Icon ? <Icon size={16} /> : null}
+    <button className={`button button-${variant}${isBusy ? " is-busy" : ""}`} aria-busy={isBusy || undefined} {...props} onClick={handleClick} disabled={isBusy || props.disabled}>
+      {isBusy ? <LoaderCircle className="spin" size={16} /> : Icon ? <Icon size={16} /> : null}
       {children}
     </button>
   );
@@ -126,10 +136,10 @@ export function DataTable({
 }
 
 export function LoadingState({ label = "正在加载可信数据" }: { label?: string }) {
-  return <div className="state-block"><LoaderCircle className="spin" size={24} /><span>{label}</span></div>;
+  return <div className="state-block" role="status" aria-live="polite"><LoaderCircle className="spin" size={24} /><span>{label}</span><i className="loading-dots" aria-hidden="true">...</i></div>;
 }
 
-export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
+export function ErrorState({ message, retry }: { message: string; retry?: () => void | Promise<unknown> }) {
   return (
     <div className="state-block state-error">
       <AlertCircle size={24} />

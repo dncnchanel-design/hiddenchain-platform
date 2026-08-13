@@ -156,6 +156,16 @@ cd ..\frontend
 pnpm build
 ```
 
+### 前端流畅度长稳验证
+
+项目内置四小时轻量巡检脚本，验证页面入口、健康检查、登录、任务、隐私计算、可信凭证和数据目录接口。脚本不会创建结算任务或上传数据；登录接口会按正常行为留下登录审计记录。日志写入 `runtime/performance/`，该目录已加入 Git 忽略。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\performance-soak.ps1
+```
+
+可用参数：`-DurationHours 4`、`-IntervalSeconds 30`、`-BaseUrl http://127.0.0.1:5173`。结束后查看生成的 `*-summary.json`，确认 `failed_checks` 为 `0`。
+
 ## 当前联调验收
 
 本地离线演示脚本会自动启动 FastAPI 和 Vite：
