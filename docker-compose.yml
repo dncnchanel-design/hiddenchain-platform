@@ -1,0 +1,33 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
+      JWT_SECRET: ${JWT_SECRET:-hiddenchain-compose-demo-jwt-secret}
+      SIGNING_SECRET: ${SIGNING_SECRET:-hiddenchain-compose-demo-signing-secret}
+      DEMO_SEED: "true"
+      MOCK_DELAY_MS: "80"
+      DEEPSEEK_ENABLED: ${DEEPSEEK_ENABLED:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_TIMEOUT_SECONDS: ${DEEPSEEK_TIMEOUT_SECONDS:-20}
+      DEEPSEEK_MAX_TOKENS: ${DEEPSEEK_MAX_TOKENS:-800}
+    volumes:
+      - hiddenchain-runtime:/app/runtime
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
+volumes:
+  hiddenchain-runtime:

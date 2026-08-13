@@ -1,0 +1,63 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
+      SIGNING_SECRET: ${SIGNING_SECRET:?Set SIGNING_SECRET in .env.production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      DEMO_SEED: ${DEMO_SEED:-false}
+      MOCK_DELAY_MS: ${MOCK_DELAY_MS:-80}
+      DEEPSEEK_ENABLED: ${DEEPSEEK_ENABLED:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_TIMEOUT_SECONDS: ${DEEPSEEK_TIMEOUT_SECONDS:-20}
+      DEEPSEEK_MAX_TOKENS: ${DEEPSEEK_MAX_TOKENS:-800}
+    volumes:
+      - hiddenchain-runtime:/app/runtime
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:80"
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    restart: unless-stopped
+    profiles: ["cloudflare"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env.production}
+    depends_on:
+      - frontend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["direct-domain"]
+    environment:
+      DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  hiddenchain-runtime:
+  caddy-data:
+  caddy-config:

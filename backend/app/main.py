@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from .config import settings
+from .database import SessionLocal, engine
+from .models import Base
+from .routers import audit, auth, data, system, trade, trust
+from .seed import seed_demo
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    if settings.demo_seed:
+        with SessionLocal() as db:
+            seed_demo(db)
+    yield
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version="0.1.0",
+    description="面向新能源消纳、市场交易、虚拟电厂与电网调度的Agent原生可信数据空间MVP",
+    docs_url=f"{settings.api_prefix}/docs",
+    openapi_url=f"{settings.api_prefix}/openapi.json",
+    lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(settings.cors_origins),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router]:
+    app.include_router(router, prefix=settings.api_prefix)
+
+
+@app.get("/api/health", tags=["health"])
+def health() -> dict:
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "mode": "MVP_WITH_REPLACEABLE_ADAPTERS",
+        "security_boundary": "Agent orchestration is separated from deterministic execution.",
+    }
+
+
+# The Docker/Render deployment can serve the Vite build from the same origin as
+# the API.  This keeps /api requests same-origin and avoids a second public
+# service just for the frontend.  Local development still uses Vite directly.
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend_dist"
+if FRONTEND_DIR.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIR / "assets"),
+        name="frontend-assets",
+    )
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def frontend_app(path: str):
+        requested = FRONTEND_DIR / path
+        if requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(FRONTEND_DIR / "index.html")

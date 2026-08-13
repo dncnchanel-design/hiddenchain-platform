@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hiddenchain-platform
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////app/runtime/hiddenchain.db
+      - key: DEMO_SEED
+        value: "true"
+      - key: DEEPSEEK_ENABLED
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SIGNING_SECRET
+        generateValue: true
