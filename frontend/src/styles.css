@@ -4670,3 +4670,33 @@ tbody tr:hover td {
     align-items: flex-start;
   }
 }
+
+/* Final login layout overrides the retired portal shell styles. */
+.login-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(400px, 0.85fr);
+  flex-direction: initial;
+}
+
+.login-identity {
+  min-height: 100vh;
+  justify-content: center;
+}
+
+.login-form-area {
+  min-height: 100vh;
+}
+
+@media (max-width: 920px) {
+  .login-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .login-identity {
+    min-height: 430px;
+  }
+
+  .login-form-area {
+    min-height: 600px;
+  }
+}
