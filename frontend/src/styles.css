@@ -2803,11 +2803,12 @@ tbody tr:hover td {
 }
 
 .agent-instruction {
-  min-height: 66px;
+  min-height: 82px;
   margin: 10px 0 8px;
+  padding: 11px 12px;
   resize: vertical;
-  font-size: 9px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .agent-card-verified {
@@ -2828,8 +2829,8 @@ tbody tr:hover td {
   padding: 9px;
   border: 1px solid #c9dfd7;
   background: #f2faf7;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .agent-call-error {
@@ -2843,22 +2844,22 @@ tbody tr:hover td {
   align-items: center;
   gap: 6px;
   color: #147653;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .agent-call-result p {
-  margin: 9px 0;
+  margin: 10px 0;
   color: #314d45;
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: 16px;
+  line-height: 1.9;
 }
 
 .agent-call-result small {
   display: block;
-  margin-top: 7px;
+  margin-top: 8px;
   color: #526b64;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .llm-proof-row {
@@ -2877,8 +2878,8 @@ tbody tr:hover td {
   border: 1px solid #c9dfd7;
   background: #fff;
   color: #22624f;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .llm-proof {
