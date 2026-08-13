@@ -41,41 +41,40 @@ export function DataSpacePage() {
   return (
     <>
       <PageHeader
-        eyebrow="可信数据空间"
-        title="可信数据调用"
-        description="按照目录发现、身份互认、合同协商、使用控制和回执存证的顺序，让跨主体数据可调用但不搬运原始数据。"
+        eyebrow="数据与授权"
+        title="数据目录"
+        description="查找可用数据，查看调用范围和授权状态。"
         actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>}
       />
       <div className="boundary-strip">
         <Network size={18} />
-        <div><strong>HCDS-1.0 可信调用协议已启用</strong><span>原始数据留在主体域内，调用方只获得数据产品元数据、策略决定和可验证回执。</span></div>
-        <StatusTag value="ACTIVE" label="协议在线" />
+        <div><strong>数据调用服务正常</strong><span>原始数据留在提供方，调用方只获得授权范围内的结果。</span></div>
+        <StatusTag value="ACTIVE" label="可用" />
       </div>
       <div className="inline-actions" style={{ marginBottom: 16 }}>
-        <label className="field"><span>数据空间批次</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
-        <Button icon={Database} onClick={reload}>发现目录</Button>
+        <label className="field"><span>批次编号</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
+        <Button icon={Database} onClick={reload}>查询</Button>
       </div>
       <div className="metrics-grid five">
         <Metric label="可调用数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />
-        <Metric label="协议版本" value={data.protocol.protocol_version} meta="轻量连接器" />
-        <Metric label="协议能力" value={data.protocol.capabilities.length} meta="目录至回执" />
-        <Metric label="已协商协议" value={data.protocol.negotiated_agreements} meta="跨主体合同" tone="green" />
-        <Metric label="原始数据传输" value="0" meta="调用边界目标" tone="green" />
+        <Metric label="调用能力" value={data.protocol.capabilities.length} meta="目录至回执" />
+        <Metric label="已授权调用" value={data.protocol.negotiated_agreements} meta="跨主体授权" tone="green" />
+        <Metric label="原始数据传输" value="0" meta="安全边界" tone="green" />
       </div>
       <div className="content-grid two-equal">
-        <Surface title="可信调用能力" note="从发现到回执形成一条可验证的数据调用链">
+        <Surface title="调用能力">
           <div className="acceptance-list">
             {data.protocol.capabilities.map((code: string) => <div key={code}><CheckCircle2 size={18} /><span>{capabilityLabels[code] || code}</span><StatusTag value="PASSED" label="已接入" /></div>)}
           </div>
         </Surface>
-        <Surface title="三统一映射" note="目录标识、身份登记、接口要求统一后才能被调用">
+        <Surface title="调用条件">
           <div className="acceptance-list">
             {data.protocol.three_unified.map((code: string) => <div key={code}><ShieldCheck size={18} /><span>{UNIFIED_REQUIREMENT_LABELS[code] || code}</span><StatusTag value="READY" label="已统一" /></div>)}
           </div>
-          <Notice>当前为标准对齐参考实现；SecretFlow、FISCO BCOS 和真实 DID/VC 仍通过适配器替换。</Notice>
+          <Notice>满足以上条件后，数据才可进入授权计算。</Notice>
         </Surface>
       </div>
-      <Surface title="可调用能源数据产品目录" note={`${data.catalog.catalog_id} · 语义版本 ${data.catalog.semantic_version}`}>
+      <Surface title="可用数据">
         <DataTable
           keyField="data_product_id"
           rows={entries}
@@ -83,15 +82,15 @@ export function DataSpacePage() {
             { key: "data_product_id", label: "数据产品 ID", render: (row) => <CodeValue title={row.data_product_id}>{shortHash(row.data_product_id, 12)}</CodeValue> },
             { key: "asset_type", label: "资产类型", render: (row) => assetNames[row.asset_type] || row.asset_type },
             { key: "owner_org_name", label: "提供方" },
-            { key: "semantic_ref", label: "语义标识", render: (row) => <CodeValue>{row.semantic_ref}</CodeValue> },
-            { key: "schema_version", label: "Schema" },
+            { key: "semantic_ref", label: "数据说明", render: (row) => <CodeValue>{row.semantic_ref}</CodeValue> },
+            { key: "schema_version", label: "版本" },
             { key: "unit", label: "单位" },
             { key: "sensitivity_level", label: "敏感等级", render: (row) => <StatusTag value={row.sensitivity_level} /> },
             { key: "usage", label: "输出约束", render: (row) => row.usage?.raw_data_export === false ? "仅聚合输出" : "需复核" },
           ]}
         />
       </Surface>
-      <Surface title="数据调用协议记录" note="每条记录对应一组提供方—使用方—用途—算法的可验证协议">
+      <Surface title="最近调用">
         <DataTable
           keyField="agreement_id"
           rows={agreements}
@@ -101,7 +100,7 @@ export function DataSpacePage() {
             { key: "provider_org_id", label: "提供方", render: (row) => shortHash(row.provider_org_id, 12) },
             { key: "consumer_org_id", label: "使用方", render: (row) => shortHash(row.consumer_org_id, 12) },
             { key: "requested_purpose", label: "用途" },
-            { key: "algorithm_code", label: "计算方案", render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code },
+            { key: "algorithm_code", label: "计算方式", render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code },
             { key: "state", label: "状态", render: (row) => <StatusTag value={row.state} /> },
             { key: "use_count", label: "使用次数", render: (row) => `${row.use_count}/${row.max_uses}` },
             { key: "last_receipt_json", label: "回执", render: (row) => row.last_receipt_json?.receipt_hash ? <><CheckCircle2 size={15} /> 已记录</> : <><XCircle size={15} /> 待生成</> },
@@ -109,18 +108,18 @@ export function DataSpacePage() {
         />
       </Surface>
       <div className="content-grid two-equal">
-        <Surface title="身份与语义边界" note="连接器仅暴露可发现的元数据">
+        <Surface title="调用边界">
           <div className="detail-grid">
             <div><span>目录地址</span><strong>catalog://hiddenchain/energy-v1</strong></div>
-            <div><span>身份方式</span><strong><Fingerprint size={15} /> DID/VC 模拟互认</strong></div>
-            <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不进入业务库</strong></div>
+            <div><span>身份校验</span><strong><Fingerprint size={15} /> 已启用</strong></div>
+            <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不出域</strong></div>
           </div>
         </Surface>
-        <Surface title="可审计回执" note="ComputeReceipt 绑定策略、输入承诺与输出哈希">
+        <Surface title="调用回执">
           <div className="detail-grid">
             <div><span>策略执行</span><strong>PEP/PDP 已启用</strong></div>
             <div><span>输出形式</span><strong>仅聚合结果</strong></div>
-            <div><span>回执索引</span><strong><ScrollText size={15} /> 进入三阶段证据链</strong></div>
+            <div><span>回执记录</span><strong><ScrollText size={15} /> 可随时核验</strong></div>
           </div>
         </Surface>
       </div>

@@ -75,28 +75,28 @@ export function AgentsPage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在装载 Agent 能力凭证" />;
-  if (error || !data) return <ErrorState message={error || "Agent 数据加载失败"} retry={reload} />;
+  if (loading) return <LoadingState label="正在加载智能协助" />;
+  if (error || !data) return <ErrorState message={error || "智能协助加载失败"} retry={reload} />;
 
   return (
     <>
-          <PageHeader eyebrow="智能体协作" title="智能体协同" description="平台智能体通过安全网关执行受授权任务，并保留请求凭证、耗时、用量与签名事件。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
-      <div className="agent-boundary"><ShieldCheck size={20} /><div><strong>三条强制边界</strong><span>不可直读原始数据 · 不可绕过 OPA/ODRL 策略 · 不可修改确定性结算结果</span></div></div>
-      <Surface title="DeepSeek 运行状态" note="只有出现请求 ID、耗时和 Token 用量，才算真实调用成功">
+          <PageHeader eyebrow="安全与管理" title="智能协助" description="使用受控的智能协助查看任务和风险信息。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <div className="agent-boundary"><ShieldCheck size={20} /><div><strong>安全边界</strong><span>只读取授权摘要，不接触业务原始数据。</span></div></div>
+      <Surface title="服务状态">
         <div className="llm-status-panel">
-          <StatusTag value={data.llmStatus.configured ? "SUCCESS" : "FAILED"} label={data.llmStatus.configured ? "DeepSeek 已配置" : "DeepSeek 未配置"} />
+          <StatusTag value={data.llmStatus.configured ? "SUCCESS" : "FAILED"} label={data.llmStatus.configured ? "智能服务已配置" : "智能服务未配置"} />
           <strong>{data.llmStatus.provider} · {data.llmStatus.model}</strong>
-          <span>六 Agent：{data.llmStatus.supported_agent_count} 个</span>
-          <span>{data.llmStatus.live_verified ? "已有真实调用凭证" : "尚未完成真实调用"}</span>
+          <span>可用协助：{data.llmStatus.supported_agent_count} 项</span>
+          <span>{data.llmStatus.live_verified ? "服务可用" : "等待配置"}</span>
           {data.llmStatus.last_success && <CodeValue title={data.llmStatus.last_success.request_id}>{shortHash(data.llmStatus.last_success.request_id, 12)} · {data.llmStatus.last_success.duration_ms}ms</CodeValue>}
         </div>
         <div className="agent-run-toolbar">
           <label><span>调用任务</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
-          <Button icon={Sparkles} variant="primary" busy={batchRunning} disabled={!taskId || Boolean(runningCode)} onClick={invokeAll}>依次真实调用六个 Agent</Button>
+          <Button icon={Sparkles} variant="primary" busy={batchRunning} disabled={!taskId || Boolean(runningCode)} onClick={invokeAll}>运行智能协助</Button>
         </div>
         {actionError && <Notice tone="warning">{actionError}</Notice>}
       </Surface>
-          <Surface title="智能体协作" note="每个智能体只执行受授权的任务，并留下可核验的输入输出摘要">
+          <Surface title="智能协助流程">
         <div className="agent-workflow">
           {data.definitions.map((agent, index) => <div className="agent-node" key={agent.code}><div><Bot size={20} /><span>{index + 1}</span></div><strong>{agent.name}</strong><small>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</small>{index < data.definitions.length - 1 && <ArrowRight size={18} />}</div>)}
         </div>
@@ -112,10 +112,10 @@ export function AgentsPage() {
               <dl><dt>输入</dt><dd>{agent.input}</dd><dt>输出</dt><dd>{agent.output}</dd></dl>
               <div className="tool-list"><Wrench size={15} />{agent.tools.map((tool: string) => <span key={tool}>{TOOL_LABELS[tool] || tool}</span>)}</div>
               <textarea className="agent-instruction" rows={3} maxLength={500} value={instructions[agent.code] || ""} onChange={(event) => setInstructions((current) => ({ ...current, [agent.code]: event.target.value }))} />
-              <Button icon={Play} variant="primary" busy={runningCode === agent.code} disabled={!taskId || batchRunning || Boolean(runningCode && runningCode !== agent.code)} onClick={() => invokeOne(agent)}>调用 DeepSeek</Button>
+              <Button icon={Play} variant="primary" busy={runningCode === agent.code} disabled={!taskId || batchRunning || Boolean(runningCode && runningCode !== agent.code)} onClick={() => invokeOne(agent)}>运行</Button>
               {result?.success === false && <div className="agent-call-error">{result.error}</div>}
               {result && result.success !== false && <div className="agent-call-result">
-                <div><CheckCircle2 size={16} /><strong>真实调用成功</strong></div>
+                <div><CheckCircle2 size={16} /><strong>已完成</strong></div>
                 <p>{result.summary}</p>
                 {(result.findings || []).map((finding: JsonRecord, index: number) => <small key={`${finding.title}-${index}`}><b>{finding.title}</b>：{finding.detail}</small>)}
                 {result.recommended_next_action && <small><b>下一步</b>：{result.recommended_next_action}</small>}
@@ -125,7 +125,7 @@ export function AgentsPage() {
           );
         })}
       </div>
-      <Surface title="签名调用事件" note="输入输出只存哈希；真实 AI 调用事件包含 DeepSeek 请求 ID、耗时和 Token 用量">
+      <Surface title="协助记录">
         <div className="filter-bar compact"><label><span>任务筛选</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id}</option>)}</select></label></div>
         <DataTable
           keyField="event_id"

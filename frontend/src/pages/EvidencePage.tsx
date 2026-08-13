@@ -61,42 +61,42 @@ export function EvidencePage() {
 
   return (
     <>
-      <PageHeader eyebrow="结果审计可信" title="区块链存证" description="链上保存关键状态哈希、交易索引与证据关系，业务原文和企业明细始终留在链下授权域。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
+      <PageHeader eyebrow="可信凭证" title="凭证核验" description="核对授权、计算和结果凭证是否一致。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
       <div className="filter-bar">
-        <label><span>可信验证胶囊</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        <label><span>任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.task_name}</option>)}</select></label>
       </div>
       <div className="evidence-stages">
         {Object.entries(stageLabels).map(([stage, label]) => (
-          <div key={stage}><span>{label}</span><strong>{stageCounts[stage]} 项</strong><small>{stage === "PRE_COMPUTE" ? "DID · 授权 · RuleHash" : stage === "IN_COMPUTE" ? "算法 · 承诺 · 执行证明" : "结果 · 签名 · 审计报告"}</small></div>
+          <div key={stage}><span>{label}</span><strong>{stageCounts[stage]} 项</strong><small>{stage === "PRE_COMPUTE" ? "身份与授权" : stage === "IN_COMPUTE" ? "计算与回执" : "结果与报告"}</small></div>
         ))}
       </div>
       {message && <Notice tone={message.includes("失败") || message.includes("无权") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="链上证据索引" note="本地 MVP 使用 FISCO BCOS 适配器模拟；接口契约可直接替换真实链节点">
+      <Surface title="凭证清单">
         <DataTable
           keyField="evidence_id"
           rows={filtered}
           columns={[
-            { key: "block_height", label: "区块高度", render: (row) => <span className="mono-text">#{row.block_height}</span> },
+            { key: "block_height", label: "凭证序号", render: (row) => <span className="mono-text">#{row.block_height}</span> },
             { key: "stage", label: "阶段", render: (row) => <StatusTag value={row.stage} label={stageLabels[row.stage] || row.stage} /> },
             { key: "biz_type", label: "证据类型", render: (row) => EVIDENCE_TYPE_LABELS[row.biz_type] || row.biz_type },
             { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
             { key: "evidence_hash", label: "证据哈希", render: (row) => <CodeValue title={row.evidence_hash}>{shortHash(row.evidence_hash)}</CodeValue> },
-            { key: "tx_hash", label: "交易哈希", render: (row) => <CodeValue title={row.tx_hash}>{shortHash(row.tx_hash)}</CodeValue> },
-            { key: "created_at", label: "上链时间", render: (row) => formatDate(row.created_at) },
-            { key: "verify", label: "核验", render: (row) => checks[row.evidence_id] ? checks[row.evidence_id].matched ? <span className="verify-ok"><CheckCircle2 size={16} />一致</span> : <span className="verify-bad"><XCircle size={16} />不一致</span> : <Button icon={Fingerprint} busy={verifying === row.evidence_id} disabled={verifyingAll} onClick={() => verify(row)}>重算哈希</Button> },
+            { key: "tx_hash", label: "凭证编号", render: (row) => <CodeValue title={row.tx_hash}>{shortHash(row.tx_hash)}</CodeValue> },
+            { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
+            { key: "verify", label: "核验", render: (row) => checks[row.evidence_id] ? checks[row.evidence_id].matched ? <span className="verify-ok"><CheckCircle2 size={16} />一致</span> : <span className="verify-bad"><XCircle size={16} />不一致</span> : <Button icon={Fingerprint} busy={verifying === row.evidence_id} disabled={verifyingAll} onClick={() => verify(row)}>核验</Button> },
             { key: "view", label: "详情", render: (row) => <button className="icon-button" title="查看证据" onClick={() => setSelected(row)}><Eye size={17} /></button> },
           ]}
         />
       </Surface>
       {selected && <Modal title="证据载荷摘要" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
         <div className="detail-grid">
-          <div><span>证据编号</span><CodeValue>{selected.evidence_id}</CodeValue></div>
-          <div><span>链适配器</span><strong>{selected.chain_code}</strong></div>
-          <div><span>区块高度</span><strong>#{selected.block_height}</strong></div>
+          <div><span>凭证编号</span><CodeValue>{selected.evidence_id}</CodeValue></div>
+          <div><span>记录方式</span><strong>可信存证</strong></div>
+          <div><span>凭证序号</span><strong>#{selected.block_height}</strong></div>
           <div><span>状态</span><StatusTag value={selected.status} /></div>
         </div>
         <pre className="json-view">{JSON.stringify(selected.payload_json, null, 2)}</pre>
-        <Notice><Blocks size={16} />此处展示的是证据摘要载荷，不含发电量、用户曲线等原始业务明细。</Notice>
+        <Notice><Blocks size={16} />此处只展示凭证摘要，不含业务明细。</Notice>
       </Modal>}
     </>
   );

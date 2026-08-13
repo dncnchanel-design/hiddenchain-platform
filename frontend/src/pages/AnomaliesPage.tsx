@@ -23,7 +23,7 @@ export function AnomaliesPage() {
   async function resolve(eventId: string) {
     setBusy(eventId);
     try {
-      await post(`/anomalies/${eventId}/resolve`, { resolution: "已完成证据复核与责任主体确认，演示事件关闭。" });
+      await post(`/anomalies/${eventId}/resolve`, { resolution: "已完成证据复核与责任主体确认，事件关闭。" });
       setMessage("异常已处置，处置意见已写入全过程审计日志。");
       await reload();
     } catch (reason) {
@@ -38,7 +38,7 @@ export function AnomaliesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全运营" title="异常处置" description="用途策略拒绝、签名缺失和证据不一致统一关联可信验证胶囊，并形成可追溯处置闭环。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>注入演示事件</Button></>} />
+      <PageHeader eyebrow="安全运营" title="风险处置" description="查看异常、记录处理意见并完成闭环。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>新增风险</Button></>} />
       <div className="metrics-grid three">
         <div className="metric metric-red"><span>开放事件</span><strong>{data.events.filter((item) => item.status === "OPEN").length}</strong><small>需要复核</small></div>
         <div className="metric metric-amber"><span>高风险</span><strong>{data.events.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length}</strong><small>优先处置</small></div>
@@ -86,13 +86,13 @@ function InjectModal({ tasks, onClose, onCreated }: { tasks: JsonRecord[]; onClo
   }
 
   return (
-    <Modal title="注入安全演示事件" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldAlert} variant="danger" busy={busy} disabled={!taskId} onClick={submit}>注入并触发风控</Button></>}>
+    <Modal title="新增风险事件" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldAlert} variant="danger" busy={busy} disabled={!taskId} onClick={submit}>提交</Button></>}>
       <div className="form-grid two">
         <Field label="关联任务"><select value={taskId} onChange={(event) => setTaskId(event.target.value)}>{tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></Field>
         <Field label="事件类型"><select value={eventType} onChange={(event) => { setEventType(event.target.value); setMutate(false); }}>{Object.entries(eventLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       </div>
-      {eventType === "HASH_MISMATCH" && <label className="check-row"><input type="checkbox" checked={mutate} onChange={(event) => setMutate(event.target.checked)} /><span>同时修改一项演示证据载荷，使哈希复核失败</span></label>}
-      <Notice tone="warning">该操作仅用于比赛演示异常检测与监管处置流程，事件会明确标记为 injected。</Notice>
+      {eventType === "HASH_MISMATCH" && <label className="check-row"><input type="checkbox" checked={mutate} onChange={(event) => setMutate(event.target.checked)} /><span>同时修改一项凭证内容，触发一致性复核</span></label>}
+      <Notice tone="warning">提交后将进入风险清单并留下操作记录。</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );

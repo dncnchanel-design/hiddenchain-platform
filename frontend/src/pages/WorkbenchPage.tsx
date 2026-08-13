@@ -27,57 +27,57 @@ type RoleConfig = {
 const roleConfig: Record<RoleCode, RoleConfig> = {
   GENERATOR: {
     title: "发电企业工作台",
-    description: "管理发电侧可调用数据，确认经过隐私计算的结果回执。",
-    nextStep: "登记或更新发电侧数据",
+    description: "管理发电数据，确认已完成的结果回执。",
+    nextStep: "登记发电数据",
     nextPath: "/data/generation",
     actions: [
-      { title: "登记可调用数据", description: "登记计量和新能源预测摘要，原始记录留在本域。", cta: "登记数据", path: "/data/generation", icon: Database },
-      { title: "确认结果回执", description: "查看按主体最小披露的计算结果，并完成签名确认。", cta: "查看结果", path: "/results", icon: FileCheck2 },
-      { title: "核验数据回执", description: "检查授权、计算和结果哈希是否与平台记录一致。", cta: "进入核验", path: "/evidence", icon: Blocks },
+      { title: "登记发电数据", description: "提交计量或新能源预测数据，供授权任务调用。", cta: "登记数据", path: "/data/generation", icon: Database },
+      { title: "确认结果", description: "查看本方结果并完成确认。", cta: "查看结果", path: "/results", icon: FileCheck2 },
+      { title: "查看凭证", description: "核对本次调用留下的可信凭证。", cta: "进入凭证", path: "/evidence", icon: Blocks },
     ],
   },
   RETAILER: {
     title: "售电企业工作台",
-    description: "管理售电与用电数据，在不暴露单户明细的前提下参与联合计算。",
-    nextStep: "检查用电数据是否已授权调用",
+    description: "管理售电与用电数据，参与不交换原始明细的联合计算。",
+    nextStep: "登记用电数据",
     nextPath: "/data/retail",
     actions: [
-      { title: "登记用电数据", description: "登记履约、负荷和虚拟电厂资源的可调用引用。", cta: "登记数据", path: "/data/retail", icon: Database },
-      { title: "发起隐私分析", description: "只返回聚合分析结果，不导出用户负荷曲线。", cta: "开始分析", path: "/compute", icon: LockKeyhole },
-      { title: "确认聚合结果", description: "查看结果回执和签名状态，确认本方可见内容。", cta: "查看结果", path: "/results", icon: FileCheck2 },
+      { title: "登记用电数据", description: "提交履约、负荷或资源数据，供授权任务使用。", cta: "登记数据", path: "/data/retail", icon: Database },
+      { title: "发起隐私分析", description: "获得峰谷特征和响应潜力等聚合结果。", cta: "开始分析", path: "/compute", icon: LockKeyhole },
+      { title: "确认聚合结果", description: "查看结果回执和确认状态。", cta: "查看结果", path: "/results", icon: FileCheck2 },
     ],
   },
   EXCHANGE: {
     title: "业务协同工作台",
-    description: "组织数据调用和隐私计算，把电力交易作为一个可运行的验证场景。",
-    nextStep: "发起一笔场景验证任务",
+    description: "发起数据调用与计算任务，跟踪结果和可信凭证。",
+    nextStep: "发起业务验证",
     nextPath: "/settlements",
     actions: [
-      { title: "发起场景验证", description: "选择参与主体和规则，生成一笔可追踪的验证任务。", cta: "创建任务", path: "/settlements", icon: Calculator },
-      { title: "检查使用规则", description: "确认数据用途、输出范围和人工审批边界。", cta: "查看规则", path: "/rules", icon: Gavel },
-      { title: "查看计算进度", description: "查看隐私计算回执、策略路由和执行结果。", cta: "进入计算", path: "/compute", icon: Network },
+      { title: "发起业务验证", description: "选择参与主体，生成一笔待执行任务。", cta: "创建任务", path: "/settlements", icon: Calculator },
+      { title: "查看使用规则", description: "确认数据用途和结果范围。", cta: "查看规则", path: "/rules", icon: Gavel },
+      { title: "查看计算结果", description: "跟踪计算状态和可信回执。", cta: "进入计算", path: "/compute", icon: Network },
     ],
   },
   REGULATOR: {
     title: "监管方工作台",
-    description: "从任务状态、证据回执和异常事件快速判断一笔调用是否可信。",
-    nextStep: "查看最近任务的证据时间线",
+    description: "从任务、凭证和风险记录判断一次数据调用是否可信。",
+    nextStep: "查看最近业务验证",
     nextPath: "/audit",
     actions: [
-      { title: "审计验证任务", description: "按任务查看数据调用、隐私计算和结果证据。", cta: "开始审计", path: "/audit", icon: ClipboardCheck },
-      { title: "处理风险事件", description: "查看待处置异常，记录复核结论和处理意见。", cta: "查看风险", path: "/anomalies", icon: ShieldCheck },
-      { title: "生成可信报告", description: "基于结构化证据生成可引用、可追溯的审计报告。", cta: "查看报告", path: "/reports", icon: FileCheck2 },
+      { title: "查看业务验证", description: "按任务查看调用、计算和结果记录。", cta: "开始审计", path: "/audit", icon: ClipboardCheck },
+      { title: "处理风险事件", description: "查看待处置风险并记录处理意见。", cta: "查看风险", path: "/anomalies", icon: ShieldCheck },
+      { title: "查看审计报告", description: "查看已生成的审计报告和凭证。", cta: "查看报告", path: "/reports", icon: FileCheck2 },
     ],
   },
   ADMIN: {
     title: "平台运维工作台",
-    description: "维护主体身份、平台服务和运行记录，不参与业务结果裁决。",
-    nextStep: "检查主体凭证和服务状态",
+    description: "维护主体身份、平台服务和运行记录。",
+    nextStep: "检查身份和服务状态",
     nextPath: "/system",
     actions: [
-      { title: "维护主体与凭证", description: "查看组织、用户和 DID/VC 的有效状态。", cta: "进入身份治理", path: "/system", icon: Users },
-      { title: "检查服务运行", description: "查看计算、存证和接口适配器是否正常。", cta: "查看指标", path: "/metrics", icon: Network },
-      { title: "查看操作记录", description: "追踪登录、授权、计算和异常处置等平台动作。", cta: "查看日志", path: "/logs", icon: FileClock },
+      { title: "维护主体与凭证", description: "查看组织、用户和身份凭证状态。", cta: "进入身份管理", path: "/system", icon: Users },
+      { title: "检查服务运行", description: "查看计算、存证和平台服务状态。", cta: "查看状态", path: "/metrics", icon: Network },
+      { title: "查看操作记录", description: "追踪平台操作和风险处置。", cta: "查看记录", path: "/logs", icon: FileClock },
     ],
   },
 };
@@ -108,11 +108,11 @@ export function WorkbenchPage() {
       <div className="workbench-hero">
         <div className="workbench-hero-intro">
           <div className="workbench-hero-heading"><div className="workbench-hero-icon"><ShieldCheck size={23} /></div><div><span>当前主体</span><h2>{organizationName}</h2></div></div>
-          <p>平台只交换可验证的数据引用和计算结果，原始业务数据不会离开主体域。</p>
-          <div className="workbench-hero-status"><StatusTag value="HEALTHY" label="工作空间正常" /><span>当前角色：{ROLE_LABELS[role]}</span><span>原始数据：不出域</span></div>
+          <p>数据按授权调用，计算只返回必要结果。</p>
+          <div className="workbench-hero-status"><StatusTag value="HEALTHY" label="工作空间正常" /><span>{ROLE_LABELS[role]}</span><span>原始数据不出域</span></div>
         </div>
         <div className="workbench-next-step">
-          <span>建议下一步</span>
+          <span>下一步</span>
           <strong>{config.nextStep}</strong>
           <Link to={config.nextPath}>立即处理 <ArrowRight size={15} /></Link>
         </div>
@@ -124,7 +124,7 @@ export function WorkbenchPage() {
         <Metric label="可核验证据" value={evidenceCount} meta="授权、计算与结果记录" />
       </div>
 
-      <Surface title="现在可以做什么" note="从下面进入与你的角色相关的业务操作">
+      <Surface title="快捷入口">
         <div className="workbench-actions">
           {config.actions.map((action) => {
             const Icon = action.icon;
@@ -137,7 +137,7 @@ export function WorkbenchPage() {
       </Surface>
 
       <div className="content-grid overview-grid">
-        <Surface title="最近任务" note={`${data.length} 个与你相关的验证任务`} actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={14} /></Link>}>
+        <Surface title="最近任务" actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={14} /></Link>}>
           <DataTable
             keyField="task_id"
             rows={data.slice(0, 6)}
@@ -152,7 +152,7 @@ export function WorkbenchPage() {
             ]}
           />
         </Surface>
-        <Surface title="平台会替你守住什么" note="你只需要关注业务动作，平台负责执行边界">
+        <Surface title="平台安全边界">
           <div className="workbench-guardrails">
             <div><Database size={18} /><span><strong>数据原文</strong><small>留在主体域内，不在平台汇聚</small></span><CheckCircle2 size={16} /></div>
             <div><LockKeyhole size={18} /><span><strong>调用结果</strong><small>按授权范围最小披露</small></span><CheckCircle2 size={16} /></div>

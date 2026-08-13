@@ -85,6 +85,7 @@ p {
 }
 
 .login-screen {
+  position: relative;
   display: grid;
   min-height: 100vh;
   grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.8fr);
@@ -96,11 +97,155 @@ p {
   display: flex;
   min-height: 100vh;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: center;
   padding: 48px 7vw 42px;
   overflow: hidden;
   color: #f5fbf9;
   background: #142a24;
+}
+
+.login-identity-content {
+  position: relative;
+  z-index: 2;
+  max-width: 560px;
+  user-select: none;
+}
+
+.login-product-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 24px;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.login-identity-content h1 {
+  max-width: 510px;
+  margin-top: 14px;
+  color: #fff;
+  font-size: clamp(34px, 4.3vw, 58px);
+  letter-spacing: 0.03em;
+  line-height: 1.22;
+}
+
+.login-identity-content p {
+  margin-top: 18px;
+  color: rgba(239, 248, 255, 0.76);
+  font-size: 16px;
+  letter-spacing: 0.16em;
+}
+
+.login-identity-line {
+  display: flex;
+  gap: 8px;
+  margin-top: 38px;
+}
+
+.login-identity-line i {
+  display: block;
+  width: 54px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.login-identity-line i:first-child {
+  background: var(--portal-red);
+}
+
+.login-background-word {
+  position: absolute;
+  z-index: 1;
+  right: 4vw;
+  bottom: 3vh;
+  color: rgba(255, 255, 255, 0.08);
+  font-size: clamp(38px, 7vw, 110px);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.login-visual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.login-visual-grid {
+  position: absolute;
+  inset: 14% 4% 10% 10%;
+  opacity: 0.18;
+  background-image: linear-gradient(rgba(255,255,255,0.24) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.24) 1px, transparent 1px);
+  background-size: 44px 44px;
+  transform: perspective(520px) rotateX(58deg) rotateZ(-18deg) scale(1.15);
+}
+
+.login-visual-orbit {
+  position: absolute;
+  width: 42vw;
+  height: 42vw;
+  border: 1px solid rgba(183, 224, 255, 0.24);
+  border-radius: 50%;
+  transform: rotate(-26deg) skewX(-18deg);
+}
+
+.orbit-one { right: -18vw; top: 16%; }
+.orbit-two { right: -4vw; top: 29%; width: 26vw; height: 26vw; border-color: rgba(255,255,255,0.18); }
+
+.login-visual-node {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--portal-red);
+  box-shadow: 0 0 0 9px rgba(255,255,255,0.06), 0 0 22px rgba(255,255,255,0.5);
+}
+
+.node-one { right: 21%; top: 29%; }
+.node-two { right: 12%; top: 56%; }
+.node-three { right: 35%; top: 70%; }
+
+.login-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: -10px 0 24px;
+}
+
+.login-role-grid button {
+  min-height: 34px;
+  padding: 0 8px;
+  color: #5f7590;
+  border: 1px solid #d3e0ec;
+  border-radius: 2px;
+  background: #f7fafd;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.login-role-grid button:hover,
+.login-role-grid button.selected {
+  color: var(--portal-blue-deep);
+  border-color: var(--portal-blue);
+  background: #eaf3fb;
+}
+
+.login-form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+  color: #7890a6;
+  font-size: 11px;
 }
 
 .login-identity::after {
@@ -3883,6 +4028,7 @@ body {
 
   .login-body .login-identity {
     min-height: 430px;
+    justify-content: center;
   }
 
   .login-body .login-form-area {
@@ -3924,6 +4070,11 @@ body {
     min-height: 400px;
     padding: 36px 22px 30px;
   }
+
+  .login-identity-content h1 { font-size: 34px; }
+  .login-identity-content p { font-size: 13px; letter-spacing: 0.1em; }
+  .login-background-word { right: -18px; bottom: 18px; font-size: 34px; }
+  .login-role-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .login-body .login-form-area {
     min-height: 620px;

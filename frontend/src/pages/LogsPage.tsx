@@ -29,7 +29,7 @@ export function LogsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="全过程留痕" title="全过程日志" description="登录、授权、Agent 调用、计算、存证、核验与处置动作统一记录 traceId 和业务对象。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Download} onClick={exportLogs}>导出审计日志</Button></>} />
+      <PageHeader eyebrow="安全与管理" title="操作记录" description="查看登录、授权、计算和风险处置记录。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Download} onClick={exportLogs}>导出记录</Button></>} />
       <Surface>
         <div className="log-filters">
           <label><Search size={16} /><input placeholder="搜索主体、对象或 traceId" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
@@ -37,7 +37,7 @@ export function LogsPage() {
           <span>显示 {rows.length} / {data.length} 条</span>
         </div>
       </Surface>
-      <Surface title="审计日志记录">
+      <Surface title="记录列表">
         <DataTable
           keyField="log_id"
           rows={rows}

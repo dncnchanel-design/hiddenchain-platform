@@ -6,11 +6,11 @@ import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
 
 const adapters = [
-  ["可信数据空间", "HCDS Connector + ODRL", "Eclipse Dataspace Connector", "READY"],
-  ["隐私计算", "MOCK SecretFlow", "SecretFlow / SPU / HEU", "READY"],
-  ["联盟链", "MOCK FISCO", "FISCO BCOS 3.x", "READY"],
-  ["策略执行", "内置 OPA 语义适配", "Open Policy Agent", "READY"],
-  ["数字身份", "WeIdentity 数据模型", "WeIdentity / 国网身份网关", "READY"],
+  ["数据目录", "目录服务", "正常", "READY"],
+  ["隐私计算", "授权域内计算", "正常", "READY"],
+  ["可信凭证", "凭证记录服务", "正常", "READY"],
+  ["使用规则", "用途控制服务", "正常", "READY"],
+  ["身份认证", "主体身份服务", "正常", "READY"],
 ];
 
 export function MetricsPage() {
@@ -30,19 +30,19 @@ export function MetricsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="支撑管理" title="运行指标" description="从性能、完整性和隐私边界三个维度验证原型闭环，不以页面数量替代技术指标。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="安全与管理" title="系统状态" description="查看计算、凭证和服务运行状态。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid five">
-        <Metric label="MPC 平均耗时" value={`${data.compute_cost_ms} ms`} meta="模拟执行" />
-        <Metric label="证据核验率" value={`${data.verify_rate}%`} meta="哈希重算一致" tone="green" />
-        <Metric label="Agent 事件" value={data.agent_event_count} meta="均带签名调用" />
-        <Metric label="证据索引" value={data.evidence_count} meta="三阶段覆盖" />
-        <Metric label="中心化原始数据" value={data.raw_data_centralized} meta="目标始终为 0" tone="green" />
+        <Metric label="平均计算耗时" value={`${data.compute_cost_ms} ms`} meta="最近记录" />
+        <Metric label="凭证核验率" value={`${data.verify_rate}%`} meta="哈希一致" tone="green" />
+        <Metric label="过程记录" value={data.agent_event_count} meta="已留痕" />
+        <Metric label="可信凭证" value={data.evidence_count} meta="已生成" />
+        <Metric label="原始数据集中存储" value={data.raw_data_centralized} meta="当前记录" tone="green" />
       </div>
       <div className="content-grid metrics-layout">
-        <Surface title="可信执行指标" note="按指标代码聚合最近运行记录">
+        <Surface title="运行趋势">
           <div className="chart-block"><ResponsiveContainer width="100%" height={300}><BarChart data={chartData}><CartesianGrid stroke="#d7e3ef" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 10, fill: "#63778e" }} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip /><Bar dataKey="value" fill="#0b5cab" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>
         </Surface>
-        <Surface title="边界验收" note="核心比赛指标">
+        <Surface title="安全检查">
           <div className="acceptance-list">
             <div><Database size={18} /><span>原始数据集中存储</span><strong>0 条</strong><StatusTag value="PASSED" /></div>
             <div><ShieldCheck size={18} /><span>策略绕过事件</span><strong>0 次</strong><StatusTag value="PASSED" /></div>
@@ -51,7 +51,7 @@ export function MetricsPage() {
           </div>
         </Surface>
       </div>
-      <Surface title="开源组件替换矩阵" note="MVP 适配器与生产候选保持稳定接口契约">
+      <Surface title="服务组件">
         <div className="adapter-matrix">
           {adapters.map(([domain, current, target, state]) => <div key={domain}><strong>{domain}</strong><span>{current}</span><i>→</i><span>{target}</span><StatusTag value={state} label="接口就绪" /></div>)}
         </div>

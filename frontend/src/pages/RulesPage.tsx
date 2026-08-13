@@ -20,7 +20,7 @@ export function RulesPage() {
     setMessage("");
     try {
       await post(`/rules/${ruleId}/activate`, {});
-      setMessage("规则已通过人工闸门并由交易中心 DID 签名启用。");
+      setMessage("规则已签名启用。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "启用失败");
@@ -34,12 +34,12 @@ export function RulesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="用途与规则控制" title="用途与规则控制" description="调用用途经 RAG 检索引用、DSL 固化、哈希签名和人工闸门后，才能进入确定性隐私计算或场景验证。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则包</Button>}</>} />
+      <PageHeader eyebrow="数据与授权" title="使用规则" description="查看数据用途、输出范围和启用状态。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则</Button>}</>} />
       <div className="boundary-strip">
-        <Gavel size={18} /><div><strong>Agent 不生成最终规则</strong><span>规则 Agent 仅检索、解析和校验；启用动作必须由交易中心人员签署。</span></div><StatusTag value="ACTIVE" label="人工闸门" />
+        <Gavel size={18} /><div><strong>规则启用需确认</strong><span>启用前请核对用途、参数和输出范围。</span></div><StatusTag value="ACTIVE" label="已启用" />
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="用途控制 RulePackage" note="每个调用或验证任务只能绑定已启用且哈希固定的规则版本">
+      <Surface title="规则列表">
         <DataTable
           keyField="rule_id"
           rows={data}
@@ -47,11 +47,11 @@ export function RulesPage() {
             { key: "rule_version", label: "版本", render: (row) => <button className="table-link" onClick={() => setSelected(row)}>{row.rule_version}</button> },
             { key: "rule_name", label: "规则名称" },
             { key: "contract_price", label: "基准价", render: (row) => `${row.parameters_json?.contract_price ?? "-"} 元/MWh` },
-            { key: "rule_hash", label: "RuleHash", render: (row) => <CodeValue title={row.rule_hash}>{shortHash(row.rule_hash)}</CodeValue> },
-            { key: "source_refs_json", label: "依据", render: (row) => `${row.source_refs_json?.length || 0} 条引用` },
+            { key: "rule_hash", label: "规则编号", render: (row) => <CodeValue title={row.rule_hash}>{shortHash(row.rule_hash)}</CodeValue> },
+            { key: "source_refs_json", label: "依据", render: (row) => `${row.source_refs_json?.length || 0} 条` },
             { key: "created_at", label: "创建时间", render: (row) => formatDate(row.created_at) },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
-            { key: "action", label: "操作", render: (row) => row.status === "DRAFT" && canEdit ? <Button icon={CheckCircle2} busy={busy === row.rule_id} onClick={() => activate(row.rule_id)}>签名启用</Button> : <Button icon={FileCode2} onClick={() => setSelected(row)}>查看 DSL</Button> },
+            { key: "action", label: "操作", render: (row) => row.status === "DRAFT" && canEdit ? <Button icon={CheckCircle2} busy={busy === row.rule_id} onClick={() => activate(row.rule_id)}>确认启用</Button> : <Button icon={FileCode2} onClick={() => setSelected(row)}>查看规则</Button> },
           ]}
         />
       </Surface>
@@ -63,9 +63,9 @@ export function RulesPage() {
 
 function RuleDetail({ rule, onClose }: { rule: JsonRecord; onClose: () => void }) {
   return (
-    <Modal title={`${rule.rule_version} 规则包`} onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
+    <Modal title={`${rule.rule_version} 规则`} onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
       <div className="detail-grid">
-        <div><span>RuleHash</span><CodeValue>{rule.rule_hash}</CodeValue></div>
+        <div><span>规则编号</span><CodeValue>{rule.rule_hash}</CodeValue></div>
         <div><span>策略引用</span><strong>{(rule.policy_refs_json || []).map((item: string) => item === "policy:settlement-purpose" ? "限定验证用途" : item === "policy:no-raw-data-export" ? "禁止导出原文" : item).join(" · ")}</strong></div>
         <div><span>批准签名</span><strong>{rule.approver_signatures_json?.length || 0} 个</strong></div>
         <div><span>状态</span><StatusTag value={rule.status} /></div>
@@ -74,7 +74,6 @@ function RuleDetail({ rule, onClose }: { rule: JsonRecord; onClose: () => void }
       <div className="parameter-grid">
         {Object.entries(rule.parameters_json || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{String(value)}</strong></div>)}
       </div>
-      <Notice>RAG 仅提供依据检索与引用；最终执行内容以此 RuleHash 对应的 DSL 和参数为准。</Notice>
     </Modal>
   );
 }
@@ -102,7 +101,7 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
         deviation_penalty_rate: Number(form.penalty),
         service_fee_rate: Number(form.fee),
         rounding: 2,
-        source_refs: ["比赛项目书-多方安全协同条款", "演示规则库-月度结算条款-02"],
+        source_refs: ["月度结算条款", "数据使用规则"],
       });
       await onCreated();
     } catch (reason) {
@@ -113,7 +112,7 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
   }
 
   return (
-    <Modal title="新建用途控制规则包" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成待审 RulePackage</Button></>}>
+    <Modal title="新建使用规则" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>创建规则</Button></>}>
       <div className="form-grid two">
         <Field label="规则名称"><input value={form.name} onChange={(event) => set("name", event.target.value)} /></Field>
         <Field label="合同电价（元/MWh）"><input type="number" value={form.price} onChange={(event) => set("price", event.target.value)} /></Field>
@@ -121,7 +120,6 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
         <Field label="偏差惩罚率"><input type="number" value={form.penalty} onChange={(event) => set("penalty", event.target.value)} /></Field>
         <Field label="服务费率"><input type="number" value={form.fee} onChange={(event) => set("fee", event.target.value)} /></Field>
       </div>
-      <Notice>创建后保持 DRAFT，需交易中心人员核对来源与参数并执行 DID 签名启用。</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );

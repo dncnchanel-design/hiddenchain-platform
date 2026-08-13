@@ -9,11 +9,11 @@ import { ROLE_IN_TASK_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 const stages = [
-  ["DRAFT", "任务组织"],
-  ["AUTHORIZED", "身份与授权"],
-  ["COMPUTING", "隐私计算"],
-  ["EVIDENCED", "可信存证"],
-  ["AUDITED", "监管审计"],
+  ["DRAFT", "待开始"],
+  ["AUTHORIZED", "已授权"],
+  ["COMPUTING", "计算中"],
+  ["EVIDENCED", "已生成凭证"],
+  ["AUDITED", "已完成"],
 ];
 
 export function SettlementPage() {
@@ -48,7 +48,7 @@ export function SettlementPage() {
     try {
       const result = await post<JsonRecord>(`/settlement/tasks/${selected.task_id}/run`, { compute_mode: "MPC_MOCK", algorithm_code: "ADAPTIVE_MARKET_SETTLEMENT_V2" });
       const conclusion = result.report?.conclusion === "PASS" ? "通过" : result.report?.conclusion === "REVIEW_REQUIRED" ? "需复核" : result.report?.conclusion || "已生成";
-      setMessage(`可信闭环完成：${result.evidence.length} 项链上证据、${result.task.agent_event_count} 条 Agent 事件，审计结论${conclusion}。`);
+      setMessage(`任务已完成，生成 ${result.evidence.length} 项可信凭证，审计结论${conclusion}。`);
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "执行失败");
@@ -57,15 +57,15 @@ export function SettlementPage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在装载场景验证任务" />;
-  if (error || !data) return <ErrorState message={error || "场景验证任务加载失败"} retry={reload} />;
+  if (loading) return <LoadingState label="正在加载业务验证" />;
+  if (error || !data) return <ErrorState message={error || "业务验证加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader eyebrow="应用验证场景" title="场景验证任务" description="选择一个任务，查看数据调用、隐私计算、结果回执和证据核验进度；电力交易只是当前演示场景。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>发起场景验证</Button>}</>} />
+      <PageHeader eyebrow="计算与回执" title="业务验证" description="发起任务并查看授权、计算、结果和凭证。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建任务</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
-        <Surface title="验证任务队列" note={`${data.tasks.length} 个可信验证胶囊`} className="master-panel">
+        <Surface title="任务列表" note={`${data.tasks.length} 个任务`} className="master-panel">
           <div className="task-list">
             {data.tasks.map((task) => (
               <button key={task.task_id} className={task.task_id === selectedId ? "active" : ""} onClick={() => setSelectedId(task.task_id)}>
@@ -78,14 +78,14 @@ export function SettlementPage() {
         </Surface>
         {selected ? (
           <div className="detail-stack">
-            <Surface
+              <Surface
               title={selected.task_name}
               note={`${selected.trade_batch_no} · ${selected.period_start} 至 ${selected.period_end}`}
-              actions={canRun && selected.status !== "AUDITED" ? <Button icon={Play} variant="primary" busy={running} onClick={runWorkflow}>启动场景验证</Button> : <StatusTag value={selected.status} />}
+              actions={canRun && selected.status !== "AUDITED" ? <Button icon={Play} variant="primary" busy={running} onClick={runWorkflow}>开始执行</Button> : <StatusTag value={selected.status} />}
             >
               <div className="capsule-banner">
-                <div><ShieldCheck size={25} /><span>可信验证胶囊</span><strong>{selected.capsule_id}</strong></div>
-                <div><span>RuleHash</span><CodeValue>{shortHash(selected.rule_id, 14)}</CodeValue></div>
+                <div><ShieldCheck size={25} /><span>任务编号</span><strong>{selected.capsule_id}</strong></div>
+                <div><span>使用规则</span><CodeValue>{shortHash(selected.rule_id, 14)}</CodeValue></div>
                 <div><span>风险等级</span><StatusTag value={selected.risk_level} /></div>
               </div>
               <div className="stage-track">
@@ -97,7 +97,7 @@ export function SettlementPage() {
               </div>
             </Surface>
             <div className="content-grid two-equal">
-              <Surface title="参与主体" note="DID/VC 与任务角色绑定">
+              <Surface title="参与主体">
                 <div className="participant-list">
                   {selected.participants.map((item: JsonRecord) => {
                     const org = data.orgs.find((entry) => entry.org_id === item.org_id);
@@ -105,16 +105,16 @@ export function SettlementPage() {
                   })}
                 </div>
               </Surface>
-              <Surface title="过程产物" note="每一项均可通过胶囊编号关联">
+              <Surface title="处理结果">
                 <div className="artifact-stats">
-                  <div><Bot size={19} /><span>Agent 签名事件</span><strong>{selected.agent_event_count}</strong></div>
-                  <div><ShieldCheck size={19} /><span>链上证据索引</span><strong>{selected.evidence_count}</strong></div>
+                  <div><Bot size={19} /><span>过程记录</span><strong>{selected.agent_event_count}</strong></div>
+                  <div><ShieldCheck size={19} /><span>可信凭证</span><strong>{selected.evidence_count}</strong></div>
                   <div><CheckCircle2 size={19} /><span>结算结果</span><strong>{selected.result_count}</strong></div>
                 </div>
               </Surface>
             </div>
             {selected.scenario_coordination?.length > 0 && (
-              <Surface title="四场景耦合结果" note="交易偏差先由虚拟电厂资源响应，剩余偏差通过调度安全闸门后方可结算">
+              <Surface title="业务结果">
                 <div className="scenario-result-grid">
                   {selected.scenario_coordination.map((item: JsonRecord, index: number) => (
                     <div key={item.code}>
@@ -139,7 +139,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   const activeRules = rules.filter((item) => item.status === "ACTIVE");
   const generator = orgs.find((item) => item.org_type === "GENERATOR");
   const retailer = orgs.find((item) => item.org_type === "RETAILER");
-  const [name, setName] = useState("2026年7月电力交易场景验证");
+  const [name, setName] = useState("2026年7月业务验证");
   const [batch, setBatch] = useState("TB-2026-07-DEMO");
   const [ruleId, setRuleId] = useState(activeRules[0]?.rule_id || "");
   const [busy, setBusy] = useState(false);
@@ -170,7 +170,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   }
 
   return (
-    <Modal title="发起场景验证任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成可信验证胶囊</Button></>}>
+    <Modal title="新建业务验证任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>创建任务</Button></>}>
       <div className="form-grid two">
         <Field label="任务名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field>
         <Field label="验证批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
@@ -181,7 +181,6 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
         <div><span>发电企业</span><strong>{generator?.org_name || "未配置"}</strong></div>
         <div><span>售电企业</span><strong>{retailer?.org_name || "未配置"}</strong></div>
       </div>
-      <Notice>创建阶段只组织验证上下文；启动后依次执行身份认证、数据调用授权、隐私策略路由、MPC 计算、结果回执、存证与审计。</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );

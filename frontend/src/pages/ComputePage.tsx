@@ -38,17 +38,17 @@ export function ComputePage() {
 
   return (
     <>
-      <PageHeader eyebrow="平台核心能力" title="隐私计算" description="控制面只编排 DataPermit 与 ComputePlan，执行面在授权数据域内完成 PSI/MPC、秘密共享或差分隐私计算，并返回可验证回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起隐私分析</Button>}</>} />
+      <PageHeader eyebrow="计算与回执" title="隐私计算" description="在授权范围内完成计算，只返回必要结果和可核验回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
       <div className="segmented" role="tablist">
-        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>场景验证 MPC</button>
-        {analysisAllowed && <button className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用户用电隐私分析</button>}
+        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>业务验证</button>
+        {analysisAllowed && <button className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用电分析</button>}
       </div>
       <div className="privacy-boundaries">
-        <div><EyeOff size={19} /><strong>原始数据不出域</strong><span>Agent、业务库与调用方不可读取企业明细</span></div>
-        <div><ShieldCheck size={19} /><strong>授权后可计算</strong><span>用途、算法、时效与输出纳入 DataPermit</span></div>
-        <div><Cpu size={19} /><strong>结果可验证</strong><span>算法、输入承诺与输出哈希写入 ComputeReceipt</span></div>
+        <div><EyeOff size={19} /><strong>原始数据不出域</strong><span>计算过程不读取企业明细</span></div>
+        <div><ShieldCheck size={19} /><strong>授权后计算</strong><span>用途和输出范围先行确认</span></div>
+        <div><Cpu size={19} /><strong>结果可验证</strong><span>每次计算都生成回执</span></div>
       </div>
-      <Surface title="场景感知隐私计算策略路由" note="由数据等级、参与主体、时延和精度约束生成 ComputePlan，并固化计划哈希">
+      <Surface title="计算方式">
         <div className="strategy-grid">
           {data.strategies.map((item: JsonRecord) => (
             <article key={item.scenario_code}>
@@ -56,12 +56,12 @@ export function ComputePage() {
               <strong>{strategyName(item.primary)}</strong>
               <div>{item.supporting.map((code: string) => <span key={code}>{strategyName(code)}</span>)}</div>
               <p>{item.reason}</p>
-              <small>{item.latency_requirement === "BATCH" ? "批处理" : item.latency_requirement === "MINUTE" ? "分钟级" : item.latency_requirement === "REAL_TIME" ? "实时" : item.latency_requirement} · {item.participant_count} 方 · 仅聚合披露</small>
+              <small>{item.latency_requirement === "BATCH" ? "批处理" : item.latency_requirement === "MINUTE" ? "分钟级" : item.latency_requirement === "REAL_TIME" ? "实时" : item.latency_requirement} · {item.participant_count} 方 · 聚合输出</small>
             </article>
           ))}
         </div>
       </Surface>
-      <Surface title={tab === "SETTLEMENT" ? "MPC 场景验证任务" : "负荷隐私分析任务"} note={tab === "SETTLEMENT" ? "PSI 对齐授权数据关系，MPC 验证跨主体计算闭环" : "仅输出聚合曲线、峰谷特征与需求响应潜力"}>
+      <Surface title={tab === "SETTLEMENT" ? "业务验证任务" : "用电分析任务"}>
         <DataTable
           keyField={tab === "SETTLEMENT" ? "job_id" : "analysis_id"}
           rows={currentRows}
@@ -69,7 +69,7 @@ export function ComputePage() {
             { key: "job_id", label: "计算编号", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{shortHash(row.job_id, 8)}</button> },
             { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
             { key: "algorithm_code", label: "计算方案", render: (row) => strategyName(row.algorithm_code) },
-            { key: "adapter_code", label: "执行方式", render: (row) => row.adapter_code === "MOCK_SECRET_FLOW" ? "域内安全计算" : row.adapter_code },
+            { key: "adapter_code", label: "执行方式", render: (row) => row.adapter_code === "MOCK_SECRET_FLOW" ? "授权域内计算" : row.adapter_code },
             { key: "duration_ms", label: "耗时", render: (row) => `${row.duration_ms || 0} ms` },
             { key: "output_hash", label: "输出哈希", render: (row) => <CodeValue title={row.output_hash}>{shortHash(row.output_hash)}</CodeValue> },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
@@ -105,7 +105,7 @@ function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void 
       <div className="log-console">
         {(job.logs_json || []).map((line: string, index: number) => <div key={`${line}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{line}</div>)}
       </div>
-      <Notice tone="success">回执包含输入承诺、算法标识、执行证明与输出哈希，不包含任一参与方原始记录，可供后续审计和场景验证引用。</Notice>
+      <Notice tone="success">本次计算只返回结果摘要，不包含参与方原始记录。</Notice>
     </Modal>
   );
 }
@@ -124,7 +124,7 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
       </div>
       <div className="strategy-receipt"><Route size={18} /><div><span>执行策略</span><strong>{strategyName(strategy.primary)}</strong><small>{strategy.reason}</small></div><CodeValue>{shortHash(strategy.plan_hash, 12)}</CodeValue></div>
       {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="#d7e3ef" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "#63778e" }} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="#0b5cab" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
-      <Notice tone="success">返回值为群组聚合结果；用户标识、单户曲线和原始测点均未返回。</Notice>
+      <Notice tone="success">返回值为群组聚合结果，不包含用户标识和单户曲线。</Notice>
     </Modal>
   );
 }
@@ -178,7 +178,7 @@ function AnalysisForm({ strategies, onClose, onCreated }: { strategies: JsonReco
       </div>
       <h3 className="subheading">选择授权数据引用</h3>
       {loading ? <LoadingState /> : error ? <Notice tone="warning">{error}</Notice> : <div className="dataset-picker">{(data || []).map((item) => <label key={item.upload_id}><input type="checkbox" checked={selected.includes(item.upload_id)} onChange={() => toggle(item.upload_id)} /><Database size={18} /><div><strong>{item.label}</strong><span>{item.owner_org_name} · {item.summary_json?.record_count} 条</span></div></label>)}</div>}
-      <Notice>策略路由器将业务场景、敏感等级、参与方数量和时延要求固化为 ComputePlan；计算节点只返回聚合序列、统计特征和可验证回执。</Notice>
+      <Notice>计算节点只返回聚合序列、统计特征和回执。</Notice>
       {submitError && <Notice tone="warning">{submitError}</Notice>}
     </Modal>
   );

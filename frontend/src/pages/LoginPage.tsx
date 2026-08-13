@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Blocks, Bot, Eye, EyeOff, Home, Info, KeyRound, LockKeyhole, Megaphone, Network, PhoneCall, ShieldCheck, Zap } from "lucide-react";
 import { useAuth } from "../auth";
 import { Button, Notice } from "../components/ui";
 
@@ -9,7 +9,7 @@ const accounts = [
   { label: "发电企业", username: "generator", password: "generator123" },
   { label: "售电企业", username: "retailer", password: "retailer123" },
   { label: "监管方", username: "regulator", password: "regulator123" },
-  { label: "系统管理员", username: "admin", password: "admin123" },
+  { label: "平台维护", username: "admin", password: "admin123" },
 ];
 
 export function LoginPage() {
@@ -21,15 +21,20 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  function chooseAccount(account: (typeof accounts)[number]) {
+    setUsername(account.username);
+    setPassword(account.password);
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
       await login(username, password);
-      navigate("/overview", { replace: true });
+      navigate("/workbench", { replace: true });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "认证失败");
+      setError(reason instanceof Error ? reason.message : "登录失败，请检查账号和密码");
     } finally {
       setBusy(false);
     }
@@ -37,69 +42,59 @@ export function LoginPage() {
 
   return (
     <div className="login-screen">
-      <header className="login-portal-head">
-        <div className="login-portal-head-inner">
-          <div className="login-portal-brand"><div className="login-portal-brand-mark"><ShieldCheck size={27} /></div><div><strong>隐链明算</strong><span>可信数据协同平台</span></div></div>
-          <div className="login-portal-utility"><a href="#about"><Home size={14} />平台首页</a><a href="#notice"><Megaphone size={14} />通知公告</a><a href="#guide"><Info size={14} />使用指南</a><a href="#support"><PhoneCall size={14} />业务支持</a><span>2026年08月</span></div>
+      <section className="login-identity" aria-label="平台信息">
+        <div className="login-visual" aria-hidden="true">
+          <div className="login-visual-orbit orbit-one" />
+          <div className="login-visual-orbit orbit-two" />
+          <div className="login-visual-grid" />
+          <div className="login-visual-node node-one" />
+          <div className="login-visual-node node-two" />
+          <div className="login-visual-node node-three" />
         </div>
-      </header>
-      <nav className="login-portal-nav" aria-label="登录门户导航"><span className="active">首页</span><span>数据调用</span><span>隐私计算</span><span>安全监管</span><span>场景验证</span></nav>
-      <div className="login-body">
-        <section className="login-identity">
-          <div className="login-product">
-            <div className="eyebrow">AGENT-NATIVE TRUSTED DATA SPACE</div>
-            <h1>让数据可调用，让计算不泄露</h1>
-            <p>以能源电力为验证场景，打通数据目录、身份授权、隐私计算与可验证回执，让跨主体协作不再以搬运原始数据为前提。</p>
+        <div className="login-identity-content">
+          <div className="login-product-mark"><ShieldCheck size={25} /></div>
+          <div className="eyebrow">隐链明算</div>
+          <h1>可信数据协同平台</h1>
+          <p>可信数据 · 隐私计算 · 可验证回执</p>
+          <div className="login-identity-line" aria-hidden="true"><i /><i /><i /></div>
+        </div>
+        <span className="login-background-word" aria-hidden="true">TRUSTED DATA</span>
+      </section>
+
+      <section className="login-form-area">
+        <form className="login-form" onSubmit={submit}>
+          <div className="login-form-heading">
+            <LockKeyhole size={22} />
+            <div><h2>登录平台</h2><p>请选择登录身份</p></div>
           </div>
-          <div className="login-chain" aria-label="核心可信链路">
-            <div><KeyRound size={19} /><span>身份与授权链</span><small>主体与用途可验</small></div>
-            <i />
-            <div><Network size={19} /><span>隐私计算链</span><small>原始数据不出域</small></div>
-            <i />
-            <div><Blocks size={19} /><span>回执证据链</span><small>调用结果可复核</small></div>
-            <i />
-            <div><Bot size={19} /><span>智能体协作链</span><small>调用可追责</small></div>
+          <div className="login-role-grid" aria-label="登录身份">
+            {accounts.map((account) => (
+              <button
+                type="button"
+                key={account.username}
+                className={username === account.username ? "selected" : ""}
+                onClick={() => chooseAccount(account)}
+              >{account.label}</button>
+            ))}
           </div>
-          <div className="login-foot"><Zap size={15} />电力交易是验证场景，可信数据调用与隐私计算是核心能力</div>
-        </section>
-        <section className="login-form-area">
-          <form className="login-form" onSubmit={submit}>
-            <div className="login-form-heading">
-              <LockKeyhole size={22} />
-              <div><h2>主体身份认证</h2><p>选择主体后进入对应权限工作台</p></div>
+          <label className="field">
+            <span>账号</span>
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} maxLength={64} />
+          </label>
+          <label className="field">
+            <span>密码</span>
+            <div className="password-field">
+              <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required minLength={6} maxLength={128} />
+              <button type="button" onClick={() => setShowPassword((value) => !value)} title={showPassword ? "隐藏密码" : "显示密码"}>
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
-            <label className="field">
-              <span>登录账号</span>
-              <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} maxLength={64} />
-            </label>
-            <label className="field">
-              <span>访问凭证</span>
-              <div className="password-field">
-                <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required minLength={6} maxLength={128} />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} title={showPassword ? "隐藏凭证" : "显示凭证"}>
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </label>
-            {error && <Notice tone="warning">{error}</Notice>}
-            <Button type="submit" variant="primary" busy={busy}>通过 DID 网关登录</Button>
-            <div className="demo-accounts">
-              <span>演示主体</span>
-              <div>
-                {accounts.map((account) => (
-                  <button
-                    type="button"
-                    key={account.username}
-                    className={username === account.username ? "selected" : ""}
-                    onClick={() => { setUsername(account.username); setPassword(account.password); }}
-                  >{account.label}</button>
-                ))}
-              </div>
-            </div>
-            <div className="login-security"><ShieldCheck size={15} />本地 MVP 环境 · 凭证经 PBKDF2 哈希验证 · 会话采用 JWT</div>
-          </form>
-        </section>
-      </div>
+          </label>
+          {error && <Notice tone="warning">{error}</Notice>}
+          <Button type="submit" variant="primary" busy={busy}>登录</Button>
+          <div className="login-form-foot"><ShieldCheck size={15} /><span>身份验证通过后进入对应工作台</span></div>
+        </form>
+      </section>
     </div>
   );
 }

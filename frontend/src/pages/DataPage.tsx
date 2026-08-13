@@ -55,7 +55,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const title = mode === "generation" ? "发电侧数据" : "售电与用电数据";
-  const description = mode === "generation" ? "计量、出力预测和调度边界均以域内引用参与协同，平台不汇聚原始数据。" : "售电履约、用户负荷与虚拟电厂资源按用途授权，只释放必要聚合结果。";
+  const description = mode === "generation" ? "登记发电侧数据，供授权任务调用。" : "登记售电、用电和资源数据，供授权任务调用。";
   const canCreate = createOptions.some((item) => item.code === assetType);
   const canSign = ["GENERATOR", "RETAILER", "EXCHANGE", "ADMIN"].includes(role);
   const queryType = assetType;
@@ -66,7 +66,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
     setNotice("");
     try {
       await post(`/data/${uploadId}/sign`, {});
-      setNotice("数据承诺已由主体 DID 签名，签名值可进入授权证据包。");
+      setNotice("数据已确认，可用于授权任务。");
       await reload();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "签名失败");
@@ -81,7 +81,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
   return (
     <>
       <PageHeader
-        eyebrow="可调用数据资产"
+        eyebrow="数据与授权"
         title={title}
         description={description}
         actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>登记数据</Button>}</>}
@@ -91,28 +91,28 @@ export function DataPage({ mode }: { mode: DataMode }) {
       </div>
       <div className="boundary-strip">
         <ShieldCheck size={18} />
-        <div><strong>数据调用边界生效</strong><span>原始明细留在主体域内；调用方只获得经过授权的数据引用、聚合结果或计算回执。</span></div>
-        <StatusTag value="ACTIVE" label="策略已启用" />
+        <div><strong>数据调用边界生效</strong><span>原始明细留在主体域内，只提供授权范围内的结果。</span></div>
+        <StatusTag value="ACTIVE" label="已启用" />
       </div>
       {notice && <Notice tone={notice.includes("失败") || notice.includes("无权") ? "warning" : "success"}>{notice}</Notice>}
-      <Surface title={`${assetNames[assetType]}数据资产`} note={`共 ${data.length} 条可授权数据引用`}>
+      <Surface title={`${assetNames[assetType]}数据`} note={`共 ${data.length} 条`}>
         <DataTable
           keyField="upload_id"
           rows={data}
           columns={[
             { key: "label", label: "数据资产" },
             { key: "owner_org_name", label: "数据提供方" },
-            { key: "trade_batch_no", label: "交易批次" },
-            { key: "data_ref", label: "域内引用", render: (row) => <CodeValue title={row.data_ref}>{shortHash(row.data_ref, 14)}</CodeValue> },
+            { key: "trade_batch_no", label: "批次" },
+            { key: "data_ref", label: "数据引用", render: (row) => <CodeValue title={row.data_ref}>{shortHash(row.data_ref, 14)}</CodeValue> },
             { key: "data_hash", label: "数据哈希", render: (row) => <CodeValue title={row.data_hash}>{shortHash(row.data_hash)}</CodeValue> },
             { key: "summary_json", label: "记录数", render: (row) => row.summary_json?.record_count ?? "-" },
             { key: "validation_status", label: "校验", render: (row) => <StatusTag value={row.validation_status} /> },
             { key: "created_at", label: "登记时间", render: (row) => formatDate(row.created_at) },
-            { key: "action", label: "操作", render: (row) => canSign ? <Button icon={FileSignature} busy={busy === row.upload_id} onClick={() => sign(row.upload_id)}>签名</Button> : <span className="muted-text">仅可查看</span> },
+            { key: "action", label: "操作", render: (row) => canSign ? <Button icon={FileSignature} busy={busy === row.upload_id} onClick={() => sign(row.upload_id)}>确认</Button> : <span className="muted-text">只读</span> },
           ]}
         />
       </Surface>
-      {showForm && <UploadModal options={createOptions} defaultAssetType={assetType} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setNotice("数据已写入主体本域保险库，平台仅接收 DataRef、哈希与承诺。"); await reload(); }} />}
+      {showForm && <UploadModal options={createOptions} defaultAssetType={assetType} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setNotice("数据已登记，可用于授权任务。"); await reload(); }} />}
     </>
   );
 }
@@ -166,7 +166,7 @@ function UploadModal({ options, defaultAssetType, onClose, onCreated }: { option
   }
 
   return (
-    <Modal title="登记域内数据资产" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={Upload} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>写入本域并登记引用</Button></>}>
+    <Modal title="登记数据" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={Upload} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>登记</Button></>}>
       <div className="form-grid two">
         {options.length > 1 && <Field label="资产类型"><select value={assetType} onChange={(event) => { setAssetType(event.target.value); setLabel(`2026年7月${assetNames[event.target.value]}`); }}>{options.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select></Field>}
         <Field label="资产名称"><input value={label} onChange={(event) => setLabel(event.target.value)} /></Field>

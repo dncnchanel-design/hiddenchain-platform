@@ -20,14 +20,14 @@ export function SystemPage() {
 
   return (
     <>
-      <PageHeader eyebrow="可信身份治理" title="主体与 DID" description="系统管理员维护基础设施身份与凭证状态，不参与交易规则审批或结算业务裁决。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="安全与管理" title="身份管理" description="查看组织、用户和身份凭证。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
-        <div className="metric"><span>注册组织</span><strong>{data.orgs.length}</strong><small>五类平台主体</small></div>
-        <div className="metric"><span>业务用户</span><strong>{data.users.length}</strong><small>基于角色授权</small></div>
-        <div className="metric metric-green"><span>有效 DID/VC</span><strong>{data.dids.filter((item) => item.credential_status === "VALID").length}</strong><small>含主体与 Agent</small></div>
+        <div className="metric"><span>注册组织</span><strong>{data.orgs.length}</strong><small>参与主体</small></div>
+        <div className="metric"><span>平台用户</span><strong>{data.users.length}</strong><small>角色账号</small></div>
+        <div className="metric metric-green"><span>有效身份凭证</span><strong>{data.dids.filter((item) => item.credential_status === "VALID").length}</strong><small>当前有效</small></div>
       </div>
-      <div className="segmented" role="tablist"><button className={tab === "ORGS" ? "active" : ""} onClick={() => setTab("ORGS")}>组织主体</button><button className={tab === "USERS" ? "active" : ""} onClick={() => setTab("USERS")}>用户与角色</button><button className={tab === "DIDS" ? "active" : ""} onClick={() => setTab("DIDS")}>DID 与凭证</button></div>
-      <Surface title={tab === "ORGS" ? "可信数据空间参与组织" : tab === "USERS" ? "平台用户与角色" : "分布式身份与能力凭证"}>
+      <div className="segmented" role="tablist"><button className={tab === "ORGS" ? "active" : ""} onClick={() => setTab("ORGS")}>组织</button><button className={tab === "USERS" ? "active" : ""} onClick={() => setTab("USERS")}>用户</button><button className={tab === "DIDS" ? "active" : ""} onClick={() => setTab("DIDS")}>身份凭证</button></div>
+      <Surface title={tab === "ORGS" ? "组织列表" : tab === "USERS" ? "用户列表" : "身份凭证列表"}>
         {tab === "ORGS" && <DataTable keyField="org_id" rows={data.orgs} columns={[
           { key: "org_name", label: "组织名称", render: (row) => <span className="identity-name"><Building2 size={16} />{row.org_name}</span> },
           { key: "org_type", label: "主体类型" },

@@ -52,12 +52,12 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="可信成果输出" title="可信报告" description="报告 Agent 仅基于审计包和证据引用套用模板，结论由确定性核验规则给出并绑定报告哈希。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
-      {canGenerate && <Surface title="生成监管审计报告" note="仅对已完成可信闭环的任务生成">
+      <PageHeader eyebrow="安全与管理" title="审计报告" description="查看和导出已完成任务的审计报告。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      {canGenerate && <Surface title="生成审计报告">
         <div className="report-generator"><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">选择已审计任务</option>{audited.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select><Button icon={FilePlus2} variant="primary" busy={busy} disabled={!taskId && !audited.length} onClick={generate}>生成报告</Button></div>
       </Surface>}
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="报告归档" note={`${data.reports.length} 份可验证报告`}>
+      <Surface title="报告列表" note={`${data.reports.length} 份`}>
         <DataTable
           keyField="report_id"
           rows={data.reports}
