@@ -10,6 +10,16 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class IngressMetadata(StrictModel):
+    """Metadata for the trusted acquisition and secure transport boundary."""
+
+    source_type: str = Field(default="EDGE_METER", min_length=2, max_length=64)
+    protocol: Literal["HTTPS", "MQTT", "WebSocket"] = "HTTPS"
+    stage: Literal["TERMINAL", "EDGE", "CLOUD", "BUSINESS"] = "EDGE"
+    encryption: Literal["TLS1.3", "TLS1.2"] = "TLS1.3"
+    attestation: str = Field(default="虚拟仿真来源证明", min_length=2, max_length=128)
+
+
 class LoginRequest(StrictModel):
     username: str = Field(min_length=3, max_length=64)
     password: str = Field(min_length=6, max_length=128)
@@ -28,6 +38,7 @@ class DataUploadCreate(StrictModel):
     label: str = Field(min_length=2, max_length=128)
     schema_version: str = Field(default="v1.0", min_length=1, max_length=32)
     owner_org_id: str | None = None
+    ingress: IngressMetadata = Field(default_factory=IngressMetadata)
     local_payload: dict[str, Any]
 
     @model_validator(mode="after")
@@ -116,7 +127,7 @@ class UsageControlCheckRequest(StrictModel):
 
 
 class ResultConfirmRequest(StrictModel):
-    opinion: str = "同意结算结果"
+    opinion: str = "同意场景结果"
 
 
 class AuditReportCreate(StrictModel):
@@ -173,6 +184,7 @@ class ImportDataAsset(StrictModel):
     upload_id: str | None = None
     owner_org_id: str = Field(min_length=1, max_length=64)
     label: str = Field(min_length=2, max_length=128)
+    ingress: IngressMetadata = Field(default_factory=IngressMetadata)
     local_payload: dict[str, Any]
     validation_status: str | None = None
     signature_status: str | None = None

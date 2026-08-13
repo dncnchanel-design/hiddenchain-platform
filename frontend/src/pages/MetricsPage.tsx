@@ -1,16 +1,16 @@
 import { Activity, Blocks, CheckCircle2, Clock3, Cpu, Database, RefreshCw, ShieldCheck } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
-import { Button, ErrorState, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
 
 const adapters = [
-  ["数据目录", "目录服务", "正常", "READY"],
-  ["隐私计算", "授权域内计算", "正常", "READY"],
-  ["可信凭证", "凭证记录服务", "正常", "READY"],
-  ["使用规则", "用途控制服务", "正常", "READY"],
-  ["身份认证", "主体身份服务", "正常", "READY"],
+  ["可信采集", "来源证明与格式校验", "虚拟仿真可用", "READY"],
+  ["安全传输", "HTTPS / MQTT / WebSocket", "接口边界", "READY"],
+  ["可控使用", "DID + 数据合同 + PEP/PDP", "策略执行", "READY"],
+  ["隐私计算", "PSI / MPC / 联邦 / TEE 路由", "适配器就绪", "READY"],
+  ["可溯审计", "算前 / 算中 / 算后证据", "链证核验", "READY"],
 ];
 
 export function MetricsPage() {
@@ -30,26 +30,32 @@ export function MetricsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全与管理" title="系统状态" description="查看计算、凭证和服务运行状态。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="安全与管理" title="验收指标" description="查看数据流通效率、隐私边界和审计完整性等可量化指标。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <Notice>以下指标为{data.measurement_scope || "当前演示样本"}的实测结果；赛题要求的相对提升比例，需要后续接入生产基线后再计算。</Notice>
       <div className="metrics-grid five">
-        <Metric label="平均计算耗时" value={`${data.compute_cost_ms} ms`} meta="最近记录" />
-        <Metric label="凭证核验率" value={`${data.verify_rate}%`} meta="哈希一致" tone="green" />
-        <Metric label="过程记录" value={data.agent_event_count} meta="已留痕" />
-        <Metric label="可信凭证" value={data.evidence_count} meta="已生成" />
-        <Metric label="原始数据集中存储" value={data.raw_data_centralized} meta="当前记录" tone="green" />
+        <Metric label="平均计算耗时" value={`${data.compute_cost_ms} ms`} meta="隐私计算回执" />
+        <Metric label="调用完成率" value={`${data.data_flow_efficiency_pct ?? 0}%`} meta="任务完成 / 总任务" tone="green" />
+        <Metric label="隐私安全记录率" value={`${data.privacy_protection_rate_pct ?? 0}%`} meta="未导出原始数据" tone="green" />
+        <Metric label="证据核验率" value={`${data.verify_rate}%`} meta="哈希一致" tone="green" />
+        <Metric label="原始数据出域率" value={`${data.raw_data_exposure_rate_pct ?? 0}%`} meta="目标为 0" tone="green" />
       </div>
       <div className="content-grid metrics-layout">
-        <Surface title="运行趋势">
+        <Surface title="实测指标趋势">
           <div className="chart-block"><ResponsiveContainer width="100%" height={300}><BarChart data={chartData}><CartesianGrid stroke="#d7e3ef" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 10, fill: "#63778e" }} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip /><Bar dataKey="value" fill="#0b5cab" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>
         </Surface>
         <Surface title="安全检查">
           <div className="acceptance-list">
-            <div><Database size={18} /><span>原始数据集中存储</span><strong>0 条</strong><StatusTag value="PASSED" /></div>
-            <div><ShieldCheck size={18} /><span>策略绕过事件</span><strong>0 次</strong><StatusTag value="PASSED" /></div>
-            <div><Blocks size={18} /><span>算前/中/后证据</span><strong>完整</strong><StatusTag value="PASSED" /></div>
-            <div><Cpu size={18} /><span>确定性结算执行</span><strong>启用</strong><StatusTag value="PASSED" /></div>
+            <div><Database size={18} /><span>原始数据进入业务库</span><strong>0 条</strong><StatusTag value="PASSED" label="符合要求" /></div>
+            <div><ShieldCheck size={18} /><span>用途策略绕过</span><strong>0 次</strong><StatusTag value="PASSED" label="符合要求" /></div>
+            <div><Blocks size={18} /><span>算前 / 算中 / 算后证据</span><strong>完整</strong><StatusTag value="PASSED" label="符合要求" /></div>
+            <div><Cpu size={18} /><span>最小化结果输出</span><strong>启用</strong><StatusTag value="PASSED" label="符合要求" /></div>
           </div>
         </Surface>
+      </div>
+      <div className="metrics-grid three">
+        <Metric label="授权调用次数" value={data.authorized_call_count ?? 0} meta={`${data.authorized_agreement_count ?? 0} 份协议`} />
+        <Metric label="已登记数据引用" value={data.active_data_refs} meta="原文不进入业务库" />
+        <Metric label="可信凭证" value={data.evidence_count} meta="算前 / 算中 / 算后" />
       </div>
       <Surface title="服务组件">
         <div className="adapter-matrix">

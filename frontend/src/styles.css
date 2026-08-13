@@ -2986,6 +2986,85 @@ tbody tr:hover td {
 .adapter-matrix span { color: #4e625c; font-size: 9px; }
 .adapter-matrix i { color: #9aa6a2; font-style: normal; text-align: center; }
 
+.verification-step-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.verification-step-grid article {
+  min-height: 150px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-top: 3px solid #9bb4c9;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.verification-step-grid article.verified { border-top-color: #2a9b81; }
+.verification-step-grid article.ready { border-top-color: #b8c7d4; }
+
+.verification-step-grid article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.verification-step-grid article > div > span:first-child {
+  color: #9ca8a4;
+  font-family: Consolas, monospace;
+  font-size: 9px;
+}
+
+.verification-step-grid article > strong {
+  display: block;
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.verification-step-grid article > p {
+  min-height: 34px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.verification-step-grid article > small {
+  display: block;
+  margin-top: 11px;
+  color: var(--blue);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.verification-result-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.verification-result-summary > div {
+  display: grid;
+  min-height: 74px;
+  grid-template-columns: 22px 1fr;
+  align-content: center;
+  column-gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: #f6faff;
+}
+
+.verification-result-summary > div > svg { grid-row: span 2; color: var(--brand); }
+.verification-result-summary span { color: var(--muted); font-size: 9px; }
+.verification-result-summary strong { margin-top: 4px; font-size: 11px; }
+
+.privacy-receipt-grid {
+  margin-top: 12px;
+}
+
 .scenario-coupling {
   display: flex;
   align-items: stretch;
@@ -3036,6 +3115,15 @@ tbody tr:hover td {
 .scenario-fragment article > strong,
 .scenario-fragment article > b {
   display: block;
+}
+
+@media (max-width: 1100px) {
+  .verification-step-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 680px) {
+  .verification-step-grid,
+  .verification-result-summary { grid-template-columns: 1fr; }
 }
 
 .scenario-fragment article > strong {

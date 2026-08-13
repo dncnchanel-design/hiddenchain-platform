@@ -74,7 +74,7 @@ export function DataSpacePage() {
           <Notice>满足以上条件后，数据才可进入授权计算。</Notice>
         </Surface>
       </div>
-      <Surface title="可用数据">
+      <Surface title="可用数据产品" note="目录只公开元数据、质量和用途，不公开原始明细">
         <DataTable
           keyField="data_product_id"
           rows={entries}
@@ -86,6 +86,7 @@ export function DataSpacePage() {
             { key: "schema_version", label: "版本" },
             { key: "unit", label: "单位" },
             { key: "sensitivity_level", label: "敏感等级", render: (row) => <StatusTag value={row.sensitivity_level} /> },
+            { key: "transport", label: "来源与传输", render: (row) => `${row.transport?.protocol || "HTTPS"} · ${row.transport?.encryption || "TLS1.3"}` },
             { key: "usage", label: "输出约束", render: (row) => row.usage?.raw_data_export === false ? "仅聚合输出" : "需复核" },
           ]}
         />
@@ -108,10 +109,12 @@ export function DataSpacePage() {
         />
       </Surface>
       <div className="content-grid two-equal">
-        <Surface title="调用边界">
+        <Surface title="接入与安全边界">
           <div className="detail-grid">
             <div><span>目录地址</span><strong>catalog://hiddenchain/energy-v1</strong></div>
             <div><span>身份校验</span><strong><Fingerprint size={15} /> 已启用</strong></div>
+            <div><span>接入协议</span><strong>HTTPS · MQTT · WebSocket</strong></div>
+            <div><span>覆盖链路</span><strong>终端 · 边缘 · 云 · 业务</strong></div>
             <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不出域</strong></div>
           </div>
         </Surface>

@@ -80,6 +80,8 @@ def list_uploads(
             **model_dict(item),
             "owner_org_name": org_names.get(item.owner_org_id),
             "raw_payload_exposed": False,
+            "trusted_acquisition": bool(item.ingress_json),
+            "secure_transport": item.ingress_json or {"protocol": "HTTPS", "encryption": "TLS1.3"},
         }
         for item in records
     ]
@@ -125,6 +127,7 @@ def create_upload(
         schema_version=payload.schema_version,
         validation_status="PENDING",
         summary_json={},
+        ingress_json=payload.ingress.model_dump(),
     )
     db.add(record)
     db.flush()
@@ -139,11 +142,24 @@ def create_upload(
         "record_count": payload.local_payload.get("record_count", 1),
         "period": payload.local_payload.get("period"),
         "raw_data_stored_in_business_db": False,
+        "trusted_acquisition": True,
+        "secure_transport": payload.ingress.model_dump(),
     }
     did = db.scalar(select(DidIdentity).where(DidIdentity.owner_id == owner_org_id))
     record.signature_value = sign_value(
         {"upload_id": record.upload_id, "data_hash": data_hash},
         did.did_id if did else owner_org_id,
+    )
+    db.add(
+        Signature(
+            signer_org_id=owner_org_id,
+            signer_did=did.did_id if did else f"did:hiddenchain:org:{owner_org_id}",
+            target_type="DATA_UPLOAD",
+            target_id=record.upload_id,
+            target_hash=data_hash,
+            signature_value=record.signature_value,
+            verify_status="VALID",
+        )
     )
     add_audit_log(
         db,

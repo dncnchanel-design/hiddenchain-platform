@@ -48,23 +48,23 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     ],
   },
   EXCHANGE: {
-    title: "业务协同工作台",
-    description: "发起数据调用与计算任务，跟踪结果和可信凭证。",
-    nextStep: "发起业务验证",
+    title: "可信调用工作台",
+    description: "组织跨主体数据调用，确认隐私计算和可核验证据。",
+    nextStep: "导入验证文件",
     nextPath: "/settlements",
     actions: [
-      { title: "发起业务验证", description: "选择参与主体，生成一笔待执行任务。", cta: "创建任务", path: "/settlements", icon: Calculator },
-      { title: "查看使用规则", description: "确认数据用途和结果范围。", cta: "查看规则", path: "/rules", icon: Gavel },
-      { title: "查看计算结果", description: "跟踪计算状态和可信回执。", cta: "进入计算", path: "/compute", icon: Network },
+      { title: "导入验证文件", description: "校验数据来源、授权范围并自动运行一笔仿真任务。", cta: "开始导入", path: "/settlements", icon: Calculator },
+      { title: "检查使用规则", description: "确认数据用途、输出范围和访问次数。", cta: "查看规则", path: "/rules", icon: Gavel },
+      { title: "查看隐私回执", description: "核对计算策略、结果哈希和原始数据边界。", cta: "进入回执", path: "/compute", icon: Network },
     ],
   },
   REGULATOR: {
-    title: "监管方工作台",
-    description: "从任务、凭证和风险记录判断一次数据调用是否可信。",
-    nextStep: "查看最近业务验证",
+    title: "可信调用审计台",
+    description: "从任务、凭证和风险记录判断一次跨主体数据调用是否可信。",
+    nextStep: "查看最近可信调用",
     nextPath: "/audit",
     actions: [
-      { title: "查看业务验证", description: "按任务查看调用、计算和结果记录。", cta: "开始审计", path: "/audit", icon: ClipboardCheck },
+      { title: "查看可信调用", description: "按任务查看采集、授权、计算和审计记录。", cta: "开始审计", path: "/audit", icon: ClipboardCheck },
       { title: "处理风险事件", description: "查看待处置风险并记录处理意见。", cta: "查看风险", path: "/anomalies", icon: ShieldCheck },
       { title: "查看审计报告", description: "查看已生成的审计报告和凭证。", cta: "查看报告", path: "/reports", icon: FileCheck2 },
     ],
@@ -119,9 +119,9 @@ export function WorkbenchPage() {
       </div>
 
       <div className="workbench-kpis">
-        <Metric label="待处理任务" value={pendingTasks} meta="需要继续操作" tone={pendingTasks ? "amber" : "green"} />
-        <Metric label="已完成任务" value={auditedTasks} meta="已形成完整回执" tone="green" />
-        <Metric label="可核验证据" value={evidenceCount} meta="授权、计算与结果记录" />
+        <Metric label="待验证任务" value={pendingTasks} meta="需要继续操作" tone={pendingTasks ? "amber" : "green"} />
+        <Metric label="已完成调用" value={auditedTasks} meta="已形成完整回执" tone="green" />
+        <Metric label="可核验证据" value={evidenceCount} meta="授权、计算与审计记录" />
       </div>
 
       <Surface title="快捷入口">
@@ -137,7 +137,7 @@ export function WorkbenchPage() {
       </Surface>
 
       <div className="content-grid overview-grid">
-        <Surface title="最近任务" actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={14} /></Link>}>
+        <Surface title="最近可信调用" actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={14} /></Link>}>
           <DataTable
             keyField="task_id"
             rows={data.slice(0, 6)}

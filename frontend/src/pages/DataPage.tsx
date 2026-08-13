@@ -105,6 +105,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
             { key: "trade_batch_no", label: "批次" },
             { key: "data_ref", label: "数据引用", render: (row) => <CodeValue title={row.data_ref}>{shortHash(row.data_ref, 14)}</CodeValue> },
             { key: "data_hash", label: "数据哈希", render: (row) => <CodeValue title={row.data_hash}>{shortHash(row.data_hash)}</CodeValue> },
+            { key: "secure_transport", label: "来源证明", render: (row) => `${row.secure_transport?.protocol || "HTTPS"} · ${row.secure_transport?.encryption || "TLS1.3"}` },
             { key: "summary_json", label: "记录数", render: (row) => row.summary_json?.record_count ?? "-" },
             { key: "validation_status", label: "校验", render: (row) => <StatusTag value={row.validation_status} /> },
             { key: "created_at", label: "登记时间", render: (row) => formatDate(row.created_at) },
@@ -170,7 +171,7 @@ function UploadModal({ options, defaultAssetType, onClose, onCreated }: { option
       <div className="form-grid two">
         {options.length > 1 && <Field label="资产类型"><select value={assetType} onChange={(event) => { setAssetType(event.target.value); setLabel(`2026年7月${assetNames[event.target.value]}`); }}>{options.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select></Field>}
         <Field label="资产名称"><input value={label} onChange={(event) => setLabel(event.target.value)} /></Field>
-        <Field label="交易批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
+        <Field label="验证批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
         <Field label="数据期间"><input value={period} onChange={(event) => setPeriod(event.target.value)} /></Field>
         {isEnergy && <Field label="电量（MWh）"><input type="number" value={energy} onChange={(event) => setEnergy(event.target.value)} /></Field>}
         {assetType === "RENEWABLE_FORECAST" && <><Field label="预测电量（MWh）"><input type="number" value={energy} onChange={(event) => setEnergy(event.target.value)} /></Field><Field label="预测准确率（%）"><input type="number" value={accuracy} onChange={(event) => setAccuracy(event.target.value)} /></Field></>}

@@ -300,6 +300,8 @@ class DataSpaceConnectorAdapter:
 
     code = "HCDS_CONNECTOR_1_0"
     protocol_version = "HCDS-1.0"
+    transport_protocols = ["HTTPS", "MQTT", "WebSocket"]
+    connected_layers = ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"]
 
     @staticmethod
     def data_product_id(upload: DataUpload) -> str:
@@ -344,6 +346,13 @@ class DataSpaceConnectorAdapter:
                 "raw_data_export": False,
             },
             "raw_data_exposed": False,
+            "transport": {
+                "protocol": upload.ingress_json.get("protocol", "HTTPS"),
+                "protocols": DataSpaceConnectorAdapter.transport_protocols,
+                "source_layer": upload.ingress_json.get("stage", "EDGE"),
+                "encryption": upload.ingress_json.get("encryption", "TLS1.3"),
+                "attestation": upload.ingress_json.get("attestation", "虚拟仿真来源证明"),
+            },
         }
 
     @staticmethod

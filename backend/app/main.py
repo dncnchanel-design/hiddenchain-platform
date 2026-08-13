@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .database import SessionLocal, engine
+from .database import SessionLocal, engine, ensure_runtime_schema
 from .models import Base
 from .routers import audit, auth, data, system, trade, trust
 from .seed import seed_demo
@@ -18,6 +18,7 @@ from .seed import seed_demo
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
     if settings.demo_seed:
         with SessionLocal() as db:
             seed_demo(db)

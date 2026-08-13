@@ -39,3 +39,15 @@ class LocalDomainVault:
         path = VAULT_DIR / parts[0] / f"{parts[1]}.json"
         return json.loads(path.read_text(encoding="utf-8"))
 
+    @classmethod
+    def delete(cls, data_ref: str) -> None:
+        """Remove one newly-created local-domain object during transaction rollback."""
+        if not data_ref.startswith(cls.scheme):
+            return
+        relative = data_ref.removeprefix(cls.scheme)
+        parts = Path(relative).parts
+        if len(parts) != 2 or any(part in {".", ".."} for part in parts):
+            return
+        path = VAULT_DIR / parts[0] / f"{parts[1]}.json"
+        if path.is_file():
+            path.unlink()

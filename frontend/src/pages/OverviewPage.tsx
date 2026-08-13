@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import { useRemote } from "../hooks";
 import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
-import { Button, DataTable, ErrorState, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, DataTable, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 
 const capabilityIcons: Record<string, React.ElementType> = {
   IDENTITY: Fingerprint,
@@ -37,11 +37,11 @@ const chainLabels: Record<string, string> = {
 };
 
 const flow = [
-  ["查找数据", "数据目录"],
-  ["确认授权", "身份与用途"],
-  ["开始计算", "授权范围内"],
-  ["查看结果", "只返回必要结果"],
-  ["核验凭证", "结果可复核"],
+  ["可信采集", "来源与格式校验"],
+  ["安全传输", "加密接口接入"],
+  ["可控使用", "DID与用途授权"],
+  ["隐私计算", "原始数据不出域"],
+  ["可溯审计", "结果与证据核验"],
 ];
 
 type OverviewData = {
@@ -99,7 +99,7 @@ export function OverviewPage() {
         <Metric label="待处理风险" value={summary.kpis.open_anomalies} meta="需要关注" tone={summary.kpis.open_anomalies ? "red" : "green"} />
       </div>
 
-      <Surface title="一次完整调用">
+      <Surface title="一次完整可信调用">
         <div className="trust-flow">
           {flow.map(([title, note], index) => (
             <div className="flow-fragment" key={title}>
@@ -110,23 +110,18 @@ export function OverviewPage() {
         </div>
       </Surface>
 
-      <Surface title="当前业务场景">
-        <div className="scenario-coupling">
-          {summary.scenario_coordination.map((item: JsonRecord, index: number) => {
-            const Icon = scenarioIcons[item.code] || CheckCircle2;
-            return (
-              <div className="scenario-fragment" key={item.code}>
-                <article>
-                  <header><span><Icon size={19} /></span><small>0{index + 1}</small><StatusTag value={item.status} /></header>
-                  <strong>{SCENARIO_LABELS[item.code] || item.name}</strong>
-                  <b>{item.metric}</b>
-                  <dl><dt>输入</dt><dd>{item.input}</dd><dt>输出</dt><dd>{item.output}</dd></dl>
-                </article>
-                {index < summary.scenario_coordination.length - 1 && <ArrowRight size={18} />}
-              </div>
-            );
-          })}
+      <Surface title="赛题要求的全链路验证">
+        <div className="verification-step-grid">
+          {(summary.verification_steps || []).map((item: JsonRecord, index: number) => (
+            <article key={item.code} className={item.status === "PASSED" ? "verified" : "ready"}>
+              <div><span>0{index + 1}</span><StatusTag value={item.status} /></div>
+              <strong>{item.name}</strong>
+              <p>{item.description}</p>
+              <small>{item.metric}</small>
+            </article>
+          ))}
         </div>
+        <Notice>电力交易只作为验证场景：用同一条可信调用链证明跨主体数据可用不可见、可控可计量、可溯可审计。</Notice>
       </Surface>
 
       <div className="content-grid overview-grid">
@@ -164,20 +159,13 @@ export function OverviewPage() {
         </Surface>
       </div>
 
-      <Surface title="可信凭证">
-        <div className="four-chain-grid">
-          {summary.four_chain_fusion.map((item: JsonRecord) => {
-            const Icon = chainIcons[item.code] || ShieldCheck;
-            return (
-                <div key={item.code}>
-                <span><Icon size={19} /></span>
-                <div><strong>{chainLabels[item.code] || item.name}</strong><small>{item.artifact}</small></div>
-                <b>{item.metric}</b>
-                <em>{item.unit}</em>
-              </div>
-            );
-          })}
-        </div>
+      <Surface title="最近一次验证结果" actions={<Link className="text-link" to="/settlements">进入验证 <ArrowRight size={15} /></Link>}>
+        {summary.latest_verification ? <div className="verification-result-summary">
+          <div><ShieldCheck size={21} /><span>状态</span><StatusTag value={summary.latest_verification.status} /></div>
+          <div><Database size={21} /><span>数据资产</span><strong>{summary.latest_verification.verification_profile?.trusted_acquisition ? "已完成来源校验" : "待登记"}</strong></div>
+          <div><LockKeyhole size={21} /><span>隐私边界</span><strong>{summary.latest_verification.verification_profile?.raw_data_exposed === false ? "原始数据未出域" : "待验证"}</strong></div>
+          <div><Blocks size={21} /><span>审计证据</span><strong>{summary.latest_verification.verification_profile?.evidence_count || summary.latest_verification.evidence_count || 0} 项可核验</strong></div>
+        </div> : <div className="empty-state">还没有验证任务，请从数据目录开始。</div>}
       </Surface>
 
       <Surface title="最近任务" actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={15} /></Link>}>

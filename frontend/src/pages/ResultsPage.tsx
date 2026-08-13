@@ -26,8 +26,8 @@ export function ResultsPage() {
     setBusy(row.result_id);
     setMessage("");
     try {
-      await post(`/results/${row.result_id}/confirm`, { opinion: "同意结算结果" });
-      setMessage("本方已对结果哈希完成 DID 签名确认。");
+      await post(`/results/${row.result_id}/confirm`, { opinion: "同意场景结果" });
+      setMessage("本方已对场景结果哈希完成 DID 签名确认。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "确认失败");
@@ -41,21 +41,21 @@ export function ResultsPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `settlement-receipt-${row.result_id}.json`;
+    anchor.download = `verification-receipt-${row.result_id}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
   if (loading) return <LoadingState />;
-  if (error || !data) return <ErrorState message={error || "结算结果加载失败"} retry={reload} />;
+  if (error || !data) return <ErrorState message={error || "结果回执加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader eyebrow="计算与回执" title="结果回执" description="查看本方结果、确认状态和可下载凭证。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="计算与回执" title="结果回执" description="查看本方最小结果、确认状态和可下载凭证。电量与金额仅作为能源场景验证输出。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
         <div className="metric"><span>结果数量</span><strong>{totals.rows}</strong><small>本方可见</small></div>
         <div className="metric metric-green"><span>已确认</span><strong>{totals.confirmed}</strong><small>签名有效</small></div>
-        <div className="metric"><span>金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>汇总结果</small></div>
+        <div className="metric"><span>场景金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>验证输出参考</small></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface title="结果清单">
@@ -66,8 +66,8 @@ export function ResultsPage() {
             { key: "task_id", label: "验证任务", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{row.task_id}</button> },
             { key: "org_id", label: "结果主体", render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || row.org_id : "平台汇总结果" },
             { key: "result_scope", label: "结果类型", render: (row) => RESULT_SCOPE_LABELS[row.result_scope] || row.result_scope },
-            { key: "energy", label: "结算电量", render: (row) => `${row.result_json?.settlement_energy_mwh ?? "-"} MWh` },
-            { key: "amount", label: "结算金额", render: (row) => formatMoney(row.result_json?.amount_yuan ?? row.result_json?.payable_amount_yuan) },
+            { key: "energy", label: "场景电量", render: (row) => `${row.result_json?.settlement_energy_mwh ?? "-"} MWh` },
+            { key: "amount", label: "场景金额", render: (row) => formatMoney(row.result_json?.amount_yuan ?? row.result_json?.payable_amount_yuan) },
             { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
             { key: "confirm_status", label: "确认状态", render: (row) => <StatusTag value={row.confirm_status} /> },
             { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },

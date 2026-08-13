@@ -28,6 +28,8 @@ def test_role_and_data_domain_boundaries(client, auth_headers):
     assert own_data.json()
     assert all(item["owner_org_id"] == "org-generator-demo" for item in own_data.json())
     assert all(item["raw_payload_exposed"] is False for item in own_data.json())
+    assert all(item["trusted_acquisition"] is True for item in own_data.json())
+    assert all(item["secure_transport"]["encryption"] == "TLS1.3" for item in own_data.json())
     assert all("energy_mwh" not in item for item in own_data.json())
 
     denied_upload = client.post(
@@ -55,6 +57,9 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
     assert result["task"]["risk_level"] == "LOW"
     assert result["compute_job"]["status"] == "SUCCESS"
     assert result["compute_job"]["raw_data_exposed"] is False
+    assert result["compute_job"]["privacy_guarantees"]["raw_data_exported"] is False
+    assert result["verification_profile"]["traceable_audit"] is True
+    assert result["verification_profile"]["acceptance_metrics"]["raw_data_transferred"] == 0
     assert len(result["results"]) >= 2
     assert len(result["evidence"]) >= 4
     assert result["report"]["conclusion"] == "PASS"
@@ -123,6 +128,13 @@ def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, 
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["scenario_coordination"]) == 4
+    assert [item["code"] for item in payload["verification_steps"]] == [
+        "TRUSTED_ACQUISITION",
+        "SECURE_TRANSPORT",
+        "CONTROLLED_USE",
+        "PRIVACY_COMPUTE",
+        "TRACEABLE_AUDIT",
+    ]
     assert {item["code"] for item in payload["four_chain_fusion"]} == {
         "DID",
         "PRIVACY",
@@ -149,6 +161,7 @@ def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     payload = catalog.json()
     assert payload["protocol_version"] == "HCDS-1.0"
     assert payload["raw_data_exposed"] is False
+    assert payload["entries"][0]["transport"]["encryption"] == "TLS1.3"
     assert "USER_LOAD_CURVE" in payload["supported_asset_types"]
     assert {item["asset_type"] for item in payload["entries"]} >= {
         "GENERATION_DATA",
@@ -355,6 +368,7 @@ def test_retailer_cannot_analyze_another_organization_load_curve(client, auth_he
 def test_import_fixture_runs_settlement_end_to_end(client, auth_headers):
     fixture_path = Path(__file__).resolve().parents[2] / "demo-data" / "2026-08-simulation-input.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture["is_simulated"] = False
     response = client.post(
         "/api/settlement/import-and-run",
         headers=auth_headers["exchange"],
@@ -368,4 +382,29 @@ def test_import_fixture_runs_settlement_end_to_end(client, auth_headers):
     assert result["compute_job"]["raw_data_exposed"] is False
     assert result["privacy_analysis"]["status"] == "SUCCESS"
     assert result["privacy_analysis"]["raw_records_returned"] is False
+    assert result["uploads"][0]["ingress_json"]["protocol"] == "HTTPS"
+    assert result["task"]["verification_profile"]["secure_transport"] is True
+    assert result["verification_profile"]["mode"] == "SCENE_DATA_METADATA"
+    assert result["verification_profile"]["is_simulated"] is False
     assert len(result["evidence"]) >= 4
+
+
+def test_import_accepts_real_scene_flag_and_rolls_back_failed_run(client, auth_headers):
+    fixture_path = Path(__file__).resolve().parents[2] / "demo-data" / "2026-08-simulation-input.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture["fixture_id"] = "hiddenchain-real-scene-metadata-rollback"
+    fixture["is_simulated"] = False
+    fixture["batch"]["trade_batch_no"] = "TB-ROLLBACK-202608"
+    fixture["business_validation_request"]["task_name"] = "失败后应回滚的可信调用"
+    fixture["data_assets"][4]["local_payload"]["n_minus_one_passed"] = False
+    fixture["privacy_analysis_request"] = None
+    fixture["data_assets"][1]["local_payload"]["energy_mwh"] = 99999
+    response = client.post(
+        "/api/settlement/import-and-run",
+        headers=auth_headers["exchange"],
+        json=fixture,
+    )
+    assert response.status_code == 400
+    assert "Grid security gate" in response.json()["detail"]
+    tasks = client.get("/api/settlement/tasks", headers=auth_headers["exchange"]).json()
+    assert all(item["trade_batch_no"] != "TB-ROLLBACK-202608" for item in tasks)

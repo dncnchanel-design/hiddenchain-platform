@@ -2,6 +2,8 @@
 
 平台的核心能力是“可信数据调用”和“隐私计算”；能源电力交易只是当前最完整的验证场景。所有场景都应复用数据产品目录、用途控制、计算策略和可验证回执，而不是把平台建模成单一交易系统。
 
+赛题验收主线固定为：`可信采集 → 安全传输 → 可控使用 → 隐私计算 → 可溯审计`。系统首页和验证页按这条主线组织，交易金额、结算结果只作为场景输出。
+
 ## 1. 代码边界
 
 平台把 Agent 控制面与确定性执行面分开：
@@ -19,7 +21,7 @@
 | 用户层 | `frontend/src` | React 18 模块界面、角色菜单 | 国网统一门户/移动端 |
 | 业务层 | `backend/app/routers` | 结算、隐私分析、审计 REST API | 微服务与 API 网关 |
 | Agent 层 | `services/workflow.py` | 四类能源专业 Agent + 编排/报告 Agent | Agent Runtime/工作流引擎 |
-| 可信数据空间层 | `services/adapters.py`、`routers/data.py`、`routers/trade.py` | HCDS-1.0 轻量 Connector、数据产品目录、合同协商、PEP/PDP 使用控制和 ComputeReceipt 关联；底层计算/链仍为可替换适配器 | EDC Connector + OPA + 企业数据网关 |
+| 可信数据空间层 | `services/adapters.py`、`routers/data.py`、`routers/trade.py` | HCDS-1.0 轻量 Connector、来源/传输元数据、数据产品目录、合同协商、PEP/PDP 使用控制和 ComputeReceipt 关联；底层计算/链仍为可替换适配器 | EDC Connector + OPA + 企业数据网关 |
 | 隐私计算层 | `AdaptivePrivacyRouter`、`MockPrivacyComputeAdapter` | 场景策略路由、本地多方域模拟、确定性结算 | SecretFlow/FL/HEU/TEE 多节点部署 |
 | 区块链层 | `MockBlockchainAdapter` | 交易哈希、区块高度、证据核验 | FISCO BCOS 证据合约 |
 | 数据层 | `models.py`、`services/vault.py` | SQLite + 组织域 Vault | PostgreSQL + 企业数据网关 |
@@ -83,6 +85,8 @@
 2. 结算工作流为每个提供方生成 DataContract，并通过 `DataSpaceConnectorAdapter.negotiate` 完成提供方/使用方 DID、算法、用途、期限和数据产品 ID 的协议协商。
 3. `DataSpaceConnectorAdapter.enforce` 按 PEP/PDP 思路检查主体、用途、胶囊、算法、执行环境、输出模式、有效期和使用次数。
 4. 计算完成后生成带协议 ID、使用决定、输入承诺、输出哈希和原始数据导出标记的 DataSpace receipt，并写入三阶段证据。
+
+导入文件还可为每类数据声明 `ingress`：来源类型、接入层（终端/边缘/云端/业务）、HTTPS/MQTT/WebSocket 协议、TLS 版本和来源证明。导入接口先完成整份清单校验，再写入主体域 Vault；后续计算或安全闸门失败时，数据库记录与新写入的 Vault 原文一并回滚。
 
 新增 `data_space_agreements` 表用于保存协议状态：`OFFERED → NEGOTIATED → ACTIVE → CONSUMED`。这让“访问控制”与“访问后使用控制”区分开来，也为后续替换真实 EDC/OPA 保留稳定接口。
 

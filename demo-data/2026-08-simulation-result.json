@@ -10,6 +10,22 @@
     "capsule_id": "HC-CAPSULE-202608-62C8BB67",
     "status": "AUDITED",
     "current_stage": "监管审计完成",
+    "verification_profile": {
+      "mode": "VIRTUAL_SIMULATION",
+      "trusted_acquisition": true,
+      "secure_transport": true,
+      "controlled_use": true,
+      "privacy_compute": true,
+      "traceable_audit": true,
+      "raw_data_exposed": false,
+      "protocols": ["HTTPS", "MQTT", "WebSocket"],
+      "connected_layers": ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"],
+      "evidence_stages": ["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"],
+      "acceptance_metrics": {
+        "raw_data_transferred": 0,
+        "evidence_verify_rate_pct": 100
+      }
+    },
     "risk_level": "LOW",
     "result_count": 3,
     "evidence_count": 4,

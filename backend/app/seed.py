@@ -31,7 +31,7 @@ ORGS = [
 USERS = [
     ("user-generator", "org-generator-demo", "generator", "generator123", "发电企业业务员", "GENERATOR"),
     ("user-retailer", "org-retailer-demo", "retailer", "retailer123", "售电企业业务员", "RETAILER"),
-    ("user-exchange", "org-exchange-demo", "exchange", "exchange123", "交易中心结算员", "EXCHANGE"),
+    ("user-exchange", "org-exchange-demo", "exchange", "exchange123", "交易中心验证员", "EXCHANGE"),
     ("user-regulator", "org-regulator-demo", "regulator", "regulator123", "监管审计员", "REGULATOR"),
     ("user-admin", "org-admin-demo", "admin", "admin123", "平台系统管理员", "ADMIN"),
 ]
@@ -60,10 +60,19 @@ def _seed_upload(
         schema_version="v1.0",
         validation_status="PASSED",
         signature_value=sign_value({"data_hash": data_hash}, f"did:hiddenchain:org:{owner_org_id}"),
+        ingress_json={
+            "source_type": "SIMULATION_EDGE_GATEWAY",
+            "protocol": "HTTPS",
+            "stage": "EDGE",
+            "encryption": "TLS1.3",
+            "attestation": "虚拟仿真采集源证明",
+        },
         summary_json={
             "record_count": payload.get("record_count", 1),
             "period": payload.get("period", "2026-06"),
             "raw_data_stored_in_business_db": False,
+            "trusted_acquisition": True,
+            "secure_transport": {"protocol": "HTTPS", "encryption": "TLS1.3"},
         },
     )
     db.add(upload)
@@ -145,9 +154,9 @@ def seed_demo(db: Session) -> None:
     db.add(
         SettlementRule(
             rule_id="rule-settlement-demo",
-            rule_name="山东电力交易月度结算演示规则",
+            rule_name="山东能源场景可信验证规则",
             rule_version="SETTLE-2026-001",
-            description="用于比赛MVP的确定性结算规则，所有参数均为假数据。",
+            description="用于比赛MVP能源场景验证的确定性规则，所有参数均为假数据。",
             source_refs_json=["赛题方案-多方安全协同", "演示规则库-月度结算条款-01"],
             formula_dsl=formula,
             parameters_json=rule_parameters,
@@ -294,8 +303,8 @@ def seed_demo(db: Session) -> None:
     )
 
     for task_id, capsule_id, name, batch, period_start, period_end in [
-        ("task-history-demo", "HC-CAPSULE-202606-001", "2026年6月月度交易结算", "TB-2026-06-001", date(2026, 6, 1), date(2026, 6, 30)),
-        ("task-ready-demo", "HC-CAPSULE-202607-001", "2026年7月可信结算演示任务", "TB-2026-07-DEMO", date(2026, 7, 1), date(2026, 7, 31)),
+        ("task-history-demo", "HC-CAPSULE-202606-001", "2026年6月能源场景验证", "TB-2026-06-001", date(2026, 6, 1), date(2026, 6, 30)),
+        ("task-ready-demo", "HC-CAPSULE-202607-001", "2026年7月可信调用验证", "TB-2026-07-DEMO", date(2026, 7, 1), date(2026, 7, 31)),
     ]:
         task = SettlementTask(
             task_id=task_id,

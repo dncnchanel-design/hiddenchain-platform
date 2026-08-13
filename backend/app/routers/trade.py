@@ -60,9 +60,12 @@ def import_and_run_settlement(
     user: User = Depends(require_roles("EXCHANGE", "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Import a validated fixture, sign its data references, and run settlement."""
-    if not payload.is_simulated:
-        raise HTTPException(status_code=400, detail="当前入口只接受模拟数据文件")
+    """Import a validated scenario file, sign its data references, and run the proof flow.
+
+    The same contract accepts real scene metadata or virtual simulation data.  The
+    platform never treats the file flag as a security decision; schema validation,
+    participant scope, DID checks and usage policy remain the gate.
+    """
 
     asset_types = {item.asset_type for item in payload.data_assets}
     required_types = {"GENERATION_DATA", "RETAIL_DATA"}
@@ -71,21 +74,41 @@ def import_and_run_settlement(
     if len(asset_types) != len(payload.data_assets):
         raise HTTPException(status_code=400, detail="同一文件中不能重复导入相同类型的数据")
 
-    participant_orgs = {item.org_id for item in payload.business_validation_request.participants}
-    expected_participant_orgs = {"org-generator-demo", "org-retailer-demo"}
-    if participant_orgs != expected_participant_orgs:
-        raise HTTPException(status_code=400, detail="结算参与方必须包含发电企业和售电企业")
+    participants = payload.business_validation_request.participants
+    if len(participants) != 2 or {item.role_in_task for item in participants} != {"GENERATOR", "RETAILER"}:
+        raise HTTPException(status_code=400, detail="验证参与方必须包含一个发电主体和一个售电主体")
+    participant_by_role = {item.role_in_task: item.org_id for item in participants}
+    exchange_org_id = str(payload.organizations.get("exchange", {}).get("org_id") or "")
+    exchange_org = db.get(Organization, exchange_org_id) if exchange_org_id else None
+    if exchange_org is None or exchange_org.org_type != "EXCHANGE":
+        exchange_org_id = db.scalar(select(Organization.org_id).where(Organization.org_type == "EXCHANGE")) or ""
+    if not exchange_org_id:
+        raise HTTPException(status_code=400, detail="验证文件未绑定有效的交易中心主体")
+    for participant in participants:
+        organization = db.get(Organization, participant.org_id)
+        if organization is None or organization.org_type != participant.role_in_task:
+            raise HTTPException(status_code=400, detail="参与主体身份与任务角色不匹配")
 
     active_rule = db.get(SettlementRule, payload.business_validation_request.rule_id)
     if active_rule is None or active_rule.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="文件绑定的使用规则不存在或未启用")
 
-    uploaded: list[DataUpload] = []
+    # Validate the complete manifest before writing anything to a domain Vault.
     for asset in payload.data_assets:
         if not _import_asset_allowed(user, asset.asset_type, asset.owner_org_id):
             raise HTTPException(status_code=403, detail=f"无权导入{asset.asset_type}数据")
         if db.get(Organization, asset.owner_org_id) is None:
             raise HTTPException(status_code=400, detail=f"数据主体不存在：{asset.owner_org_id}")
+        expected_owner = {
+            "GENERATION_DATA": participant_by_role["GENERATOR"],
+            "RENEWABLE_FORECAST": participant_by_role["GENERATOR"],
+            "RETAIL_DATA": participant_by_role["RETAILER"],
+            "USER_LOAD_CURVE": participant_by_role["RETAILER"],
+            "VPP_RESOURCE": participant_by_role["RETAILER"],
+            "GRID_CONSTRAINT": exchange_org_id,
+        }[asset.asset_type]
+        if asset.owner_org_id != expected_owner:
+            raise HTTPException(status_code=400, detail=f"{asset.asset_type}数据提供方与任务角色不匹配")
         try:
             DataUploadCreate(
                 asset_type=asset.asset_type,
@@ -93,10 +116,14 @@ def import_and_run_settlement(
                 label=asset.label,
                 local_payload=asset.local_payload,
                 owner_org_id=asset.owner_org_id,
+                ingress=asset.ingress,
             )
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"{asset.asset_type}数据格式校验失败：{exc}") from exc
 
+    uploaded: list[DataUpload] = []
+    new_data_refs: list[str] = []
+    for asset in payload.data_assets:
         existing = db.scalar(
             select(DataUpload)
             .where(
@@ -121,6 +148,7 @@ def import_and_run_settlement(
             schema_version="v1.0",
             validation_status="PENDING",
             summary_json={},
+            ingress_json=asset.ingress.model_dump(),
         )
         db.add(record)
         db.flush()
@@ -130,11 +158,14 @@ def import_and_run_settlement(
         record.data_ref = data_ref
         record.data_hash = data_hash
         record.commitment = commitment
+        new_data_refs.append(data_ref)
         record.validation_status = "PASSED"
         record.summary_json = {
             "record_count": asset.local_payload.get("record_count", 1),
             "period": asset.local_payload.get("period", payload.batch.period),
             "raw_data_stored_in_business_db": False,
+            "trusted_acquisition": True,
+            "secure_transport": asset.ingress.model_dump(),
         }
         did = db.scalar(select(DidIdentity).where(DidIdentity.owner_id == asset.owner_org_id))
         record.signature_value = sign_value(
@@ -182,7 +213,7 @@ def import_and_run_settlement(
         )
         db.add(task)
         db.flush()
-        for participant in task_payload.participants:
+        for participant in participants:
             db.add(
                 TaskParticipant(
                     task_id=task.task_id,
@@ -206,7 +237,7 @@ def import_and_run_settlement(
         user=user,
         details={"fixture_id": payload.fixture_id, "asset_count": len(uploaded)},
     )
-    db.commit()
+    db.flush()
     try:
         result = run_settlement_workflow(
             db,
@@ -214,9 +245,12 @@ def import_and_run_settlement(
             actor=user,
             compute_mode=task_payload.compute_mode,
             algorithm_code=task_payload.algorithm_code,
+            commit=False,
         )
-    except (PermissionError, ValueError) as exc:
+    except (PermissionError, ValueError, OSError, KeyError) as exc:
         db.rollback()
+        for data_ref in new_data_refs:
+            LocalDomainVault.delete(data_ref)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     analysis = None
@@ -243,17 +277,26 @@ def import_and_run_settlement(
                 db.add(analysis_record)
                 db.flush()
                 try:
-                    run_privacy_analysis(db, analysis_record)
-                except ValueError as exc:
+                    run_privacy_analysis(db, analysis_record, commit=False)
+                except (ValueError, OSError, KeyError) as exc:
                     db.rollback()
+                    for data_ref in new_data_refs:
+                        LocalDomainVault.delete(data_ref)
                     raise HTTPException(status_code=400, detail=str(exc)) from exc
-                db.commit()
                 analysis = {
                     **model_dict(analysis_record),
                     "result_json": analysis_record.output_json,
                     "raw_records_returned": False,
                 }
 
+    task.verification_profile_json = {
+        **(task.verification_profile_json or {}),
+        "mode": "VIRTUAL_SIMULATION" if payload.is_simulated else "SCENE_DATA_METADATA",
+        "is_simulated": payload.is_simulated,
+    }
+    db.commit()
+    result["task"] = task_summary(db, task)
+    result["verification_profile"] = result["task"].get("verification_profile")
     return {"fixture_id": payload.fixture_id, "uploads": [model_dict(item) for item in uploaded], "privacy_analysis": analysis, **result}
 
 
@@ -295,6 +338,8 @@ def data_space_protocol(
     return {
         "protocol_version": DataSpaceConnectorAdapter.protocol_version,
         "connector_code": DataSpaceConnectorAdapter.code,
+        "transport_protocols": DataSpaceConnectorAdapter.transport_protocols,
+        "connected_layers": DataSpaceConnectorAdapter.connected_layers,
         "capabilities": [
             "CATALOG_DISCOVERY",
             "IDENTITY_VERIFICATION",
@@ -313,7 +358,9 @@ def data_space_protocol(
         "consumed_agreements": len(consumed),
         "negotiated_agreements": sum(item.state == "NEGOTIATED" for item in agreements),
         "raw_data_transferred": False,
-        "maturity_note": "标准对齐参考实现；底层 Mock 计算与 Mock 链仍保留替换边界。",
+        "trusted_acquisition": "校验通过后才登记 DataRef",
+        "secure_transport": "HTTPS/MQTT/WebSocket 接口边界已预留",
+        "maturity_note": "虚拟仿真验证实现；真实 EDC、隐私计算引擎和联盟链通过适配器替换。",
     }
 
 

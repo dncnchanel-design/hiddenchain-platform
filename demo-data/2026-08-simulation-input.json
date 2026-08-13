@@ -28,6 +28,13 @@
       "upload_id": "90a621c1-6c51-471f-946c-c33240fb8608",
       "owner_org_id": "org-generator-demo",
       "label": "模拟发电计量-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_METER",
+        "protocol": "HTTPS",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真电表来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 31,
@@ -43,6 +50,13 @@
       "upload_id": "d01b5fff-393f-47fb-a524-91203d71fca7",
       "owner_org_id": "org-retailer-demo",
       "label": "模拟售电履约-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_METER",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真计量来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 31,
@@ -58,6 +72,13 @@
       "upload_id": "6c60bd99-9998-4d00-8f9b-125465e5a184",
       "owner_org_id": "org-generator-demo",
       "label": "模拟新能源预测-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_FORECAST",
+        "protocol": "HTTPS",
+        "stage": "CLOUD",
+        "encryption": "TLS1.3",
+        "attestation": "仿真预测服务来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 31,
@@ -74,6 +95,13 @@
       "upload_id": "915d6543-d0d9-4fce-b464-f9889db3d3f4",
       "owner_org_id": "org-retailer-demo",
       "label": "模拟可调资源-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_VPP_GATEWAY",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真资源网关来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 1860,
@@ -91,6 +119,13 @@
       "upload_id": "33a420f8-0891-4a5d-ad3f-fa7a1dd7368b",
       "owner_org_id": "org-exchange-demo",
       "label": "模拟调度边界-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_DISPATCH_GATE",
+        "protocol": "WebSocket",
+        "stage": "BUSINESS",
+        "encryption": "TLS1.3",
+        "attestation": "仿真调度边界来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 24,
@@ -108,6 +143,13 @@
       "upload_id": "b6e01468-7474-4942-a7ce-4003019677ae",
       "owner_org_id": "org-retailer-demo",
       "label": "模拟用户负荷曲线-20260813124544",
+      "ingress": {
+        "source_type": "SIMULATION_MASKED_METER_GROUP",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "脱敏负荷来源证明"
+      },
       "local_payload": {
         "period": "2026-08",
         "record_count": 240,

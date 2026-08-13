@@ -75,6 +75,7 @@ class DataUpload(Base, TimestampMixin):
     validation_status: Mapped[str] = mapped_column(String(32), default="PASSED", nullable=False)
     signature_value: Mapped[str | None] = mapped_column(Text)
     summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    ingress_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class SettlementRule(Base, TimestampMixin):
@@ -105,6 +106,7 @@ class SettlementTask(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="DRAFT", nullable=False, index=True)
     risk_level: Mapped[str] = mapped_column(String(16), default="LOW", nullable=False)
     current_stage: Mapped[str] = mapped_column(String(64), default="任务创建", nullable=False)
+    verification_profile_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class TaskParticipant(Base, TimestampMixin):
@@ -176,6 +178,7 @@ class PrivacyComputeJob(Base, TimestampMixin):
     progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     logs_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    privacy_guarantees_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class SettlementResult(Base, TimestampMixin):

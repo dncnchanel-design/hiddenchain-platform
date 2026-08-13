@@ -53,7 +53,7 @@ const navGroups = [
     label: "计算与回执",
     items: [
       { code: "compute", to: "/compute", label: "隐私计算", icon: Network },
-      { code: "settlements", to: "/settlements", label: "业务验证", icon: Calculator },
+      { code: "settlements", to: "/settlements", label: "可信调用验证", icon: Calculator },
       { code: "results", to: "/results", label: "结果回执", icon: FileCheck2 },
       { code: "evidence", to: "/evidence", label: "可信凭证", icon: Blocks },
     ],
@@ -139,7 +139,7 @@ export function AppShell() {
             <NavLink to="/overview"><LayoutDashboard size={16} /><span>平台能力</span></NavLink>
             {allowed.has("data-space") && <NavLink to="/data-space"><Network size={16} /><span>数据目录</span></NavLink>}
             {allowed.has("compute") && <NavLink to="/compute"><Network size={16} /><span>隐私计算</span></NavLink>}
-            {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>业务验证</span></NavLink>}
+            {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>可信调用验证</span></NavLink>}
             {allowed.has("audit") && <NavLink to="/audit"><ClipboardCheck size={16} /><span>安全监管</span></NavLink>}
             {allowed.has("reports") && <NavLink to="/reports"><FileText size={16} /><span>审计报告</span></NavLink>}
             <div className="portal-nav-tools"><Search size={15} /><span>系统在线</span><i /></div>

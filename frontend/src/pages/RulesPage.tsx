@@ -79,7 +79,7 @@ function RuleDetail({ rule, onClose }: { rule: JsonRecord; onClose: () => void }
 }
 
 function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ name: "山东电力交易月度结算规则", price: "425", threshold: "100", penalty: "150", fee: "3.2" });
+  const [form, setForm] = useState({ name: "山东能源场景可信验证规则", price: "425", threshold: "100", penalty: "150", fee: "3.2" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const formReady = form.name.trim().length >= 2

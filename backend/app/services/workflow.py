@@ -114,6 +114,18 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
     ) or 0
     return {
         **model_dict(task),
+        "verification_profile": task.verification_profile_json or {
+            "mode": "VIRTUAL_SIMULATION",
+            "trusted_acquisition": True,
+            "secure_transport": True,
+            "controlled_use": True,
+            "privacy_compute": task.status == "AUDITED",
+            "traceable_audit": task.status == "AUDITED",
+            "raw_data_exposed": False,
+            "protocols": ["HTTPS", "MQTT", "WebSocket"],
+            "connected_layers": ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"],
+            "evidence_stages": ["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"],
+        },
         "participants": [model_dict(item) for item in participants],
         "result_count": len(results),
         "evidence_count": db.scalar(
@@ -161,6 +173,11 @@ def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
     job_payload = model_dict(job) if job else None
     if job_payload is not None:
         job_payload["raw_data_exposed"] = False
+        job_payload["privacy_guarantees"] = job.privacy_guarantees_json or {
+            "raw_data_exported": False,
+            "raw_records_returned": False,
+            "output_mode": "AGGREGATE_ONLY",
+        }
     report_payload = model_dict(report) if report else None
     if report_payload is not None:
         report_payload["conclusion"] = "PASS" if report.risk_level == "LOW" else "REVIEW_REQUIRED"
@@ -182,6 +199,14 @@ def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
             "agent_direct_raw_data_access": False,
             "deterministic_execution": True,
         },
+        "verification_profile": task.verification_profile_json or {
+            "mode": "VIRTUAL_SIMULATION",
+            "trusted_acquisition": False,
+            "secure_transport": False,
+            "controlled_use": False,
+            "privacy_compute": False,
+            "traceable_audit": False,
+        },
     }
 
 
@@ -192,6 +217,7 @@ def run_settlement_workflow(
     actor: User | None,
     compute_mode: str = "MPC_MOCK",
     algorithm_code: str = "SETTLEMENT_MPC_V1",
+    commit: bool = True,
 ) -> dict[str, Any]:
     task = db.get(SettlementTask, task_id)
     if task is None:
@@ -470,7 +496,7 @@ def run_settlement_workflow(
     )
 
     task.status = "COMPUTING"
-    task.current_stage = "隐私计算与确定性结算"
+    task.current_stage = "隐私计算与场景结果生成"
     compute_strategy = AdaptivePrivacyRouter.recommend(
         "MARKET_SETTLEMENT",
         sensitivity_level="L4",
@@ -536,6 +562,15 @@ def run_settlement_workflow(
     job.execution_attestation_json = receipt["execution_attestation"]
     job.logs_json = job.logs_json + compute_logs
     job.duration_ms = duration_ms
+    job.privacy_guarantees_json = {
+        "raw_data_exported": False,
+        "raw_records_returned": False,
+        "output_mode": "AGGREGATE_ONLY",
+        "input_commitments_only": True,
+        "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
+        "strategy": compute_strategy["primary"],
+        "strategy_hash": compute_strategy["plan_hash"],
+    }
 
     summary_result = SettlementResult(
         task_id=task.task_id,
@@ -670,15 +705,15 @@ def run_settlement_workflow(
 
     report_content = (
         f"# {task.task_name}全过程可信审计报告\n\n"
-        f"- 可信交易胶囊：{task.capsule_id}\n"
+        f"- 可信验证胶囊：{task.capsule_id}\n"
         f"- 规则版本：{rule.rule_version}（{rule.rule_hash}）\n"
         f"- 身份校验：{len(identity_proofs)}个主体VC有效\n"
         f"- 数据合同：{len(contracts)}份，策略决策均为PERMIT\n"
         f"- 隐私计算：{job.adapter_code}，原始数据未出域\n"
         f"- 四场景协同：新能源预测、市场结算、虚拟电厂响应与调度安全校核已串联\n"
         f"- 策略路由：{compute_strategy['primary']}（{compute_strategy['plan_hash']}）\n"
-        f"- 结算结果哈希：{summary_result.result_hash}\n"
-        f"- 三阶段证据：{len(evidence_items)}项，风险等级{risk_level}\n"
+        f"- 场景结果哈希：{summary_result.result_hash}\n"
+        f"- 三阶段证据：{len(evidence_items) + 1}项，风险等级{risk_level}\n"
         f"- 审计结论：{'通过' if risk_level == 'LOW' else '需复核'}。"
     )
     report_hash = sha256_json({"content": report_content, "audit_bundle": audit_bundle})
@@ -716,13 +751,35 @@ def run_settlement_workflow(
     task.status = "AUDITED"
     task.current_stage = "监管审计完成"
     task.risk_level = risk_level
+    task.verification_profile_json = {
+        "mode": "VIRTUAL_SIMULATION",
+        "scenario": "能源可信数据空间多方安全协同",
+        "trusted_acquisition": True,
+        "secure_transport": True,
+        "controlled_use": True,
+        "privacy_compute": True,
+        "traceable_audit": True,
+        "raw_data_exposed": False,
+        "protocols": ["HTTPS", "MQTT", "WebSocket"],
+        "connected_layers": ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"],
+        "evidence_stages": ["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"],
+        "evidence_count": len(evidence_items) + 1,
+        "acceptance_metrics": {
+            "compute_duration_ms": duration_ms,
+            "raw_data_transferred": 0,
+            "authorized_agreement_count": len(agreements),
+            "evidence_verify_rate_pct": round(
+                100 * sum(item["matched"] for item in verification) / max(len(verification), 1), 2
+            ),
+        },
+    }
     agent_event_count = db.scalar(
         select(func.count(AgentEvent.event_id)).where(AgentEvent.task_id == task.task_id)
     ) or 0
     db.add_all(
         [
             MetricRecord(task_id=task.task_id, metric_code="MPC_DURATION_MS", metric_value=duration_ms, metric_unit="ms"),
-            MetricRecord(task_id=task.task_id, metric_code="CHAIN_EVIDENCE_COUNT", metric_value=4, metric_unit="count"),
+            MetricRecord(task_id=task.task_id, metric_code="CHAIN_EVIDENCE_COUNT", metric_value=len(evidence_items) + 1, metric_unit="count"),
             MetricRecord(task_id=task.task_id, metric_code="VERIFY_RATE", metric_value=100 if risk_level == "LOW" else 75, metric_unit="percent"),
             MetricRecord(task_id=task.task_id, metric_code="AGENT_EVENT_COUNT", metric_value=agent_event_count, metric_unit="count"),
             MetricRecord(task_id=task.task_id, metric_code="SCENARIO_COUPLING_COUNT", metric_value=4, metric_unit="count"),
@@ -746,7 +803,8 @@ def run_settlement_workflow(
         },
         current_trace_id=run_trace,
     )
-    db.commit()
+    if commit:
+        db.commit()
     return workflow_bundle(db, task)
 
 
@@ -767,7 +825,7 @@ def create_audit_report(db: Session, task_id: str, template_code: str) -> AuditR
     events = db.scalars(select(AgentEvent).where(AgentEvent.task_id == task_id)).all()
     content = (
         f"# {task.task_name}补充审计报告\n\n"
-        f"可信交易胶囊：{task.capsule_id}\n\n"
+        f"可信验证胶囊：{task.capsule_id}\n\n"
         f"证据数量：{len(evidences)}；Agent事件数量：{len(events)}；"
         f"当前状态：{task.status}；风险等级：{task.risk_level}。"
     )
@@ -985,7 +1043,7 @@ def _template_audit_answer(
         rule = db.get(SettlementRule, task.rule_id)
         answer = f"该任务绑定规则{rule.rule_version if rule else '未知'}，RuleHash为{rule.rule_hash if rule else '未知'}。"
     elif "签名" in question or "确认" in question:
-        answer = f"当前存在{len(signatures)}条多方签名，均由主体DID对结算结果哈希签署。"
+        answer = f"当前存在{len(signatures)}条多方签名，均由主体DID对场景结果哈希签署。"
     elif "原始数据" in question or "隐私" in question:
         answer = "审计链只引用DataRef、输入承诺和ComputeReceipt；Agent、交易中心与监管方均未读取企业原始明细。"
     else:
@@ -1082,7 +1140,12 @@ def answer_audit_question(db: Session, task_id: str, question: str) -> dict[str,
         return answer
 
 
-def run_privacy_analysis(db: Session, job: PrivacyAnalysisJob) -> PrivacyAnalysisJob:
+def run_privacy_analysis(
+    db: Session,
+    job: PrivacyAnalysisJob,
+    *,
+    commit: bool = True,
+) -> PrivacyAnalysisJob:
     uploads = [db.get(DataUpload, item) for item in job.dataset_ids_json]
     eligible = [item for item in uploads if item and item.asset_type == "USER_LOAD_CURVE"]
     strategy = job.output_json.get("compute_strategy") or AdaptivePrivacyRouter.recommend(
@@ -1104,6 +1167,9 @@ def run_privacy_analysis(db: Session, job: PrivacyAnalysisJob) -> PrivacyAnalysi
     job.result_hash = sha256_json(result)
     job.status = "SUCCESS"
     db.add(MetricRecord(task_id=None, metric_code="PRIVACY_ANALYSIS_MS", metric_value=duration_ms, metric_unit="ms"))
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(job)
     return job
