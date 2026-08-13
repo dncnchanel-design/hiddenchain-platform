@@ -9,6 +9,8 @@ services:
     envVars:
       - key: DATABASE_URL
         value: sqlite:////app/runtime/hiddenchain.db
+      - key: PORT
+        value: "10000"
       - key: DEMO_SEED
         value: "true"
       - key: DEEPSEEK_ENABLED
