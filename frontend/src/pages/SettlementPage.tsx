@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Bot, CalendarDays, CheckCircle2, ChevronRight, Circle, Play, Plus, RefreshCw, ShieldCheck, Users } from "lucide-react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Bot, CalendarDays, CheckCircle2, ChevronRight, Circle, FileJson, Play, Plus, RefreshCw, ShieldCheck, Upload, Users } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
@@ -21,6 +21,7 @@ export function SettlementPage() {
   const [searchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState(searchParams.get("task") || "");
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
   const loader = async () => {
@@ -40,6 +41,7 @@ export function SettlementPage() {
   const selected = useMemo(() => data?.tasks.find((item) => item.task_id === selectedId) || null, [data, selectedId]);
   const canRun = ["EXCHANGE", "ADMIN"].includes(session!.user.role_code);
   const canCreate = session!.user.role_code === "EXCHANGE";
+  const canImport = ["EXCHANGE", "ADMIN"].includes(session!.user.role_code);
 
   async function runWorkflow() {
     if (!selected) return;
@@ -62,7 +64,7 @@ export function SettlementPage() {
 
   return (
     <>
-      <PageHeader eyebrow="计算与回执" title="业务验证" description="发起任务并查看授权、计算、结果和凭证。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建任务</Button>}</>} />
+      <PageHeader eyebrow="计算与回执" title="业务验证" description="发起任务并查看授权、计算、结果和凭证。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canImport && <Button icon={FileJson} variant="primary" onClick={() => setShowImport(true)}>一键导入并结算</Button>}{canCreate && <Button icon={Plus} onClick={() => setShowForm(true)}>新建任务</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
         <Surface title="任务列表" note={`${data.tasks.length} 个任务`} className="master-panel">
@@ -131,7 +133,72 @@ export function SettlementPage() {
         ) : <Surface><div className="empty-state">请选择场景验证任务</div></Surface>}
       </div>
       {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); await reload(); }} />}
+      {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入并完成结算，生成 ${result.evidence?.length || 0} 项可信凭证。`); await reload(); }} />}
     </>
+  );
+}
+
+function ImportSettlementModal({ onClose, onCreated }: { onClose: () => void; onCreated: (result: JsonRecord) => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [fixture, setFixture] = useState<JsonRecord | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<JsonRecord | null>(null);
+
+  function selectFile(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0] || null;
+    setFile(selected);
+    setFixture(null);
+    setResult(null);
+    setError("");
+    if (!selected) return;
+    if (!selected.name.toLowerCase().endsWith(".json")) {
+      setError("请选择 JSON 文件");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (!parsed?.batch?.trade_batch_no || !Array.isArray(parsed?.data_assets) || !parsed?.business_validation_request) {
+          throw new Error("文件缺少批次、数据资产或结算任务信息");
+        }
+        setFixture(parsed);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "文件格式无法识别");
+      }
+    };
+    reader.onerror = () => setError("文件读取失败");
+    reader.readAsText(selected, "utf-8");
+  }
+
+  async function submit() {
+    if (!fixture) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await post<JsonRecord>("/settlement/import-and-run", fixture);
+      setResult(response);
+      await onCreated(response);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "导入结算失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="导入文件并自动结算" onClose={onClose} footer={<><Button onClick={onClose}>关闭</Button><Button icon={Play} variant="primary" busy={busy} disabled={!fixture || Boolean(result)} onClick={submit}>开始结算</Button></>}>
+      <label className="import-dropzone">
+        <input type="file" accept="application/json,.json" onChange={selectFile} />
+        <Upload size={24} />
+        <strong>{file ? file.name : "选择 JSON 文件"}</strong>
+        <span>支持标准模拟结算文件，导入后自动完成数据登记、签名、隐私计算和结果回执。</span>
+      </label>
+      {fixture && <div className="import-preview"><div><span>数据批次</span><strong>{fixture.batch.trade_batch_no}</strong></div><div><span>数据资产</span><strong>{fixture.data_assets.length} 类</strong></div><div><span>参与主体</span><strong>{fixture.business_validation_request.participants?.length || 0} 方</strong></div></div>}
+      {result && <Notice tone="success">文件已导入，任务已完成。已生成 {result.evidence?.length || 0} 项可信凭证。</Notice>}
+      {error && <Notice tone="warning">{error}</Notice>}
+    </Modal>
   );
 }
 

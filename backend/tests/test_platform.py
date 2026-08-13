@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 
 def test_login_response_never_exposes_password_hash(client):
     response = client.post(
@@ -347,3 +350,22 @@ def test_retailer_cannot_analyze_another_organization_load_curve(client, auth_he
         },
     )
     assert denied.status_code == 403
+
+
+def test_import_fixture_runs_settlement_end_to_end(client, auth_headers):
+    fixture_path = Path(__file__).resolve().parents[2] / "demo-data" / "2026-08-simulation-input.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    response = client.post(
+        "/api/settlement/import-and-run",
+        headers=auth_headers["exchange"],
+        json=fixture,
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert len(result["uploads"]) == 6
+    assert result["task"]["status"] == "AUDITED"
+    assert result["compute_job"]["status"] == "SUCCESS"
+    assert result["compute_job"]["raw_data_exposed"] is False
+    assert result["privacy_analysis"]["status"] == "SUCCESS"
+    assert result["privacy_analysis"]["raw_records_returned"] is False
+    assert len(result["evidence"]) >= 4

@@ -3250,6 +3250,78 @@ tbody tr:hover td {
   .login-product h1 { font-size: 36px; }
 }
 
+.import-dropzone {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px 20px;
+  border: 1px dashed #9cb8d2;
+  border-radius: 12px;
+  background: #f7fbff;
+  color: #5f7891;
+  text-align: center;
+  cursor: pointer;
+}
+
+.import-dropzone:hover {
+  border-color: #0b5cab;
+  background: #f0f7ff;
+}
+
+.import-dropzone input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.import-dropzone strong {
+  color: #173b60;
+  font-size: 15px;
+}
+
+.import-dropzone span {
+  max-width: 440px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.import-preview {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.import-preview > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #d7e3ef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.import-preview span {
+  color: #71859a;
+  font-size: 12px;
+}
+
+.import-preview strong {
+  overflow: hidden;
+  color: #173b60;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .import-preview { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 700px) {
   .topbar-signals { display: none; }
   .topbar { gap: 10px; padding: 0 12px; }

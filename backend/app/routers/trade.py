@@ -11,6 +11,7 @@ from ..dependencies import BUSINESS_ROLES, get_current_user, require_roles
 from ..models import (
     DataUpload,
     DataSpaceAgreement,
+    DidIdentity,
     Organization,
     PrivacyAnalysisJob,
     PrivacyComputeJob,
@@ -22,20 +23,238 @@ from ..models import (
     User,
 )
 from ..schemas import (
+    SettlementImportFile,
     UsageControlCheckRequest,
     PrivacyAnalysisCreate,
     ResultConfirmRequest,
     RuleCreate,
     SettlementTaskCreate,
+    DataUploadCreate,
     WorkflowRunRequest,
 )
 from ..security import sha256_json, sign_value
 from ..services.adapters import AdaptivePrivacyRouter, DataSpaceConnectorAdapter
 from ..services.common import add_audit_log, model_dict
 from ..services.workflow import run_privacy_analysis, run_settlement_workflow, task_summary
+from ..services.vault import LocalDomainVault
 
 
 router = APIRouter(tags=["trade"])
+
+
+def _import_asset_allowed(user: User, asset_type: str, owner_org_id: str) -> bool:
+    if user.role_code in {"EXCHANGE", "ADMIN"}:
+        return True
+    if owner_org_id != user.org_id:
+        return False
+    if user.role_code == "GENERATOR":
+        return asset_type in {"GENERATION_DATA", "RENEWABLE_FORECAST"}
+    if user.role_code == "RETAILER":
+        return asset_type in {"RETAIL_DATA", "USER_LOAD_CURVE", "VPP_RESOURCE"}
+    return False
+
+
+@router.post("/settlement/import-and-run")
+def import_and_run_settlement(
+    payload: SettlementImportFile,
+    user: User = Depends(require_roles("EXCHANGE", "ADMIN")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Import a validated fixture, sign its data references, and run settlement."""
+    if not payload.is_simulated:
+        raise HTTPException(status_code=400, detail="当前入口只接受模拟数据文件")
+
+    asset_types = {item.asset_type for item in payload.data_assets}
+    required_types = {"GENERATION_DATA", "RETAIL_DATA"}
+    if not required_types.issubset(asset_types):
+        raise HTTPException(status_code=400, detail="文件必须同时包含发电数据和售电数据")
+    if len(asset_types) != len(payload.data_assets):
+        raise HTTPException(status_code=400, detail="同一文件中不能重复导入相同类型的数据")
+
+    participant_orgs = {item.org_id for item in payload.business_validation_request.participants}
+    expected_participant_orgs = {"org-generator-demo", "org-retailer-demo"}
+    if participant_orgs != expected_participant_orgs:
+        raise HTTPException(status_code=400, detail="结算参与方必须包含发电企业和售电企业")
+
+    active_rule = db.get(SettlementRule, payload.business_validation_request.rule_id)
+    if active_rule is None or active_rule.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="文件绑定的使用规则不存在或未启用")
+
+    uploaded: list[DataUpload] = []
+    for asset in payload.data_assets:
+        if not _import_asset_allowed(user, asset.asset_type, asset.owner_org_id):
+            raise HTTPException(status_code=403, detail=f"无权导入{asset.asset_type}数据")
+        if db.get(Organization, asset.owner_org_id) is None:
+            raise HTTPException(status_code=400, detail=f"数据主体不存在：{asset.owner_org_id}")
+        try:
+            DataUploadCreate(
+                asset_type=asset.asset_type,
+                trade_batch_no=payload.batch.trade_batch_no,
+                label=asset.label,
+                local_payload=asset.local_payload,
+                owner_org_id=asset.owner_org_id,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"{asset.asset_type}数据格式校验失败：{exc}") from exc
+
+        existing = db.scalar(
+            select(DataUpload)
+            .where(
+                DataUpload.asset_type == asset.asset_type,
+                DataUpload.owner_org_id == asset.owner_org_id,
+                DataUpload.trade_batch_no == payload.batch.trade_batch_no,
+            )
+            .order_by(DataUpload.created_at.desc())
+        )
+        if existing is not None:
+            uploaded.append(existing)
+            continue
+
+        record = DataUpload(
+            asset_type=asset.asset_type,
+            owner_org_id=asset.owner_org_id,
+            trade_batch_no=payload.batch.trade_batch_no,
+            label=asset.label,
+            data_ref="pending",
+            data_hash="pending",
+            commitment="pending",
+            schema_version="v1.0",
+            validation_status="PENDING",
+            summary_json={},
+        )
+        db.add(record)
+        db.flush()
+        data_ref, data_hash, commitment = LocalDomainVault.write(
+            asset.owner_org_id, record.upload_id, asset.local_payload
+        )
+        record.data_ref = data_ref
+        record.data_hash = data_hash
+        record.commitment = commitment
+        record.validation_status = "PASSED"
+        record.summary_json = {
+            "record_count": asset.local_payload.get("record_count", 1),
+            "period": asset.local_payload.get("period", payload.batch.period),
+            "raw_data_stored_in_business_db": False,
+        }
+        did = db.scalar(select(DidIdentity).where(DidIdentity.owner_id == asset.owner_org_id))
+        record.signature_value = sign_value(
+            {"upload_id": record.upload_id, "data_hash": data_hash},
+            did.did_id if did else asset.owner_org_id,
+        )
+        db.add(
+            Signature(
+                signer_org_id=asset.owner_org_id,
+                signer_did=did.did_id if did else f"did:hiddenchain:org:{asset.owner_org_id}",
+                target_type="DATA_UPLOAD",
+                target_id=record.upload_id,
+                target_hash=data_hash,
+                signature_value=record.signature_value,
+                verify_status="VALID",
+            )
+        )
+        uploaded.append(record)
+
+    db.flush()
+    task_payload = payload.business_validation_request
+    existing_task = db.scalar(
+        select(SettlementTask)
+        .where(
+            SettlementTask.trade_batch_no == payload.batch.trade_batch_no,
+            SettlementTask.task_name == task_payload.task_name,
+            SettlementTask.creator_org_id == user.org_id,
+        )
+        .order_by(SettlementTask.created_at.desc())
+    )
+    if existing_task is None:
+        task = SettlementTask(
+            capsule_id=(
+                f"HC-CAPSULE-{payload.batch.period_start.strftime('%Y%m')}-"
+                f"{sha256_json({'task_name': task_payload.task_name, 'trade_batch_no': payload.batch.trade_batch_no})[:8].upper()}"
+            ),
+            task_name=task_payload.task_name,
+            trade_batch_no=payload.batch.trade_batch_no,
+            period_start=payload.batch.period_start,
+            period_end=payload.batch.period_end,
+            rule_id=active_rule.rule_id,
+            creator_org_id=user.org_id,
+            status="DRAFT",
+            current_stage="任务创建",
+        )
+        db.add(task)
+        db.flush()
+        for participant in task_payload.participants:
+            db.add(
+                TaskParticipant(
+                    task_id=task.task_id,
+                    org_id=participant.org_id,
+                    role_in_task=participant.role_in_task,
+                    data_status="READY",
+                    confirm_status="PENDING",
+                )
+            )
+    else:
+        task = existing_task
+
+    for upload in uploaded:
+        upload.task_id = task.task_id
+    add_audit_log(
+        db,
+        action="IMPORT_AND_RUN_SETTLEMENT",
+        target_type="SETTLEMENT_TASK",
+        target_id=task.task_id,
+        result="SUCCESS",
+        user=user,
+        details={"fixture_id": payload.fixture_id, "asset_count": len(uploaded)},
+    )
+    db.commit()
+    try:
+        result = run_settlement_workflow(
+            db,
+            task_id=task.task_id,
+            actor=user,
+            compute_mode=task_payload.compute_mode,
+            algorithm_code=task_payload.algorithm_code,
+        )
+    except (PermissionError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    analysis = None
+    analysis_request = payload.privacy_analysis_request
+    if analysis_request:
+        analysis_ids = [
+            item.upload_id
+            for item in uploaded
+            if item.asset_type == "USER_LOAD_CURVE"
+        ]
+        if analysis_ids:
+            datasets = [db.get(DataUpload, item) for item in analysis_ids]
+            if all(item and item.asset_type == "USER_LOAD_CURVE" for item in datasets):
+                analysis_record = PrivacyAnalysisJob(
+                    analysis_name=analysis_request.analysis_name,
+                    analysis_type=analysis_request.analysis_type,
+                    dataset_ids_json=analysis_ids,
+                    privacy_level=analysis_request.privacy_level,
+                    privacy_budget=analysis_request.privacy_budget,
+                    purpose=analysis_request.scenario_code,
+                    output_json={},
+                    status="RUNNING",
+                )
+                db.add(analysis_record)
+                db.flush()
+                try:
+                    run_privacy_analysis(db, analysis_record)
+                except ValueError as exc:
+                    db.rollback()
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                db.commit()
+                analysis = {
+                    **model_dict(analysis_record),
+                    "result_json": analysis_record.output_json,
+                    "raw_records_returned": False,
+                }
+
+    return {"fixture_id": payload.fixture_id, "uploads": [model_dict(item) for item in uploaded], "privacy_analysis": analysis, **result}
 
 
 def _task_ids_for_user(db: Session, user: User) -> list[str] | None:

@@ -1,0 +1,173 @@
+{
+  "fixture_id": "hiddenchain-2026-08-simulation-001",
+  "created_at": "2026-08-13",
+  "is_simulated": true,
+  "batch": {
+    "trade_batch_no": "TB-2026-08-SIM-20260813124544",
+    "period": "2026-08",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31"
+  },
+  "organizations": {
+    "generator": {
+      "org_id": "org-generator-demo",
+      "name": "齐鲁新能源发电有限公司"
+    },
+    "retailer": {
+      "org_id": "org-retailer-demo",
+      "name": "海岱售电服务有限公司"
+    },
+    "exchange": {
+      "org_id": "org-exchange-demo",
+      "name": "山东电力交易中心（演示）"
+    }
+  },
+  "data_assets": [
+    {
+      "asset_type": "GENERATION_DATA",
+      "upload_id": "90a621c1-6c51-471f-946c-c33240fb8608",
+      "owner_org_id": "org-generator-demo",
+      "label": "模拟发电计量-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 31,
+        "energy_mwh": 12480.6,
+        "source": "SIMULATION_METER_GENERATION"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "77564e3c-1203-408e-a0d4-80633b8053e8"
+    },
+    {
+      "asset_type": "RETAIL_DATA",
+      "upload_id": "d01b5fff-393f-47fb-a524-91203d71fca7",
+      "owner_org_id": "org-retailer-demo",
+      "label": "模拟售电履约-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 31,
+        "energy_mwh": 12320.2,
+        "source": "SIMULATION_METER_RETAIL"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "eb820733-2421-45c1-ac30-78862505ffae"
+    },
+    {
+      "asset_type": "RENEWABLE_FORECAST",
+      "upload_id": "6c60bd99-9998-4d00-8f9b-125465e5a184",
+      "owner_org_id": "org-generator-demo",
+      "label": "模拟新能源预测-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 31,
+        "forecast_energy_mwh": 12940.7,
+        "forecast_accuracy_pct": 96.1,
+        "source": "SIMULATION_FORECAST"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "d6c276c2-2c21-46e6-9cfa-c6144d3d4497"
+    },
+    {
+      "asset_type": "VPP_RESOURCE",
+      "upload_id": "915d6543-d0d9-4fce-b464-f9889db3d3f4",
+      "owner_org_id": "org-retailer-demo",
+      "label": "模拟可调资源-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 1860,
+        "adjustable_capacity_mw": 26.4,
+        "storage_energy_mwh": 58.0,
+        "response_minutes": 4.5,
+        "source": "SIMULATION_VPP"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "5cb12e53-ecb5-4b6b-b5c8-5288bc9e887b"
+    },
+    {
+      "asset_type": "GRID_CONSTRAINT",
+      "upload_id": "33a420f8-0891-4a5d-ad3f-fa7a1dd7368b",
+      "owner_org_id": "org-exchange-demo",
+      "label": "模拟调度边界-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 24,
+        "n_minus_one_passed": true,
+        "max_residual_imbalance_mwh": 84.6,
+        "congestion_margin_pct": 18.3,
+        "source": "SIMULATION_GRID_GATE"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "7f6444ec-4f91-4f71-b9f6-afe783bfce1c"
+    },
+    {
+      "asset_type": "USER_LOAD_CURVE",
+      "upload_id": "b6e01468-7474-4942-a7ce-4003019677ae",
+      "owner_org_id": "org-retailer-demo",
+      "label": "模拟用户负荷曲线-20260813124544",
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 240,
+        "load_curve": [
+          22,
+          21,
+          20,
+          19,
+          21,
+          27,
+          36,
+          48,
+          57,
+          65,
+          71,
+          75,
+          73,
+          70,
+          68,
+          72,
+          80,
+          88,
+          93,
+          87,
+          74,
+          58,
+          42,
+          30
+        ],
+        "source": "SIMULATION_MASKED_LOAD"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID",
+      "signature_id": "8842f52c-a54f-463b-8c31-67b54df970c9"
+    }
+  ],
+  "privacy_analysis_request": {
+    "analysis_name": "模拟用户负荷隐私分析-20260813124544",
+    "dataset_ids": ["b6e01468-7474-4942-a7ce-4003019677ae"],
+    "analysis_type": "DR_POTENTIAL",
+    "privacy_level": "DIFFERENTIAL_PRIVACY",
+    "privacy_budget": 1.0,
+    "scenario_code": "VPP_AGGREGATION",
+    "sensitivity_level": "L4",
+    "latency_requirement": "MINUTE"
+  },
+  "business_validation_request": {
+    "task_name": "模拟可信数据调用验证-20260813124544",
+    "rule_id": "rule-settlement-demo",
+    "participants": [
+      {
+        "org_id": "org-generator-demo",
+        "role_in_task": "GENERATOR"
+      },
+      {
+        "org_id": "org-retailer-demo",
+        "role_in_task": "RETAILER"
+      }
+    ],
+    "compute_mode": "MPC_MOCK",
+    "algorithm_code": "ADAPTIVE_MARKET_SETTLEMENT_V2"
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "fixture_id": "hiddenchain-2026-08-simulation-001",
+  "execution": {
+    "environment": "https://hiddenchain-platform.onrender.com",
+    "executed_at": "2026-08-13T12:45:47+08:00",
+    "all_values_are_simulated": true
+  },
+  "task": {
+    "task_id": "27516e82-d261-407f-8fac-6fe32b3b2c14",
+    "capsule_id": "HC-CAPSULE-202608-62C8BB67",
+    "status": "AUDITED",
+    "current_stage": "监管审计完成",
+    "risk_level": "LOW",
+    "result_count": 3,
+    "evidence_count": 4,
+    "agent_event_count": 7,
+    "data_space_agreement_count": 3,
+    "scenario_coordination": [
+      {
+        "code": "RENEWABLE_CONSUMPTION",
+        "status": "PASSED",
+        "metric": "预测准确率 96.1%",
+        "artifact": "1525380d4f6060fadea7d70b66dc22f134f5b3b04680f9fce934ef41f5a656b3"
+      },
+      {
+        "code": "MARKET_TRADING",
+        "status": "PASSED",
+        "metric": "结算电量 12320.2 MWh",
+        "artifact": "9c006861992676039353d79a76c5ea41d15fb66f005cf1d97f45c415d0d16616"
+      },
+      {
+        "code": "VPP_OPERATION",
+        "status": "PASSED",
+        "metric": "偏差调节 158.4 MWh",
+        "artifact": "7557c72107c3f931d2356f2bdd187827832ac7d032be47f73706b7b55068751a"
+      },
+      {
+        "code": "GRID_DISPATCH",
+        "status": "PASSED",
+        "metric": "剩余偏差 2.0 MWh",
+        "artifact": "66d90d48edb22366e2246ba8bc52544678387c0f86837685413a4d8e86c932e0"
+      }
+    ]
+  },
+  "privacy_analysis": {
+    "analysis_id": "09d6085e-e41b-42e6-8322-001ebfdc7666",
+    "status": "SUCCESS",
+    "privacy_level": "DIFFERENTIAL_PRIVACY",
+    "strategy": "SECRET_SHARING_HE",
+    "raw_records_returned": false,
+    "result_hash": "bc532ed002239e8547e015a21d510bb98437968150c224ae62b41d77191e736a",
+    "aggregate_result": {
+      "peak_load_mw": 93.0,
+      "peak_hour": 18,
+      "valley_load_mw": 19.0,
+      "valley_hour": 3,
+      "peak_valley_ratio": 4.895,
+      "demand_response_potential_mw": 13.344,
+      "aggregate_curve": [
+        22.0,
+        21.0,
+        20.0,
+        19.0,
+        21.0,
+        27.0,
+        36.0,
+        48.0,
+        57.0,
+        65.0,
+        71.0,
+        75.0,
+        73.0,
+        70.0,
+        68.0,
+        72.0,
+        80.0,
+        88.0,
+        93.0,
+        87.0,
+        74.0,
+        58.0,
+        42.0,
+        30.0
+      ]
+    }
+  },
+  "privacy_compute": {
+    "job_id": "2b2ce2ae-15ce-4fa7-8ebb-9aa079289a36",
+    "status": "SUCCESS",
+    "adapter_code": "MOCK_SECRET_FLOW",
+    "raw_data_exposed": false,
+    "output_hash": "eac4eca1a6e6a96b36b0bd349e2bd59807b9d2acb1714aae2bfaffaf9b33e4ef",
+    "compute_strategy": "PSI_MPC",
+    "output_mode": "AGGREGATE_ONLY"
+  },
+  "settlement_results": [
+    {
+      "result_id": "b2f8a1e7-8a65-495c-83b6-2e981d8ba4db",
+      "scope": "SUMMARY",
+      "confirm_status": "CONFIRMED",
+      "result_hash": "eac4eca1a6e6a96b36b0bd349e2bd59807b9d2acb1714aae2bfaffaf9b33e4ef",
+      "settlement_energy_mwh": 12320.2,
+      "deviation_mwh": 2.0,
+      "gross_deviation_mwh": 160.4,
+      "vpp_adjustment_mwh": 158.4,
+      "base_amount_yuan": 5174484.0,
+      "service_fee_yuan": 39424.64,
+      "payable_amount_yuan": 5135059.36
+    },
+    {
+      "result_id": "4cd5370a-d51b-440b-85c6-b7574cc19316",
+      "scope": "GENERATOR",
+      "confirm_status": "CONFIRMED",
+      "result_hash": "56015bd35ab3d2d71df68f128914634b37cf8d27de6ffbfb9505f90ea41f8a80",
+      "amount_yuan": 5135059.36,
+      "amount_direction": "RECEIVABLE"
+    },
+    {
+      "result_id": "4e212074-9716-4494-8c9f-46071b3854f2",
+      "scope": "RETAILER",
+      "confirm_status": "CONFIRMED",
+      "result_hash": "1480ff7f106d56f46fdf591d5d73b7355bf1083344351e8303300c3e528e67ec",
+      "amount_yuan": 5135059.36,
+      "amount_direction": "PAYABLE"
+    }
+  ],
+  "data_space": {
+    "protocol_version": "HCDS-1.0",
+    "agreement_ids": [
+      "0f699a48-dd8d-4be0-bcd5-7eef2fe62c5f",
+      "a07502b7-ba19-4db3-87ea-4531d76ded6a",
+      "4d3598bc-4378-42f8-b0e8-59013d2a6c6c"
+    ],
+    "decision": "PERMIT",
+    "output_mode": "AGGREGATE_ONLY",
+    "raw_data_exported": false,
+    "usage_count": 1,
+    "max_uses": 1
+  },
+  "evidence_verification": [
+    {
+      "evidence_id": "461a1c4e-8e5f-43ad-8610-23770a0ec69d",
+      "stage": "POST_COMPUTE",
+      "biz_type": "AUDIT_REPORT",
+      "block_height": 8,
+      "tx_hash": "e71f7a40eb487e36dda1615653562f324dad1098090c4b6293c5f34fb5cbb144",
+      "status": "CONFIRMED",
+      "matched": true
+    },
+    {
+      "evidence_id": "5731b180-a547-4548-94a8-76943d982416",
+      "stage": "POST_COMPUTE",
+      "biz_type": "SETTLEMENT_RESULT",
+      "block_height": 7,
+      "tx_hash": "b2e74dec5bc5079c695e20c9fb634ba8340a217e9764b248cdb0140df2b25526",
+      "status": "CONFIRMED",
+      "matched": true
+    },
+    {
+      "evidence_id": "727901eb-6762-4793-8632-d143fe623343",
+      "stage": "IN_COMPUTE",
+      "biz_type": "COMPUTE_RECEIPT",
+      "block_height": 6,
+      "tx_hash": "801466eae090f50a78e962508e7f51c3c63171f1a597f100769f32cc07c17645",
+      "status": "CONFIRMED",
+      "matched": true
+    },
+    {
+      "evidence_id": "ef1eecc5-91d9-485f-9032-3c2354f60728",
+      "stage": "PRE_COMPUTE",
+      "biz_type": "AUTHORIZATION_BUNDLE",
+      "block_height": 5,
+      "tx_hash": "b75dfa90656f5aac02af6f52e0420822a91ce873023cffd2ea75b22edffb5b2e",
+      "status": "CONFIRMED",
+      "matched": true
+    }
+  ]
+}
