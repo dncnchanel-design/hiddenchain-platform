@@ -41,40 +41,40 @@ export function DataSpacePage() {
     <>
       <PageHeader
         eyebrow="可信数据空间"
-        title="连接器与数据产品"
-        description="按照目录发现、身份互认、合同协商、使用控制和回执存证的顺序组织跨主体电力结算。"
+        title="可信数据调用"
+        description="按照目录发现、身份互认、合同协商、使用控制和回执存证的顺序，让跨主体数据可调用但不搬运原始数据。"
         actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>}
       />
       <div className="boundary-strip">
         <Network size={18} />
-        <div><strong>HCDS-1.0 连接器协议已启用</strong><span>原始数据留在主体域内，平台只交换数据产品元数据、策略决定和可验证回执。</span></div>
+        <div><strong>HCDS-1.0 可信调用协议已启用</strong><span>原始数据留在主体域内，调用方只获得数据产品元数据、策略决定和可验证回执。</span></div>
         <StatusTag value="ACTIVE" label="协议在线" />
       </div>
       <div className="inline-actions" style={{ marginBottom: 16 }}>
-        <label className="field"><span>交易批次</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
+        <label className="field"><span>数据空间批次</span><input value={batch} onChange={(event) => setBatch(event.target.value)} /></label>
         <Button icon={Database} onClick={reload}>发现目录</Button>
       </div>
       <div className="metrics-grid five">
-        <Metric label="数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />
+        <Metric label="可调用数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />
         <Metric label="协议版本" value={data.protocol.protocol_version} meta="轻量连接器" />
         <Metric label="协议能力" value={data.protocol.capabilities.length} meta="目录至回执" />
         <Metric label="已协商协议" value={data.protocol.negotiated_agreements} meta="跨主体合同" tone="green" />
-        <Metric label="原始数据传输" value="0" meta="边界验收目标" tone="green" />
+        <Metric label="原始数据传输" value="0" meta="调用边界目标" tone="green" />
       </div>
       <div className="content-grid two-equal">
-        <Surface title="数据空间能力" note="对应文献中的资源交互与可信控制">
+        <Surface title="可信调用能力" note="从发现到回执形成一条可验证的数据调用链">
           <div className="acceptance-list">
             {data.protocol.capabilities.map((code: string) => <div key={code}><CheckCircle2 size={18} /><span>{capabilityLabels[code] || code}</span><StatusTag value="PASSED" label="已接入" /></div>)}
           </div>
         </Surface>
-        <Surface title="三统一映射" note="目录标识、身份登记、接口要求">
+        <Surface title="三统一映射" note="目录标识、身份登记、接口要求统一后才能被调用">
           <div className="acceptance-list">
             {data.protocol.three_unified.map((code: string) => <div key={code}><ShieldCheck size={18} /><span>{code.replaceAll("_", " ")}</span><StatusTag value="READY" label="统一" /></div>)}
           </div>
           <Notice>当前为标准对齐参考实现；SecretFlow、FISCO BCOS 和真实 DID/VC 仍通过适配器替换。</Notice>
         </Surface>
       </div>
-      <Surface title="能源数据产品目录" note={`${data.catalog.catalog_id} · 语义版本 ${data.catalog.semantic_version}`}>
+      <Surface title="可调用能源数据产品目录" note={`${data.catalog.catalog_id} · 语义版本 ${data.catalog.semantic_version}`}>
         <DataTable
           keyField="data_product_id"
           rows={entries}
@@ -90,11 +90,11 @@ export function DataSpacePage() {
           ]}
         />
       </Surface>
-      <Surface title="连接器协商记录" note="每条记录对应一组提供方—使用方—用途—算法的可验证协议">
+      <Surface title="数据调用协议记录" note="每条记录对应一组提供方—使用方—用途—算法的可验证协议">
         <DataTable
           keyField="agreement_id"
           rows={agreements}
-          empty="尚未产生协商记录，请运行一笔可信结算任务"
+          empty="尚未产生调用协议，请运行一笔场景验证任务"
           columns={[
             { key: "agreement_id", label: "协议 ID", render: (row) => <CodeValue title={row.agreement_id}>{shortHash(row.agreement_id, 10)}</CodeValue> },
             { key: "provider_org_id", label: "提供方", render: (row) => shortHash(row.provider_org_id, 12) },

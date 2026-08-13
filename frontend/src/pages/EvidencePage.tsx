@@ -62,7 +62,7 @@ export function EvidencePage() {
     <>
       <PageHeader eyebrow="结果审计可信" title="区块链存证" description="链上保存关键状态哈希、交易索引与证据关系，业务原文和企业明细始终留在链下授权域。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
       <div className="filter-bar">
-        <label><span>可信交易胶囊</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        <label><span>可信验证胶囊</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
       </div>
       <div className="evidence-stages">
         {Object.entries(stageLabels).map(([stage, label]) => (

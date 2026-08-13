@@ -1268,6 +1268,44 @@ tbody tr:hover td {
   border-color: #9cb9b0;
 }
 
+.feature-callout {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 12px 14px;
+  border: 1px solid #d7e6f2;
+  border-left: 3px solid var(--brand);
+  background: linear-gradient(100deg, #f5f9fd, #fff);
+}
+
+.feature-callout > svg {
+  color: var(--brand);
+}
+
+.feature-callout > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.feature-callout strong {
+  color: #173654;
+  font-size: 12px;
+}
+
+.feature-callout span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.feature-callout .text-link {
+  white-space: nowrap;
+}
+
 .boundary-strip,
 .agent-boundary {
   display: grid;

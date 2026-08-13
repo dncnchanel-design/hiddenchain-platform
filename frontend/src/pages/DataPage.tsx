@@ -81,7 +81,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
   return (
     <>
       <PageHeader
-        eyebrow="业务数据模块"
+        eyebrow="可调用数据资产"
         title={title}
         description={description}
         actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>登记数据</Button>}</>}
@@ -91,7 +91,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
       </div>
       <div className="boundary-strip">
         <ShieldCheck size={18} />
-        <div><strong>本域数据边界生效</strong><span>业务数据库不保存原始明细；交易中心、监管方与 Agent 只能读取摘要和密文引用。</span></div>
+        <div><strong>数据调用边界生效</strong><span>原始明细留在主体域内；调用方只获得经过授权的数据引用、聚合结果或计算回执。</span></div>
         <StatusTag value="ACTIVE" label="策略已启用" />
       </div>
       {notice && <Notice tone={notice.includes("失败") || notice.includes("无权") ? "warning" : "success"}>{notice}</Notice>}

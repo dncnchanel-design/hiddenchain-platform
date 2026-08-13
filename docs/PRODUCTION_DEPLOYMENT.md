@@ -87,7 +87,7 @@ docker compose --env-file .env.production -f docker-compose.production.yml logs 
 
 - 容器设置为 `restart: unless-stopped`，云服务器重启后会自动恢复。
 - SQLite 数据保存在 Docker 命名卷 `hiddenchain-runtime`；答辩前应备份演示数据卷。
-- 比赛前使用手机蜂窝网络完成登录、交易结算、隐私分析和审计报告的全流程验收。
+- 比赛前使用手机蜂窝网络完成登录、可信数据调用、隐私计算、能源场景验证和审计报告的全流程验收。
 - 仍应保留本机局域网演示和录屏作为网络故障预案。
 
 ## 关于中国内地服务器

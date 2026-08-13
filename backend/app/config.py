@@ -60,7 +60,7 @@ def _float_env(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "隐链明算可信交易平台"
+    app_name: str = "隐链明算可信数据协同平台"
     api_prefix: str = "/api"
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{(RUNTIME_DIR / 'hiddenchain.db').as_posix()}"

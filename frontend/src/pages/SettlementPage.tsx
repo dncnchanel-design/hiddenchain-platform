@@ -55,15 +55,15 @@ export function SettlementPage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在装载结算任务" />;
-  if (error || !data) return <ErrorState message={error || "结算任务加载失败"} retry={reload} />;
+  if (loading) return <LoadingState label="正在装载场景验证任务" />;
+  if (error || !data) return <ErrorState message={error || "场景验证任务加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader eyebrow="电力交易自动结算" title="结算任务" description="同一可信交易胶囊串联新能源预测、市场规则、虚拟电厂调节、调度安全校核和监管证据。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>发起结算任务</Button>}</>} />
+      <PageHeader eyebrow="应用验证场景" title="电力交易场景验证" description="电力交易只作为验证场景：用同一可信验证胶囊串联数据调用、隐私计算、结果回执与监管证据。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>发起场景验证</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
-        <Surface title="任务队列" note={`${data.tasks.length} 个可信交易胶囊`} className="master-panel">
+        <Surface title="验证任务队列" note={`${data.tasks.length} 个可信验证胶囊`} className="master-panel">
           <div className="task-list">
             {data.tasks.map((task) => (
               <button key={task.task_id} className={task.task_id === selectedId ? "active" : ""} onClick={() => setSelectedId(task.task_id)}>
@@ -79,10 +79,10 @@ export function SettlementPage() {
             <Surface
               title={selected.task_name}
               note={`${selected.trade_batch_no} · ${selected.period_start} 至 ${selected.period_end}`}
-              actions={canRun && selected.status !== "AUDITED" ? <Button icon={Play} variant="primary" busy={running} onClick={runWorkflow}>启动可信结算</Button> : <StatusTag value={selected.status} />}
+              actions={canRun && selected.status !== "AUDITED" ? <Button icon={Play} variant="primary" busy={running} onClick={runWorkflow}>启动场景验证</Button> : <StatusTag value={selected.status} />}
             >
               <div className="capsule-banner">
-                <div><ShieldCheck size={25} /><span>可信交易胶囊</span><strong>{selected.capsule_id}</strong></div>
+                <div><ShieldCheck size={25} /><span>可信验证胶囊</span><strong>{selected.capsule_id}</strong></div>
                 <div><span>RuleHash</span><CodeValue>{shortHash(selected.rule_id, 14)}</CodeValue></div>
                 <div><span>风险等级</span><StatusTag value={selected.risk_level} /></div>
               </div>
@@ -126,7 +126,7 @@ export function SettlementPage() {
               </Surface>
             )}
           </div>
-        ) : <Surface><div className="empty-state">请选择结算任务</div></Surface>}
+        ) : <Surface><div className="empty-state">请选择场景验证任务</div></Surface>}
       </div>
       {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); await reload(); }} />}
     </>
@@ -137,7 +137,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   const activeRules = rules.filter((item) => item.status === "ACTIVE");
   const generator = orgs.find((item) => item.org_type === "GENERATOR");
   const retailer = orgs.find((item) => item.org_type === "RETAILER");
-  const [name, setName] = useState("2026年7月电力交易可信结算");
+  const [name, setName] = useState("2026年7月电力交易场景验证");
   const [batch, setBatch] = useState("TB-2026-07-DEMO");
   const [ruleId, setRuleId] = useState(activeRules[0]?.rule_id || "");
   const [busy, setBusy] = useState(false);
@@ -168,10 +168,10 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   }
 
   return (
-    <Modal title="发起可信结算任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成可信交易胶囊</Button></>}>
+    <Modal title="发起电力交易场景验证" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成可信验证胶囊</Button></>}>
       <div className="form-grid two">
         <Field label="任务名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="交易批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
+        <Field label="验证批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
         <Field label="启用规则版本"><select value={ruleId} onChange={(event) => setRuleId(event.target.value)}>{activeRules.map((item) => <option key={item.rule_id} value={item.rule_id}>{item.rule_version} · {item.rule_name}</option>)}</select></Field>
         <Field label="结算周期"><input value="2026-07-01 至 2026-07-31" disabled /></Field>
       </div>
@@ -179,7 +179,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
         <div><span>发电企业</span><strong>{generator?.org_name || "未配置"}</strong></div>
         <div><span>售电企业</span><strong>{retailer?.org_name || "未配置"}</strong></div>
       </div>
-      <Notice>创建阶段只组织任务上下文；启动后依次执行身份认证、用途授权、策略路由、VPP偏差响应、调度安全校核、MPC结算、存证与审计。</Notice>
+      <Notice>创建阶段只组织验证上下文；启动后依次执行身份认证、数据调用授权、隐私策略路由、MPC 计算、结果回执、存证与审计。</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );

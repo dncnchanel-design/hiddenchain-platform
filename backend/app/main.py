@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="面向新能源消纳、市场交易、虚拟电厂与电网调度的Agent原生可信数据空间MVP",
+    description="以可信数据调用与隐私计算为核心、以能源电力为验证场景的 Agent 原生可信数据空间 MVP",
     docs_url=f"{settings.api_prefix}/docs",
     openapi_url=f"{settings.api_prefix}/openapi.json",
     lifespan=lifespan,

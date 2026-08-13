@@ -67,21 +67,21 @@ def dashboard_summary(
         },
         {
             "code": "RULE",
-            "name": "规则授权可信",
+            "name": "用途控制可信",
             "status": "HEALTHY",
             "metric": db.scalar(select(func.count(SettlementTask.task_id)).where(SettlementTask.status != "DRAFT")) or 0,
-            "unit": "笔绑定RuleHash",
+            "unit": "笔受控调用/验证",
         },
         {
             "code": "COMPUTE",
-            "name": "协同计算可信",
+            "name": "隐私计算可信",
             "status": "HEALTHY",
             "metric": db.scalar(select(func.count(PrivacyComputeJob.job_id)).where(PrivacyComputeJob.status == "SUCCESS")) or 0,
-            "unit": "次成功计算",
+            "unit": "个ComputeReceipt",
         },
         {
             "code": "AUDIT",
-            "name": "结果审计可信",
+            "name": "回执与证据可信",
             "status": "HEALTHY",
             "metric": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0,
             "unit": "项证据索引",
@@ -89,8 +89,8 @@ def dashboard_summary(
     ]
     role_todos = {
         "GENERATOR": ["核对预测与计量承诺", "查看新能源消纳结算结果"],
-        "RETAILER": ["维护虚拟电厂资源池", "运行用电隐私分析"],
-        "EXCHANGE": ["组织四场景可信结算", "检查规则与调度安全闸门"],
+        "RETAILER": ["维护可调用数据产品", "运行用电隐私分析"],
+        "EXCHANGE": ["组织数据调用与场景验证", "检查用途策略与隐私计算闸门"],
         "REGULATOR": ["核验四链证据关系", "处置高风险异常"],
         "ADMIN": ["维护DID状态", "检查服务与节点健康"],
     }
@@ -106,11 +106,11 @@ def dashboard_summary(
         },
         {
             "code": "MARKET_TRADING",
-            "name": "电力市场交易",
+            "name": "电力交易验证",
             "status": "READY",
             "metric": f"可信任务 {db.scalar(select(func.count(SettlementTask.task_id))) or 0} 笔",
             "input": "交易批次、RulePackage、DataPermit",
-            "output": "出清/结算计算计划",
+            "output": "数据调用与计算计划",
             "next": "虚拟电厂偏差响应",
         },
         {

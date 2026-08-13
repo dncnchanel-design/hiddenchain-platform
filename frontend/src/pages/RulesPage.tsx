@@ -34,12 +34,12 @@ export function RulesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="规则授权可信" title="规则与智能合约" description="规则经 RAG 检索引用、DSL 固化、哈希签名和人工闸门后，才能进入确定性结算。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则包</Button>}</>} />
+      <PageHeader eyebrow="用途与规则控制" title="用途与规则控制" description="调用用途经 RAG 检索引用、DSL 固化、哈希签名和人工闸门后，才能进入确定性隐私计算或场景验证。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则包</Button>}</>} />
       <div className="boundary-strip">
         <Gavel size={18} /><div><strong>Agent 不生成最终规则</strong><span>规则 Agent 仅检索、解析和校验；启用动作必须由交易中心人员签署。</span></div><StatusTag value="ACTIVE" label="人工闸门" />
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="结算 RulePackage" note="每个任务只能绑定已启用且哈希固定的规则版本">
+      <Surface title="用途控制 RulePackage" note="每个调用或验证任务只能绑定已启用且哈希固定的规则版本">
         <DataTable
           keyField="rule_id"
           rows={data}
@@ -96,7 +96,7 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
     try {
       await post("/rules", {
         rule_name: form.name,
-        description: "用于可信交易胶囊的确定性月度结算规则",
+        description: "用于能源场景验证的确定性规则与用途控制包",
         contract_price: Number(form.price),
         deviation_threshold_mwh: Number(form.threshold),
         deviation_penalty_rate: Number(form.penalty),
@@ -113,7 +113,7 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
   }
 
   return (
-    <Modal title="新建结算规则包" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成待审 RulePackage</Button></>}>
+    <Modal title="新建用途控制规则包" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>生成待审 RulePackage</Button></>}>
       <div className="form-grid two">
         <Field label="规则名称"><input value={form.name} onChange={(event) => set("name", event.target.value)} /></Field>
         <Field label="合同电价（元/MWh）"><input type="number" value={form.price} onChange={(event) => set("price", event.target.value)} /></Field>

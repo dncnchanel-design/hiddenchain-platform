@@ -38,7 +38,7 @@ export function AnomaliesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全运营" title="异常处置" description="策略拒绝、签名缺失和证据不一致统一关联可信交易胶囊，并形成可追溯处置闭环。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>注入演示事件</Button></>} />
+      <PageHeader eyebrow="安全运营" title="异常处置" description="用途策略拒绝、签名缺失和证据不一致统一关联可信验证胶囊，并形成可追溯处置闭环。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>注入演示事件</Button></>} />
       <div className="metrics-grid three">
         <div className="metric metric-red"><span>开放事件</span><strong>{data.events.filter((item) => item.status === "OPEN").length}</strong><small>需要复核</small></div>
         <div className="metric metric-amber"><span>高风险</span><strong>{data.events.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length}</strong><small>优先处置</small></div>

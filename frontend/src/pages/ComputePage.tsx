@@ -47,15 +47,15 @@ export function ComputePage() {
 
   return (
     <>
-      <PageHeader eyebrow="协同计算可信" title="隐私计算" description="控制面只编排 DataPermit 与 RulePackage，执行面在授权数据域内完成 PSI/MPC 并返回可验证回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起隐私分析</Button>}</>} />
+      <PageHeader eyebrow="平台核心能力" title="隐私计算" description="控制面只编排 DataPermit 与 ComputePlan，执行面在授权数据域内完成 PSI/MPC、秘密共享或差分隐私计算，并返回可验证回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起隐私分析</Button>}</>} />
       <div className="segmented" role="tablist">
-        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>交易结算 MPC</button>
+        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>场景验证 MPC</button>
         {analysisAllowed && <button className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用户用电隐私分析</button>}
       </div>
       <div className="privacy-boundaries">
-        <div><EyeOff size={19} /><strong>原始数据不出域</strong><span>Agent 与业务库不可读取企业明细</span></div>
-        <div><ShieldCheck size={19} /><strong>授权后可计算</strong><span>用途、算法、时效纳入 DataPermit</span></div>
-        <div><Cpu size={19} /><strong>执行可复核</strong><span>算法、输入承诺与输出哈希写入回执</span></div>
+        <div><EyeOff size={19} /><strong>原始数据不出域</strong><span>Agent、业务库与调用方不可读取企业明细</span></div>
+        <div><ShieldCheck size={19} /><strong>授权后可计算</strong><span>用途、算法、时效与输出纳入 DataPermit</span></div>
+        <div><Cpu size={19} /><strong>结果可验证</strong><span>算法、输入承诺与输出哈希写入 ComputeReceipt</span></div>
       </div>
       <Surface title="场景感知隐私计算策略路由" note="由数据等级、参与主体、时延和精度约束生成 ComputePlan，并固化计划哈希">
         <div className="strategy-grid">
@@ -70,7 +70,7 @@ export function ComputePage() {
           ))}
         </div>
       </Surface>
-      <Surface title={tab === "SETTLEMENT" ? "MPC 结算任务" : "负荷隐私分析任务"} note={tab === "SETTLEMENT" ? "PSI 对齐交易关系，MPC 计算结算中间量" : "仅输出聚合曲线、峰谷特征与需求响应潜力"}>
+      <Surface title={tab === "SETTLEMENT" ? "MPC 场景验证任务" : "负荷隐私分析任务"} note={tab === "SETTLEMENT" ? "PSI 对齐授权数据关系，MPC 验证跨主体计算闭环" : "仅输出聚合曲线、峰谷特征与需求响应潜力"}>
         <DataTable
           keyField={tab === "SETTLEMENT" ? "job_id" : "analysis_id"}
           rows={currentRows}
@@ -104,7 +104,7 @@ export function ComputePage() {
 
 function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void }) {
   return (
-    <Modal title="隐私计算回执" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
+    <Modal title="ComputeReceipt 隐私计算回执" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
       <div className="detail-grid">
         <div><span>执行适配器</span><strong>{job.adapter_code}</strong></div>
         <div><span>计算耗时</span><strong>{job.duration_ms} ms</strong></div>
@@ -114,7 +114,7 @@ function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void 
       <div className="log-console">
         {(job.logs_json || []).map((line: string, index: number) => <div key={`${line}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{line}</div>)}
       </div>
-      <Notice tone="success">回执包含输入承诺、算法标识、执行证明与输出哈希，不包含任一参与方原始记录。</Notice>
+      <Notice tone="success">回执包含输入承诺、算法标识、执行证明与输出哈希，不包含任一参与方原始记录，可供后续审计和场景验证引用。</Notice>
     </Modal>
   );
 }

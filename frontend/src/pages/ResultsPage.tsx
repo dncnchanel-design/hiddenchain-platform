@@ -50,19 +50,19 @@ export function ResultsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="交易结果可信" title="结算结果" description="按主体最小披露结算金额，多方仅对同一结果哈希签名，链上不保存业务明文。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="结果回执可信" title="结果与回执" description="按主体最小披露返回场景结果，多方仅对同一结果哈希签名，链上不保存业务明文。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
         <div className="metric"><span>主体结果</span><strong>{totals.rows}</strong><small>不含汇总索引</small></div>
         <div className="metric metric-green"><span>已签名确认</span><strong>{totals.confirmed}</strong><small>DID 签名有效</small></div>
         <div className="metric"><span>结果金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>演示假数据</small></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="结算结果清单" note={`当前字段范围：${session!.field_scopes.settlement_result}`}>
+      <Surface title="结果回执清单" note={`当前字段范围：${session!.field_scopes.settlement_result}`}>
         <DataTable
           keyField="result_id"
           rows={data.results}
           columns={[
-            { key: "task_id", label: "结算任务", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{row.task_id}</button> },
+            { key: "task_id", label: "验证任务", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{row.task_id}</button> },
             { key: "org_id", label: "结果主体", render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || row.org_id : "交易汇总索引" },
             { key: "result_scope", label: "披露范围" },
             { key: "energy", label: "结算电量", render: (row) => `${row.result_json?.settlement_energy_mwh ?? "-"} MWh` },

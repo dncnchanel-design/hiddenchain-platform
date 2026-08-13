@@ -9,21 +9,21 @@ import type { JsonRecord, RoleCode } from "../types";
 const roleConfig: Record<RoleCode, { title: string; focus: string; steps: Array<[string, string, React.ElementType]>; links: Array<[string, string, React.ElementType]> }> = {
   GENERATOR: {
     title: "发电企业工作台",
-    focus: "新能源出力预测与计量数据确权、授权参与市场结算",
-    steps: [["登记预测与计量", "原始记录留在本域", Database], ["签署数据许可", "限定预测与结算用途", ShieldCheck], ["确认消纳结算", "仅查看本方结果", FileCheck2]],
+    focus: "把预测与计量登记为可调用数据产品，在用途授权后参与隐私计算",
+    steps: [["登记数据产品", "原始记录留在本域", Database], ["签署调用许可", "限定用途与输出范围", ShieldCheck], ["确认计算结果", "仅查看授权结果", FileCheck2]],
     links: [["发电侧数据", "/data/generation", Database], ["结算结果", "/results", FileCheck2], ["存证核验", "/evidence", Blocks]],
   },
   RETAILER: {
     title: "售电企业工作台",
-    focus: "售电履约、用户负荷隐私分析与虚拟电厂资源协同",
-    steps: [["登记履约与资源", "形成 DataRef 与承诺", Database], ["聚合响应能力", "单户负荷不可见", Network], ["确认应付结果", "DID 签名确认", FileCheck2]],
+    focus: "授权用户负荷和虚拟电厂数据，在不暴露单户明细的前提下完成联合分析",
+    steps: [["登记数据产品", "形成 DataRef 与承诺", Database], ["发起隐私计算", "单户负荷不可见", Network], ["确认聚合结果", "DID 签名确认", FileCheck2]],
     links: [["售电与用电数据", "/data/retail", Database], ["隐私计算", "/compute", Network], ["结算结果", "/results", FileCheck2]],
   },
   EXCHANGE: {
     title: "交易中心工作台",
-    focus: "规则固化、四场景任务编排、调度安全校核与自动结算",
-    steps: [["固化规则与边界", "人工闸门后生成哈希", Gavel], ["组织四场景协同", "六 Agent 受控执行", Bot], ["安全校核后结算", "多方签名并存证", Blocks]],
-    links: [["规则与合约", "/rules", Gavel], ["结算任务", "/settlements", Calculator], ["Agent 协同", "/agents", Bot]],
+    focus: "编排数据调用、用途控制和隐私计算，电力交易作为可运行验证场景",
+    steps: [["固化用途与边界", "人工闸门后生成哈希", Gavel], ["组织数据协同", "六 Agent 受控执行", Bot], ["验证计算与回执", "多方签名并存证", Blocks]],
+    links: [["规则与合约", "/rules", Gavel], ["能源场景验证", "/settlements", Calculator], ["Agent 协同", "/agents", Bot]],
   },
   REGULATOR: {
     title: "监管方工作台",
@@ -63,12 +63,12 @@ export function WorkbenchPage() {
           <Link to={path} key={path}><Icon size={20} /><span>{title}</span><ArrowRight size={16} /></Link>
         ))}
       </div>
-      <Surface title="可访问的结算任务" note="字段范围已按当前主体自动裁剪">
+      <Surface title="可访问的场景验证任务" note="电力交易仅作为验证数据调用与隐私计算闭环的业务场景，字段范围已按当前主体自动裁剪">
         <DataTable
           keyField="task_id"
           rows={data}
           columns={[
-            { key: "capsule_id", label: "可信交易胶囊", render: (row) => <span className="mono-text">{row.capsule_id}</span> },
+            { key: "capsule_id", label: "可信验证胶囊", render: (row) => <span className="mono-text">{row.capsule_id}</span> },
             { key: "task_name", label: "任务" },
             { key: "trade_batch_no", label: "批次" },
             { key: "current_stage", label: "阶段" },

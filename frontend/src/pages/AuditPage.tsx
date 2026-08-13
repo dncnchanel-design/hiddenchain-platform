@@ -9,7 +9,7 @@ const kindIcons: Record<string, React.ElementType> = { AGENT_EVENT: Bot, CHAIN_E
 
 export function AuditPage() {
   const [taskId, setTaskId] = useState("");
-  const [question, setQuestion] = useState("本次结算是否完整可信？");
+  const [question, setQuestion] = useState("本次数据调用与隐私计算是否完整可信？");
   const [answer, setAnswer] = useState<JsonRecord | null>(null);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState("");
@@ -41,7 +41,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader eyebrow="监管审计" title="全过程可信审计" description="以可信交易胶囊重建身份、许可、规则、计算、签名和链上证据关系，不依赖业务原始明细。" actions={<Button icon={RefreshCw} onClick={() => { void tasks.reload(); void timeline.reload(); }}>刷新</Button>} />
+      <PageHeader eyebrow="监管审计" title="全过程可信审计" description="以可信验证胶囊重建身份、数据调用、用途控制、隐私计算、签名和证据关系，不依赖业务原始明细。" actions={<Button icon={RefreshCw} onClick={() => { void tasks.reload(); void timeline.reload(); }}>刷新</Button>} />
       <div className="filter-bar">
         <label><span>审计对象</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
         {timeline.data?.task && <><div><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div><div><span>原始数据</span><StatusTag value="SUCCESS" label="未进入审计域" /></div></>}

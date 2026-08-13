@@ -39,27 +39,27 @@ import { ROLE_LABELS } from "../types";
 
 const navGroups = [
   {
-    label: "总览与入口",
+    label: "平台总览",
     items: [
       { code: "overview", to: "/overview", label: "平台总览", icon: LayoutDashboard },
       { code: "workbench", to: "/workbench", label: "角色工作台", icon: CircleGauge },
     ],
   },
   {
-    label: "交易业务",
+    label: "数据调用与资产",
     items: [
       { code: "generation-data", to: "/data/generation", label: "发电侧数据", icon: Zap },
       { code: "retail-data", to: "/data/retail", label: "售电与用电数据", icon: Database },
-      { code: "data-space", to: "/data-space", label: "可信数据空间", icon: Network },
-      { code: "rules", to: "/rules", label: "规则与智能合约", icon: Gavel },
-      { code: "settlements", to: "/settlements", label: "结算任务", icon: Calculator },
-      { code: "results", to: "/results", label: "结算结果", icon: FileCheck2 },
+      { code: "data-space", to: "/data-space", label: "可信数据调用", icon: Network },
     ],
   },
   {
-    label: "安全可信",
+    label: "隐私计算与验证",
     items: [
       { code: "compute", to: "/compute", label: "隐私计算", icon: Network },
+      { code: "rules", to: "/rules", label: "用途与规则控制", icon: Gavel },
+      { code: "settlements", to: "/settlements", label: "能源场景验证", icon: Calculator },
+      { code: "results", to: "/results", label: "结果与回执", icon: FileCheck2 },
       { code: "evidence", to: "/evidence", label: "区块链存证", icon: Blocks },
       { code: "audit", to: "/audit", label: "监管审计", icon: ClipboardCheck },
       { code: "agents", to: "/agents", label: "Agent 协同", icon: Bot },
@@ -85,7 +85,7 @@ export function AppShell() {
   const location = useLocation();
   const allowed = useMemo(() => new Set(session?.menus.map((item) => item.code) || []), [session]);
   const isAdmin = session?.user.role_code === "ADMIN";
-  const title = isAdmin && location.pathname === "/overview" ? "系统管理员总览" : pageNames[location.pathname] || "隐链明算";
+  const title = isAdmin && location.pathname === "/overview" ? "系统管理员总览" : pageNames[location.pathname] || "可信数据协同平台";
 
   if (!session) return null;
 
@@ -95,7 +95,7 @@ export function AppShell() {
       <aside className={`sidebar ${open ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark"><LayoutDashboard size={22} /></div>
-          <div><strong>工作台导航</strong><span>可信业务功能</span></div>
+          <div><strong>工作台导航</strong><span>数据调用与隐私计算</span></div>
           <button className="icon-button mobile-only" onClick={() => setOpen(false)} title="关闭导航"><X size={19} /></button>
         </div>
         <div className="space-context">
@@ -128,11 +128,11 @@ export function AppShell() {
           <div className="portal-masthead-inner">
             <div className="portal-brand">
               <div className="portal-brand-mark"><ShieldCheck size={29} /></div>
-              <div><strong>隐链明算</strong><span>可信电力交易空间</span></div>
+              <div><strong>隐链明算</strong><span>可信数据协同平台</span></div>
             </div>
             <div className="portal-slogan">
-              <span>电力可信协同服务门户</span>
-              <strong>让数据可用、可信、可追溯</strong>
+              <span>可信数据调用与隐私计算服务门户</span>
+              <strong>数据可调用 · 计算可验证 · 隐私不出域</strong>
             </div>
             <div className="portal-utilities">
               <a href="#notice"><Megaphone size={14} />服务公告</a>
@@ -146,8 +146,9 @@ export function AppShell() {
           <div className="portal-nav-inner">
             <NavLink to="/overview" end><Home size={16} /><span>首页</span></NavLink>
             <NavLink to="/workbench"><LayoutDashboard size={16} /><span>业务协同</span></NavLink>
-            {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>交易服务</span></NavLink>}
-            {allowed.has("compute") && <NavLink to="/compute"><Network size={16} /><span>数字化能力</span></NavLink>}
+            {allowed.has("data-space") && <NavLink to="/data-space"><Network size={16} /><span>数据调用</span></NavLink>}
+            {allowed.has("compute") && <NavLink to="/compute"><Network size={16} /><span>隐私计算</span></NavLink>}
+            {allowed.has("settlements") && <NavLink to="/settlements"><Calculator size={16} /><span>场景验证</span></NavLink>}
             {allowed.has("audit") && <NavLink to="/audit"><ClipboardCheck size={16} /><span>安全监管</span></NavLink>}
             {allowed.has("reports") && <NavLink to="/reports"><Newspaper size={16} /><span>信息公开</span></NavLink>}
             <div className="portal-nav-tools"><Search size={15} /><span>系统在线</span><i /></div>
@@ -156,7 +157,7 @@ export function AppShell() {
         <header className="topbar">
           <div className="topbar-left">
             <button className="icon-button menu-button" onClick={() => setOpen(true)} title="打开导航"><Menu size={20} /></button>
-            <div><span>{isAdmin ? "系统运维工作台" : "可信交易工作台"}</span><strong>{title}</strong></div>
+            <div><span>{isAdmin ? "系统运维工作台" : "可信数据协同工作台"}</span><strong>{title}</strong></div>
           </div>
           <div className="topbar-signals">
             <div className="signal"><Activity size={16} /><span>服务正常</span></div>
@@ -171,7 +172,7 @@ export function AppShell() {
         <main className="page-content"><Outlet /></main>
         <footer className="portal-footer">
           <div className="portal-footer-inner">
-            <div className="portal-footer-brand"><strong>隐链明算可信交易平台</strong><span>面向能源可信数据空间的可信协同服务</span></div>
+            <div className="portal-footer-brand"><strong>隐链明算可信数据协同平台</strong><span>以能源电力为验证场景的数据调用与隐私计算基础设施</span></div>
             <div className="portal-footer-links"><a href="#notice">通知公告</a><a href="#guide">使用指南</a><a href="#support">业务支持</a><a href="#security">安全与隐私</a></div>
             <div className="portal-footer-meta"><span>演示运行环境</span><span>服务状态：正常</span></div>
           </div>

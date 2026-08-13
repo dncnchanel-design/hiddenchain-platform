@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BatteryCharging, Blocks, Bot, CheckCircle2, Database, FileClock, Fingerprint, Gavel, KeyRound, Megaphone, Network, RadioTower, RefreshCw, Settings, ShieldCheck, SunMedium, TrendingUp, UsersRound } from "lucide-react";
+import { Activity, ArrowRight, BatteryCharging, Blocks, Bot, CheckCircle2, Database, FileClock, Fingerprint, Gavel, KeyRound, LockKeyhole, Megaphone, Network, RadioTower, RefreshCw, Settings, ShieldCheck, SunMedium, TrendingUp, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, formatDate, shortHash } from "../api";
 import { useAuth } from "../auth";
@@ -29,13 +29,13 @@ const chainIcons: Record<string, React.ElementType> = {
 };
 
 const flow = [
-  ["用户请求", "业务意图"],
-  ["Agent 编排", "任务 DAG"],
-  ["DID 与授权", "VC + ODRL"],
-  ["策略路由", "MPC / FL / TEE"],
-  ["安全校核", "调度边界闸门"],
-  ["链上存证", "三阶段证据"],
-  ["监管审计", "可追溯报告"],
+  ["发现数据产品", "目录 + Schema"],
+  ["身份与授权", "DID/VC + DataPermit"],
+  ["用途控制", "PEP / PDP"],
+  ["隐私计算", "PSI / MPC / FL"],
+  ["只返回结果", "聚合 + 回执"],
+  ["证据核验", "哈希 + 签名"],
+  ["场景验证", "电力交易可选"],
 ];
 
 type OverviewData = {
@@ -75,25 +75,25 @@ export function OverviewPage() {
   return (
     <>
       <PageHeader
-        eyebrow="可信交易空间运行态"
+        eyebrow="可信数据协同运行态"
         title="平台总览"
-        description={`${String(session?.org.org_name || "当前主体")} · 新能源消纳、市场交易、虚拟电厂与电网调度协同运行`}
+        description={`${String(session?.org.org_name || "当前主体")} · 以可信数据调用和隐私计算为主线，电力交易作为可运行验证场景`}
         actions={<Button icon={RefreshCw} onClick={reload}>刷新状态</Button>}
       />
       <div className="portal-notice" id="notice">
         <div><Megaphone size={17} /><strong>通知公告</strong></div>
-        <span>可信交易空间运行正常，近期结算任务、隐私计算和链上存证均已完成可信校验。</span>
+        <span>可信数据空间运行正常：目录发现、用途授权、隐私计算与回执核验均已通过边界校验。</span>
         <Link to="/logs">查看运行记录 <ArrowRight size={14} /></Link>
       </div>
       <div className="metrics-grid five">
-        <Metric label="结算任务" value={summary.kpis.task_total} meta="全部可信胶囊" />
+        <Metric label="可调用数据产品" value={summary.trusted_capabilities.find((item: JsonRecord) => item.code === "DATA")?.metric ?? 0} meta="DataContract 有效" />
+        <Metric label="隐私计算回执" value={summary.four_chain_fusion.find((item: JsonRecord) => item.code === "PRIVACY")?.metric ?? 0} meta="ComputeReceipt 已生成" tone="green" />
+        <Metric label="原始数据出域" value="0" meta="边界目标" tone="green" />
         <Metric label="已审计闭环" value={summary.kpis.audited_tasks} meta="证据链完整" tone="green" />
         <Metric label="开放异常" value={summary.kpis.open_anomalies} meta="待监管处置" tone={summary.kpis.open_anomalies ? "red" : "green"} />
-        <Metric label="Agent 事件" value={summary.kpis.agent_events} meta="签名工具调用" />
-        <Metric label="可信报告" value={summary.kpis.audit_reports} meta="引用证据生成" />
       </div>
 
-      <Surface title="可信交易闭环" note="可信交易胶囊作为统一标识贯穿控制面与确定性执行面">
+      <Surface title="可信数据调用与隐私计算闭环" note="先授权数据调用，再在受控环境中完成计算；电力交易只是验证闭环的一种业务场景">
         <div className="trust-flow">
           {flow.map(([title, note], index) => (
             <div className="flow-fragment" key={title}>
@@ -104,7 +104,7 @@ export function OverviewPage() {
         </div>
       </Surface>
 
-      <Surface title="四场景一体化协同运行" note={`${summary.data_mode === "MVP_DEMO_DATA" ? "MVP 演示数据" : "业务数据"} · 每一步输出直接成为下一场景的受控输入`}>
+      <Surface title="能源电力验证场景" note={`${summary.data_mode === "MVP_DEMO_DATA" ? "MVP 演示数据" : "业务数据"} · 用于验证跨主体数据调用、隐私计算与可追溯回执`}>
         <div className="scenario-coupling">
           {summary.scenario_coordination.map((item: JsonRecord, index: number) => {
             const Icon = scenarioIcons[item.code] || CheckCircle2;
@@ -124,7 +124,7 @@ export function OverviewPage() {
       </Surface>
 
       <div className="content-grid overview-grid">
-        <Surface title="五大可信能力" note="每项能力均形成可验证输出">
+        <Surface title="核心能力状态" note="平台能力先于业务场景，所有调用均形成可验证输出">
           <div className="capability-list">
             {summary.trusted_capabilities.map((item: JsonRecord) => {
               const Icon = capabilityIcons[item.code] || CheckCircle2;
@@ -149,7 +149,16 @@ export function OverviewPage() {
         </Surface>
       </div>
 
-      <Surface title="四链融合可信治理" note="四条治理链通过可信交易胶囊相互引用，不把技术能力并排堆放">
+      <div className="content-grid overview-grid">
+        <Surface title="可信数据调用" note="数据不搬家，按目录、用途和输出约束被安全调用">
+          <div className="feature-callout"><Database size={24} /><div><strong>目录发现 → 协议协商 → 使用控制</strong><span>调用方获得 DataRef 和合约允许的结果，不获得企业原始明细。</span></div><Link className="text-link" to="/data-space">进入数据调用 <ArrowRight size={15} /></Link></div>
+        </Surface>
+        <Surface title="隐私计算" note="在授权数据域内计算，平台只接收聚合结果与回执">
+          <div className="feature-callout"><LockKeyhole size={24} /><div><strong>PSI / MPC / 联邦学习 / 差分隐私</strong><span>算法、输入承诺、执行证明和输出哈希进入 ComputeReceipt。</span></div><Link className="text-link" to="/compute">进入隐私计算 <ArrowRight size={15} /></Link></div>
+        </Surface>
+      </div>
+
+      <Surface title="可信治理证据链" note="身份、调用、计算和回执通过可信验证胶囊相互引用，电力交易不是平台边界">
         <div className="four-chain-grid">
           {summary.four_chain_fusion.map((item: JsonRecord) => {
             const Icon = chainIcons[item.code] || ShieldCheck;
@@ -165,7 +174,7 @@ export function OverviewPage() {
         </div>
       </Surface>
 
-      <Surface title="近期可信交易胶囊" actions={<Link className="text-link" to="/settlements">查看全部 <ArrowRight size={15} /></Link>}>
+      <Surface title="近期可信验证胶囊" actions={<Link className="text-link" to="/settlements">查看场景验证 <ArrowRight size={15} /></Link>}>
         <DataTable
           keyField="task_id"
           rows={summary.recent_tasks}
