@@ -2828,8 +2828,8 @@ tbody tr:hover td {
   padding: 9px;
   border: 1px solid #c9dfd7;
   background: #f2faf7;
-  font-size: 8px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .agent-call-error {
@@ -2843,17 +2843,22 @@ tbody tr:hover td {
   align-items: center;
   gap: 6px;
   color: #147653;
+  font-size: 13px;
 }
 
 .agent-call-result p {
-  margin: 7px 0;
+  margin: 9px 0;
   color: #314d45;
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .agent-call-result small {
   display: block;
-  margin-top: 4px;
+  margin-top: 7px;
   color: #526b64;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .llm-proof-row {
@@ -2868,10 +2873,12 @@ tbody tr:hover td {
 
 .llm-proof-row span,
 .llm-proof-row .code-value {
-  padding: 3px 5px;
+  padding: 5px 7px;
   border: 1px solid #c9dfd7;
   background: #fff;
   color: #22624f;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .llm-proof {
