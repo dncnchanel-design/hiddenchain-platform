@@ -189,7 +189,7 @@ function ReviewMathStrip({ series, checks }: { series: JsonRecord[]; checks: Jso
   const format = (value: number) => value.toLocaleString("zh-CN", { maximumFractionDigits: 1 });
   return (
     <div className="review-math-panel">
-      <div className="review-math-heading"><div><strong>可复算口径</strong><span>按已授权聚合序列核对，不回读主体明细</span></div><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
+      <div className="review-math-heading"><div><strong>可复算口径</strong><span>按已授权聚合序列核对，不回读主体明细；多源先汇总，四位小数 HALF_UP</span></div><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
       <div className="review-math-grid">
         <div><span>核对公式</span><strong>火电出力 − 电网负荷</strong><small>逐区域、逐期间核对平衡差</small></div>
         <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "-"}</strong><small>安全聚合结果</small></div>
