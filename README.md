@@ -138,6 +138,8 @@ hiddenchain-platform/
 
 ## 生产化替换点
 
+本次可信智能执行层的模块边界、API 示例和能源局跨能源调用验证见 [`docs/TRUSTED_EXECUTION.md`](docs/TRUSTED_EXECUTION.md)。
+
 1. 当前 MVP 已将 `MockDataSpaceAdapter` 保留为兼容外壳，策略判定接入 OPA REST/同构本地 Rego；后续再将数据空间连接器替换为 EDC Connector，并将数据合同映射到 ODRL Profile。
 2. `MockPrivacyComputeAdapter` 替换为 SecretFlow 多节点任务，保持 `DataPermit → ComputeReceipt` 接口不变。
    - 新能源联合预测接入联邦学习与差分隐私。

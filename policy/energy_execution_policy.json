@@ -1,0 +1,104 @@
+{
+  "version": "energy-execution/v1",
+  "default_action": "PROHIBIT",
+  "rules": [
+    {
+      "id": "unauthorized-field-prohibit",
+      "description": "请求包含原始明细或精确定位字段时禁止提供",
+      "priority": 5,
+      "action": "PROHIBIT",
+      "match": {
+        "requested_fields_any": [
+          "raw_payload",
+          "raw_records",
+          "customer_id",
+          "meter_point",
+          "exact_coordinates"
+        ]
+      }
+    },
+    {
+      "id": "public-open-data",
+      "description": "公开低敏数据可直接开放",
+      "priority": 10,
+      "action": "ALLOW",
+      "match": {
+        "consumer_roles": ["PUBLIC"],
+        "sensitivity": ["L1"]
+      },
+      "output_fields": ["value", "unit", "period", "region"]
+    },
+    {
+      "id": "regulator-compute-only",
+      "description": "监管主体对 L4 数据只允许在受控环境计算",
+      "priority": 20,
+      "action": "COMPUTE_ONLY",
+      "match": {
+        "consumer_roles": ["REGULATOR"],
+        "sensitivity": ["L4"]
+      },
+      "output_fields": ["trend", "statistics", "chart"]
+    },
+    {
+      "id": "raw-detail-prohibit",
+      "description": "企业明细与未授权字段禁止提供",
+      "priority": 30,
+      "action": "PROHIBIT",
+      "match": {
+        "data_types": ["USER_DETAIL"],
+        "granularity": ["DETAIL"],
+        "sensitivity": ["L3", "L4"]
+      }
+    },
+    {
+      "id": "dispatch-trading-delay",
+      "description": "调度和交易高实时敏感数据按配置延迟开放",
+      "priority": 40,
+      "action": "DELAY",
+      "delay_days": 3,
+      "match": {
+        "data_types": ["POWER_DISPATCH", "POWER_TRADING"],
+        "consumer_roles": ["ENERGY_BUREAU", "PUBLIC"]
+      },
+      "output_fields": ["aggregate_value", "period", "region"]
+    },
+    {
+      "id": "coal-inventory-aggregate",
+      "description": "煤炭库存只按区域和月份汇总后提供",
+      "priority": 50,
+      "action": "AGGREGATE",
+      "match": {
+        "data_types": ["COAL_INVENTORY"],
+        "consumer_roles": ["ENERGY_BUREAU", "REGULATOR"],
+        "purposes": ["CROSS_ENERGY_TREND"]
+      },
+      "group_by": ["region", "period"],
+      "min_group_size": 1,
+      "output_fields": ["sum", "trend", "chart"]
+    },
+    {
+      "id": "cross-energy-compute-only",
+      "description": "跨能源联合分析只交付受控计算结果",
+      "priority": 60,
+      "action": "COMPUTE_ONLY",
+      "match": {
+        "purposes": ["CROSS_ENERGY_TREND"],
+        "sensitivity": ["L4"]
+      },
+      "output_fields": ["trend", "correlation", "balance", "chart"]
+    },
+    {
+      "id": "bureau-aggregate",
+      "description": "能源局对 L2/L3 数据默认按区域和月份汇总",
+      "priority": 70,
+      "action": "AGGREGATE",
+      "match": {
+        "consumer_roles": ["ENERGY_BUREAU"],
+        "sensitivity": ["L2", "L3"]
+      },
+      "group_by": ["region", "period"],
+      "min_group_size": 1,
+      "output_fields": ["sum", "trend", "correlation", "chart"]
+    }
+  ]
+}

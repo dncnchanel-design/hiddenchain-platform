@@ -220,6 +220,35 @@ class BlockchainEvidence(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(24), default="CONFIRMED", nullable=False)
 
 
+class TrustedExecutionReview(Base, TimestampMixin):
+    """Human-reviewable accuracy record for a trusted execution result.
+
+    The stored result and source snapshot are already policy-safe aggregates;
+    raw node records remain in their provider domains.
+    """
+
+    __tablename__ = "trusted_execution_reviews"
+    review_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    execution_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    source_snapshot_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    caller_identity_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    target_data_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    policy_hits_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    execution_plan_hash: Mapped[str | None] = mapped_column(String(128))
+    automatic_status: Mapped[str] = mapped_column(String(24), default="NOT_RUN", nullable=False)
+    checks_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(24), default="PENDING", nullable=False, index=True)
+    reviewer_user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    reviewer_org_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    reviewer_did: Mapped[str | None] = mapped_column(String(160))
+    reviewer_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class AgentEvent(Base, TimestampMixin):
     __tablename__ = "agent_events"
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
