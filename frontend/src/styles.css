@@ -5950,6 +5950,58 @@ table tbody td {
   background: #fafdfe;
 }
 
+.audit-trust-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.audit-trust-strip > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #dce9eb;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fafdfe, #f4f9fa);
+}
+
+.audit-trust-strip svg {
+  flex: 0 0 auto;
+  color: #197d82;
+}
+
+.audit-trust-strip span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.audit-trust-strip small {
+  color: #8aa0a7;
+  font-size: 9px;
+}
+
+.audit-trust-strip strong {
+  overflow: hidden;
+  color: #365869;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-trust-strip em {
+  overflow: hidden;
+  color: #9aaeb4;
+  font-size: 9px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .review-policy-heading {
   display: flex;
   align-items: center;
@@ -6403,6 +6455,10 @@ table tbody td {
   }
 
   .node-topology-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-trust-strip {
     grid-template-columns: 1fr;
   }
 
