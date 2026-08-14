@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Building2, Fingerprint, KeyRound, RefreshCw, UserRound } from "lucide-react";
+import { Building2, Fingerprint, KeyRound, RefreshCw, UserRound, Workflow } from "lucide-react";
 import { api, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -45,7 +45,7 @@ export function SystemPage() {
           { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
         ]} />}
         {tab === "DIDS" && <DataTable keyField="did_id" rows={data.dids} columns={[
-          { key: "owner_id", label: "身份主体", render: (row) => <span className="identity-name">{row.owner_type === "AGENT" ? <Bot size={16} /> : <Fingerprint size={16} />}{row.owner_id}</span> },
+          { key: "owner_id", label: "身份主体", render: (row) => <span className="identity-name">{row.owner_type === "AGENT" ? <Workflow size={16} /> : <Fingerprint size={16} />}{row.owner_id}</span> },
           { key: "owner_type", label: "凭证类型" },
           { key: "did_id", label: "DID", render: (row) => <CodeValue title={row.did_id}>{shortHash(row.did_id, 18)}</CodeValue> },
           { key: "public_key_fingerprint", label: "公钥指纹", render: (row) => <CodeValue title={row.public_key_fingerprint}>{shortHash(row.public_key_fingerprint)}</CodeValue> },

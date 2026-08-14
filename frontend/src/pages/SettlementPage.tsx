@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { Bot, CalendarDays, CheckCircle2, ChevronRight, Circle, FileJson, Play, Plus, RefreshCw, ShieldCheck, Upload, Users } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronRight, Circle, FileJson, Play, Plus, RefreshCw, ShieldCheck, Upload, Users, Workflow } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
@@ -109,7 +109,7 @@ export function SettlementPage() {
               </Surface>
               <Surface title="处理结果">
                 <div className="artifact-stats">
-                  <div><Bot size={19} /><span>调用过程</span><strong>{selected.agent_event_count}</strong></div>
+                  <div><Workflow size={19} /><span>执行过程</span><strong>{selected.agent_event_count}</strong></div>
                   <div><ShieldCheck size={19} /><span>可核验证据</span><strong>{selected.evidence_count}</strong></div>
                   <div><CheckCircle2 size={19} /><span>最小结果</span><strong>{selected.result_count}</strong></div>
                 </div>
