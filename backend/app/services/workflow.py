@@ -940,7 +940,7 @@ def _audit_context(
 
 
 AGENT_DEFAULT_INSTRUCTIONS = {
-    "ORCHESTRATOR": "核对当前任务上下文和六Agent协作链，指出当前阶段、已有协作结果与下一步。",
+    "ORCHESTRATOR": "核对当前任务上下文和六个受控能力模块的协作链，指出当前阶段、已有协作结果与下一步。",
     "DATA_ACCESS": "基于数据合同、许可状态和数据摘要，分析新能源数据能否在不出域前提下参与任务。",
     "RULE_CONTRACT": "核对当前市场规则版本、RuleHash、来源引用和确定性执行边界。",
     "SECURE_SETTLEMENT": "分析隐私计算回执、虚拟电厂协同结果和确定性结算状态，不重新计算或修改结果。",
