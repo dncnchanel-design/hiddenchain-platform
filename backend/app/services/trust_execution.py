@@ -740,11 +740,10 @@ class ResultAuditor:
                     }
                 )
 
+        source_aggregates: dict[tuple[str, str, str], float] = {}
         for source in source_snapshot:
-            key = (str(source.get("period")), str(source.get("region")))
-            result_row = series_by_key.get(key)
             field = cls.FIELD_MAP.get(str(source.get("data_type")))
-            if result_row is None or field is None:
+            if field is None:
                 errors.append(
                     {
                         "check": "SOURCE_RESULT_MAPPING",
@@ -756,15 +755,29 @@ class ResultAuditor:
                     }
                 )
                 continue
-            expected = round(float(source.get("value", 0)), 4)
+            key = (str(source.get("period")), str(source.get("region")), field)
+            source_aggregates[key] = round(
+                source_aggregates.get(key, 0.0) + float(source.get("value", 0)), 4
+            )
+
+        for (period, region, field), expected in source_aggregates.items():
+            result_row = series_by_key.get((period, region))
+            if result_row is None:
+                errors.append(
+                    {
+                        "check": "SOURCE_RESULT_MAPPING",
+                        "source": {"data_type": field, "period": period, "region": region},
+                    }
+                )
+                continue
             actual = result_row.get(field)
             if actual is None or not math.isclose(float(actual), expected, abs_tol=0.0001):
                 errors.append(
                     {
                         "check": "SOURCE_AGGREGATE_RECONCILIATION",
-                        "data_type": source.get("data_type"),
-                        "period": source.get("period"),
-                        "region": source.get("region"),
+                        "data_type": field,
+                        "period": period,
+                        "region": region,
                         "expected": expected,
                         "actual": actual,
                     }
@@ -1027,6 +1040,7 @@ class TrustworthyExecutionController:
             "POWER_TRADING": ("trading_energy_mwh", "MWh"),
             "POWER_DISPATCH": ("dispatch_margin_pct", "%"),
         }
+        decision_map = {decision.target_type: decision for decision in decisions}
         for row in rows:
             key = (str(row["period"]), str(row["region"]))
             entry = by_period_region.setdefault(
@@ -1045,7 +1059,10 @@ class TrustworthyExecutionController:
                 else min(int(entry["group_size"]), row_group_size)
             )
             field_name, _ = field_map.get(row["data_type"], (row["data_type"].lower(), row["unit"]))
-            entry[field_name] = round(float(row["value"]), 4)
+            if field_name in entry and decision_map.get(row["data_type"], None) is not None:
+                entry[field_name] = round(float(entry[field_name]) + float(row["value"]), 4)
+            else:
+                entry[field_name] = round(float(row["value"]), 4)
             entry.setdefault("units", {})[field_name] = row["unit"]
             entry.setdefault("source_nodes", []).append(row["node"])
         series = []
