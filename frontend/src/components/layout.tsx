@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   BarChart3,
   Blocks,
-  Bot,
   Building2,
   Calculator,
   ChevronDown,
@@ -27,6 +26,7 @@ import {
   Settings,
   ShieldCheck,
   UsersRound,
+  Workflow,
   X,
   Zap,
 } from "lucide-react";
@@ -67,7 +67,7 @@ const navGroups = [
       { code: "audit", to: "/audit", label: "安全审计", icon: ClipboardCheck },
       { code: "reports", to: "/reports", label: "审计报告", icon: FileText },
       { code: "anomalies", to: "/anomalies", label: "风险处置", icon: AlertTriangle },
-      { code: "agents", to: "/agents", label: "智能协助", icon: Bot },
+      { code: "agents", to: "/agents", label: "能力编排", icon: Workflow },
       { code: "logs", to: "/logs", label: "操作记录", icon: FileClock },
       { code: "system", to: "/system", label: "身份管理", icon: Settings },
       { code: "metrics", to: "/metrics", label: "系统状态", icon: BarChart3 },
@@ -160,6 +160,7 @@ export function AppShell() {
           <div className="topbar-signals">
             <div className="signal"><Activity size={16} /><span>服务正常</span></div>
             <div className="signal"><KeyRound size={16} /><span>身份有效</span></div>
+            <div className="signal"><ShieldCheck size={16} /><span>策略在线</span></div>
           </div>
           <div className="account">
             <div className="account-avatar">{session.user.display_name.slice(0, 1)}</div>

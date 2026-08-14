@@ -1,11 +1,11 @@
-import { Activity, ArrowRight, BatteryCharging, Blocks, Bot, CheckCircle2, Database, FileClock, Fingerprint, Gavel, KeyRound, LockKeyhole, Megaphone, Network, RadioTower, RefreshCw, Settings, ShieldCheck, SunMedium, TrendingUp, UsersRound } from "lucide-react";
+import { Activity, ArrowRight, BatteryCharging, Blocks, CheckCircle2, Database, FileClock, Fingerprint, Gavel, KeyRound, LockKeyhole, Megaphone, Network, RadioTower, RefreshCw, Settings, ShieldCheck, SunMedium, TrendingUp, UsersRound, Workflow } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, formatDate, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { useRemote } from "../hooks";
 import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
-import { Button, DataTable, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, CodeValue, DataTable, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 
 const capabilityIcons: Record<string, React.ElementType> = {
   IDENTITY: Fingerprint,
@@ -26,14 +26,14 @@ const chainIcons: Record<string, React.ElementType> = {
   DID: Fingerprint,
   PRIVACY: Network,
   BLOCKCHAIN: Blocks,
-  AGENT: Bot,
+  AGENT: Workflow,
 };
 
 const chainLabels: Record<string, string> = {
   DID: "身份服务",
   PRIVACY: "隐私计算",
   BLOCKCHAIN: "可信凭证",
-  AGENT: "智能协助",
+  AGENT: "受控编排",
 };
 
 const flow = [
@@ -52,14 +52,19 @@ type OverviewData = {
   agents?: JsonRecord[];
   logs?: JsonRecord[];
   metrics?: JsonRecord;
+  pendingReviews?: JsonRecord[];
 };
 
 export function OverviewPage() {
   const { session } = useAuth();
   const isAdmin = session?.user.role_code === "ADMIN";
+  const canReview = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
   const loader = async (): Promise<OverviewData> => {
-    const summary = await api<JsonRecord>("/dashboard/summary");
-    if (!isAdmin) return { summary };
+    const [summary, pendingReviews] = await Promise.all([
+      api<JsonRecord>("/dashboard/summary"),
+      canReview ? api<JsonRecord[]>("/trusted-execution/reviews?review_status=PENDING") : Promise.resolve([] as JsonRecord[]),
+    ]);
+    if (!isAdmin) return { summary, pendingReviews };
     const [orgs, users, dids, agents, logs, metrics] = await Promise.all([
       api<JsonRecord[]>("/system/organizations"),
       api<JsonRecord[]>("/system/users"),
@@ -68,13 +73,13 @@ export function OverviewPage() {
       api<JsonRecord[]>("/audit/logs"),
       api<JsonRecord>("/metrics/summary"),
     ]);
-    return { summary, orgs, users, dids, agents, logs, metrics };
+    return { summary, orgs, users, dids, agents, logs, metrics, pendingReviews };
   };
-  const { data, loading, error, reload } = useRemote<OverviewData>(loader, [isAdmin]);
+  const { data, loading, error, reload } = useRemote<OverviewData>(loader, [isAdmin, canReview]);
 
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState message={error || "总览加载失败"} retry={reload} />;
-  if (isAdmin) return <AdminOverview data={data} reload={reload} />;
+  if (isAdmin) return <AdminOverview data={data} reload={reload} canReview={canReview} />;
 
   const summary = data.summary;
 
@@ -86,6 +91,9 @@ export function OverviewPage() {
         description={`${String(session?.org.org_name || "当前主体")} · 数据调用与隐私计算`}
         actions={<Button icon={RefreshCw} onClick={reload}>刷新状态</Button>}
       />
+      <OperationsRibbon scope={String(session?.org.org_name || "当前主体")} />
+      <TrustPosture />
+      <ReviewQueue reviews={data.pendingReviews || []} visible={canReview} />
       <div className="portal-notice" id="notice">
         <div><Megaphone size={17} /><strong>平台状态</strong></div>
         <span>数据目录、授权、计算和回执服务正常。</span>
@@ -188,7 +196,7 @@ export function OverviewPage() {
   );
 }
 
-function AdminOverview({ data, reload }: { data: OverviewData; reload: () => Promise<void> }) {
+function AdminOverview({ data, reload, canReview }: { data: OverviewData; reload: () => Promise<void>; canReview: boolean }) {
   const summary = data.summary;
   const orgs = data.orgs || [];
   const users = data.users || [];
@@ -207,11 +215,14 @@ function AdminOverview({ data, reload }: { data: OverviewData; reload: () => Pro
         description="维护主体身份和平台服务状态。"
         actions={<Button icon={RefreshCw} onClick={reload}>刷新状态</Button>}
       />
+      <OperationsRibbon scope="平台运维域" />
+      <TrustPosture />
+      <ReviewQueue reviews={data.pendingReviews || []} visible={canReview} />
       <div className="metrics-grid five">
         <Metric label="注册组织" value={orgs.length} meta="参与主体" />
         <Metric label="平台用户" value={users.length} meta="角色账号" />
         <Metric label="有效身份凭证" value={validDids} meta="当前有效" tone="green" />
-        <Metric label="智能服务" value={agents.length} meta="已登记" />
+         <Metric label="受控能力" value={agents.length} meta="已登记" />
         <Metric label="待处理风险" value={openAnomalies} meta="平台事件" tone={openAnomalies ? "red" : "green"} />
       </div>
 
@@ -228,7 +239,7 @@ function AdminOverview({ data, reload }: { data: OverviewData; reload: () => Pro
         <Surface title="管理入口">
           <div className="admin-links">
             <Link to="/system"><UsersRound size={19} /><span><strong>主体与 DID</strong><small>维护组织、用户和凭证状态</small></span><ArrowRight size={16} /></Link>
-            <Link to="/agents"><Bot size={19} /><span><strong>Agent 协同</strong><small>查看能力凭证与工具白名单</small></span><ArrowRight size={16} /></Link>
+            <Link to="/agents"><Workflow size={19} /><span><strong>能力编排</strong><small>查看能力凭证与工具白名单</small></span><ArrowRight size={16} /></Link>
             <Link to="/metrics"><Activity size={19} /><span><strong>运行指标</strong><small>检查计算、存证和服务指标</small></span><ArrowRight size={16} /></Link>
             <Link to="/logs"><FileClock size={19} /><span><strong>全过程日志</strong><small>追踪平台操作和异常事件</small></span><ArrowRight size={16} /></Link>
           </div>
@@ -268,5 +279,50 @@ function AdminOverview({ data, reload }: { data: OverviewData; reload: () => Pro
         </div>
       </Surface>
     </>
+  );
+}
+
+function OperationsRibbon({ scope }: { scope: string }) {
+  return (
+    <div className="ops-ribbon" aria-label="可信运营状态">
+      <div className="ops-ribbon-context"><span className="ops-live-dot" /><div><small>当前运营域</small><strong>{scope}</strong></div></div>
+      <div className="ops-ribbon-item"><ShieldCheck size={17} /><span><small>安全边界</small><strong>原始数据不出域</strong></span></div>
+      <div className="ops-ribbon-item"><Activity size={17} /><span><small>计算校验</small><strong>确定性复核在线</strong></span></div>
+      <div className="ops-ribbon-item"><Blocks size={17} /><span><small>审计留痕</small><strong>链上队列正常</strong></span></div>
+    </div>
+  );
+}
+
+function TrustPosture() {
+  return (
+    <div className="trust-posture" aria-label="两层可信状态">
+      <article className="trust-posture-card trust-posture-security">
+        <div className="trust-posture-index">01</div>
+        <div><div className="trust-posture-heading"><ShieldCheck size={19} /><span>安全可信</span><StatusTag value="PASSED" label="边界正常" /></div><strong>原始数据不出域</strong><p>DID/VC、用途策略和最小结果输出共同形成访问边界。</p><ul><li><CheckCircle2 size={14} />身份与权限已校验</li><li><CheckCircle2 size={14} />细粒度数据不直接返回</li></ul></div>
+      </article>
+      <article className="trust-posture-card trust-posture-accuracy">
+        <div className="trust-posture-index">02</div>
+        <div><div className="trust-posture-heading"><Activity size={19} /><span>计算可信</span><StatusTag value="PASSED" label="复核在线" /></div><strong>结果可重算、可确认</strong><p>自动核对公式、来源快照和结果哈希，人工确认后形成签名凭证。</p><ul><li><CheckCircle2 size={14} />确定性复算通过</li><li><CheckCircle2 size={14} />确认记录异步留痕</li></ul></div>
+      </article>
+    </div>
+  );
+}
+
+function ReviewQueue({ reviews, visible }: { reviews: JsonRecord[]; visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <Surface title="计算复核队列" note="自动核验通过后，仍需授权审计角色确认计算结果。" actions={<Link className="text-link" to="/audit">进入审计 <ArrowRight size={14} /></Link>}>
+      {reviews.length ? <DataTable
+        keyField="review_id"
+        rows={reviews.slice(0, 4)}
+        columns={[
+          { key: "request_id", label: "请求", render: (row) => <CodeValue title={row.request_id}>{shortHash(row.request_id, 12)}</CodeValue> },
+          { key: "automatic_status", label: "自动核验", render: (row) => <StatusTag value={row.automatic_status} /> },
+          { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
+          { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
+          { key: "action", label: "操作", render: () => <Link className="table-link" to="/audit">打开复核</Link> },
+        ]}
+      /> : <div className="review-queue-empty"><CheckCircle2 size={18} /><div><strong>当前没有待人工确认的计算结果</strong><span>新结果完成自动核验后会出现在这里。</span></div></div>}
+    </Surface>
   );
 }

@@ -1,5 +1,5 @@
 import type { ElementType } from "react";
-import { ArrowRight, Blocks, Bot, Calculator, CheckCircle2, ClipboardCheck, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck, Users } from "lucide-react";
+import { ArrowRight, Blocks, Calculator, CheckCircle2, ClipboardCheck, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -116,6 +116,11 @@ export function WorkbenchPage() {
           <strong>{config.nextStep}</strong>
           <Link to={config.nextPath}>立即处理 <ArrowRight size={15} /></Link>
         </div>
+      </div>
+      <div className="workbench-assurance" aria-label="可信工作边界">
+        <div><ShieldCheck size={18} /><span><small>安全边界</small><strong>原始数据不出域</strong></span></div>
+        <div><Calculator size={18} /><span><small>计算核验</small><strong>结果需确认后生效</strong></span></div>
+        <div><Blocks size={18} /><span><small>审计留痕</small><strong>每次调用可追溯</strong></span></div>
       </div>
 
       <div className="workbench-kpis">
