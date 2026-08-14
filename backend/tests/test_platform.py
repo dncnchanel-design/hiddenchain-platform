@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.services.adapters import PandapowerGridAdapter
 from app.services import adapters as adapter_module
-from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode, ResultAuditor
+from app.schemas import DataUploadCreate
+from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode, ResultAuditor, _round_metric
 
 
 def test_login_response_never_exposes_password_hash(client):
@@ -611,6 +613,30 @@ def test_result_auditor_reconciles_multiple_aggregate_source_rows():
 
     assert checks["passed"] is True
     assert checks["checks"]["source_aggregate_reconciliation"] is True
+
+
+def test_trusted_metrics_use_decimal_half_up_and_reject_non_finite_values():
+    assert _round_metric(1.23485) == 1.2349
+    try:
+        _round_metric(math.inf)
+    except ValueError as exc:
+        assert str(exc) == "NON_FINITE_METRIC"
+    else:
+        raise AssertionError("non-finite metric should fail closed")
+
+
+def test_upload_contract_rejects_non_finite_numeric_payloads():
+    try:
+        DataUploadCreate(
+            asset_type="GENERATION_DATA",
+            trade_batch_no="TB-NAN-001",
+            label="非有限数值",
+            local_payload={"period": "2026-07", "energy_mwh": float("nan")},
+        )
+    except ValueError as exc:
+        assert "finite" in str(exc)
+    else:
+        raise AssertionError("non-finite upload payload should be rejected")
 
 
 def test_trusted_execution_requires_trusted_role(client, auth_headers):
