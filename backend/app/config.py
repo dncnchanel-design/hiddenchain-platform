@@ -81,6 +81,10 @@ class Settings:
     opa_policy_path: str = os.getenv("OPA_POLICY_PATH", "/v1/data/hiddenchain/decision")
     opa_timeout_seconds: float = _float_env("OPA_TIMEOUT_SECONDS", 1.0)
     opa_local_fallback: bool = _bool_env("OPA_LOCAL_FALLBACK", True)
+    execution_policy_path: str = os.getenv(
+        "EXECUTION_POLICY_PATH", str(PROJECT_DIR / "policy" / "energy_execution_policy.json")
+    )
+    execution_audit_workers: int = _int_env("EXECUTION_AUDIT_WORKERS", 2)
     deepseek_enabled: bool = _bool_env("DEEPSEEK_ENABLED", False)
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")

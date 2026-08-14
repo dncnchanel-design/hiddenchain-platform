@@ -140,6 +140,25 @@ class AgentQueryRequest(StrictModel):
     question: str = Field(min_length=2, max_length=500)
 
 
+class TrustedExecutionRequest(StrictModel):
+    """Natural-language/API request for the eight-step trusted execution loop."""
+
+    question: str = Field(min_length=2, max_length=1000)
+    consumer_role: Literal["ENERGY_BUREAU", "REGULATOR", "PUBLIC"] = "ENERGY_BUREAU"
+    purpose: str = Field(default="CROSS_ENERGY_TREND", min_length=2, max_length=64)
+    period_start: date | None = None
+    period_end: date | None = None
+    target_data_types: list[str] = Field(default_factory=list, max_length=12)
+    group_by: list[str] = Field(default_factory=lambda: ["region", "period"], max_length=8)
+    requested_fields: list[str] = Field(default_factory=list, max_length=24)
+    output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"] = "SUMMARY"
+
+
+class TrustedExecutionReviewRequest(StrictModel):
+    opinion: str = Field(default="核对通过，确认计算结果", min_length=2, max_length=500)
+    accept: bool = True
+
+
 class AgentInvokeRequest(StrictModel):
     task_id: str = Field(min_length=1, max_length=64)
     instruction: str = Field(min_length=2, max_length=500)
