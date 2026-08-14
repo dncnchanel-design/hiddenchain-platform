@@ -53,7 +53,7 @@ POST /api/trusted-execution/reviews/{request_id}/confirm
 }
 ```
 
-默认情况下，Agent 会解析出 `COAL_INVENTORY`、`POWER_THERMAL_OUTPUT` 和 `GRID_LOAD`。能源局的煤炭库存命中 `AGGREGATE`，电力历史统计命中 `AGGREGATE`，最终只交付区域/月度序列、负荷平衡差额和趋势摘要；原始企业级明细不会进入响应。
+默认情况下，受控解析模块会解析出 `COAL_INVENTORY`、`POWER_THERMAL_OUTPUT` 和 `GRID_LOAD`。能源局的煤炭库存命中 `AGGREGATE`，电力历史统计命中 `AGGREGATE`，最终只交付区域/月度序列、负荷平衡差额和趋势摘要；原始企业级明细不会进入响应。
 
 链上凭证异步写入已有 `blockchain_evidence`，其 `payload_json` 至少包含：
 
@@ -62,7 +62,7 @@ POST /api/trusted-execution/reviews/{request_id}/confirm
 ## 两层可信
 
 1. **安全可信**：DID/VC、角色和用途先认证；策略引擎默认拒绝；节点只返回按区域/月度汇总或 TEE 计算结果；结果审核拒绝原始字段、过小群组和反推风险。
-2. **计算可信**：节点返回的安全聚合快照会保存承诺/来源证明。系统自动复算负荷平衡公式、核对节点聚合值与交付序列、检查结果哈希；自动检查通过后进入 `PENDING`，不会伪装成人工确认。
+2. **计算可信**：节点返回的安全聚合快照会保存承诺/来源证明；同一期间、区域和数据类型的多份来源先求和，再以四位小数 `HALF_UP` 规则生成结果。系统自动复算负荷平衡公式、核对节点聚合值与交付序列、检查结果哈希；NaN/Infinity 等非有限值直接 fail-closed。自动检查通过后进入 `PENDING`，不会伪装成人工确认。
 
 审计人员（`REGULATOR`/`ADMIN`）在核对页查看结果哈希、节点汇总快照、计算检查项和策略命中，然后点击确认接口：
 
