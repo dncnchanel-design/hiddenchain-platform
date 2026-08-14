@@ -491,6 +491,7 @@ class ElectricityNode:
         period = intent.period_end.strftime("%Y-%m")
         asset_type = self.ASSET_MAP.get(target_type)
         value, unit = self.DEFAULTS.get(target_type, (0.0, TARGET_CATALOG[target_type]["unit"]))
+        aggregate_values: list[float] = []
         commitments: list[str] = []
         if asset_type:
             for upload in self._uploads(asset_type, period):
@@ -499,13 +500,15 @@ class ElectricityNode:
                 except (OSError, KeyError, TypeError):
                     continue
                 if target_type in {"POWER_THERMAL_OUTPUT", "GRID_LOAD", "POWER_TRADING", "PUBLIC_ENERGY_STAT"}:
-                    value = float(payload.get("energy_mwh", value))
+                    aggregate_values.append(float(payload.get("energy_mwh", value)))
                     unit = "MWh"
                 elif target_type == "POWER_DISPATCH":
                     value = float(payload.get("congestion_margin_pct", value))
                     unit = "%"
                 commitments.append(upload.commitment)
                 period = str(payload.get("period", period))
+        if aggregate_values:
+            value = sum(aggregate_values)
         return [
             {
                 "node": self.code,
