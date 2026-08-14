@@ -556,6 +556,27 @@ def test_dynamic_policy_engine_supports_all_five_actions(tmp_path):
     assert decisions["TEST_AGGREGATE"].group_by == ("region",)
 
 
+def test_trusted_execution_requires_trusted_role(client, auth_headers):
+    status_response = client.get(
+        "/api/trusted-execution/status",
+        headers=auth_headers["generator"],
+    )
+    assert status_response.status_code == 403
+
+    query_response = client.post(
+        "/api/trusted-execution/query",
+        headers=auth_headers["retailer"],
+        json={
+            "question": "查询跨能源趋势",
+            "consumer_role": "ENERGY_BUREAU",
+            "purpose": "CROSS_ENERGY_TREND",
+            "group_by": ["region", "period"],
+            "output_mode": "SUMMARY",
+        },
+    )
+    assert query_response.status_code == 403
+
+
 def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_headers):
     status_response = client.get(
         "/api/trusted-execution/status",
