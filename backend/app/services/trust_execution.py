@@ -1128,6 +1128,13 @@ class TrustworthyExecutionController:
                 "coal_inventory_change_pct": coal_change,
                 "causal_interpretation": "仅基于区域/月度聚合信号生成关联趋势，不输出原始明细或因果断言",
             },
+            "calculation_contract": {
+                "aggregation_key": ["period", "region", "data_type"],
+                "aggregation_method": "SUM_PER_SOURCE_GROUP",
+                "rounding_scale": 4,
+                "rounding_mode": "HALF_UP",
+                "balance_formula": "thermal_output_mwh - grid_load_mwh",
+            },
             "sources": sorted(source_items, key=lambda item: (item["node"], item["data_type"])),
             "policy_actions": sorted({decision.action.value for decision in decisions}),
             "output_mode": "AGGREGATED_AND_COMPUTE_ONLY",
