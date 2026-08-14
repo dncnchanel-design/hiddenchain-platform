@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from app.services.adapters import PandapowerGridAdapter
 from app.services import adapters as adapter_module
-from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode
+from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode, ResultAuditor
 
 
 def test_login_response_never_exposes_password_hash(client):
@@ -589,6 +589,28 @@ def test_electricity_node_sums_multiple_same_period_commitments(monkeypatch):
     assert row["aggregation"] == "SUM"
     assert row["group_size"] == 2
     assert row["source_commitments"] == ["commitment-a", "commitment-b"]
+
+
+def test_result_auditor_reconciles_multiple_aggregate_source_rows():
+    result = {
+        "raw_data_returned": False,
+        "series": [
+            {
+                "period": "2026-07",
+                "region": "EAST-CHINA",
+                "thermal_output_mwh": 14000.0,
+            }
+        ],
+    }
+    source_snapshot = [
+        {"data_type": "POWER_THERMAL_OUTPUT", "period": "2026-07", "region": "EAST-CHINA", "value": 12680.0},
+        {"data_type": "POWER_THERMAL_OUTPUT", "period": "2026-07", "region": "EAST-CHINA", "value": 1320.0},
+    ]
+
+    checks = ResultAuditor.verify_calculation(result, source_snapshot)
+
+    assert checks["passed"] is True
+    assert checks["checks"]["source_aggregate_reconciliation"] is True
 
 
 def test_trusted_execution_requires_trusted_role(client, auth_headers):
