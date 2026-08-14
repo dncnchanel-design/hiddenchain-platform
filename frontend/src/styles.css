@@ -5829,6 +5829,119 @@ table tbody td {
   font-size: 9px;
 }
 
+.review-trend-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #dfeaec;
+  border-radius: 11px;
+  background: #fbfdfd;
+}
+
+.review-trend-heading,
+.review-trend-heading > div,
+.review-trend-legend {
+  display: flex;
+  align-items: center;
+}
+
+.review-trend-heading {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.review-trend-heading > div:first-child {
+  gap: 7px;
+}
+
+.review-trend-heading strong {
+  color: #2d5666;
+  font-size: 11px;
+}
+
+.review-trend-heading span {
+  color: #8aa0a7;
+  font-size: 10px;
+}
+
+.review-trend-legend {
+  gap: 5px;
+  color: #7b9299;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.review-trend-legend i {
+  width: 8px;
+  height: 8px;
+  margin-left: 7px;
+  border-radius: 2px;
+}
+
+.review-trend-legend i:first-child {
+  margin-left: 0;
+}
+
+.review-trend-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.review-trend-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-trend-row > span {
+  overflow: hidden;
+  color: #6e878f;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-trend-bars {
+  display: grid;
+  gap: 4px;
+}
+
+.review-trend-bars > div {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #edf3f3;
+}
+
+.review-trend-bars i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.trend-thermal {
+  background: #188f95;
+}
+
+.trend-load {
+  background: #efae56;
+}
+
+.review-trend-row > strong {
+  font-size: 9px;
+  text-align: right;
+}
+
+.trend-surplus {
+  color: #238c78;
+}
+
+.trend-gap {
+  color: #be6d63;
+}
+
 .review-evidence-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5953,6 +6066,62 @@ table tbody td {
 .review-confirm-bar span {
   color: #718e88;
   font-size: 10px;
+}
+
+.node-topology-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.node-topology-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid #dce9eb;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fbfefe, #f2f8f8);
+}
+
+.node-topology-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-topology-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #b9dfdc;
+  border-radius: 9px;
+  color: #137e84;
+  background: #eaf8f6;
+}
+
+.node-topology-card > strong {
+  color: #1b3f50;
+  font-size: 13px;
+}
+
+.node-topology-code {
+  color: #72909a;
+  font-family: var(--mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-topology-card > small {
+  min-height: 30px;
+  color: #78929a;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .portal-footer {
@@ -6085,6 +6254,10 @@ table tbody td {
     grid-template-columns: 1fr;
   }
 
+  .node-topology-grid {
+    grid-template-columns: 1fr;
+  }
+
   .workbench-assurance {
     grid-template-columns: 1fr;
   }
@@ -6093,6 +6266,11 @@ table tbody td {
   .review-check-grid,
   .review-evidence-grid {
     grid-template-columns: 1fr;
+  }
+
+  .review-trend-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .review-confirm-bar {
