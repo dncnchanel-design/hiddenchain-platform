@@ -21,8 +21,9 @@
 | 用户层 | `frontend/src` | React 18 模块界面、角色菜单 | 国网统一门户/移动端 |
 | 业务层 | `backend/app/routers` | 结算、隐私分析、审计 REST API | 微服务与 API 网关 |
 | Agent 层 | `services/workflow.py` | 四类能源专业 Agent + 编排/报告 Agent | Agent Runtime/工作流引擎 |
-| 可信数据空间层 | `services/adapters.py`、`routers/data.py`、`routers/trade.py` | HCDS-1.0 轻量 Connector、来源/传输元数据、数据产品目录、合同协商、PEP/PDP 使用控制和 ComputeReceipt 关联；底层计算/链仍为可替换适配器 | EDC Connector + OPA + 企业数据网关 |
+| 可信数据空间层 | `services/adapters.py`、`routers/data.py`、`routers/trade.py` | HCDS-1.0 轻量 Connector、来源/传输元数据、数据产品目录、合同协商、OPA REST/同构本地策略判定、PEP/PDP 使用控制和 ComputeReceipt 关联；底层计算/链仍为可替换适配器 | EDC Connector + OPA + 企业数据网关 |
 | 隐私计算层 | `AdaptivePrivacyRouter`、`MockPrivacyComputeAdapter` | 场景策略路由、本地多方域模拟、确定性结算 | SecretFlow/FL/HEU/TEE 多节点部署 |
+| 电网校核层 | `PandapowerGridAdapter`、`MockPrivacyComputeAdapter` | 110kV 三母线潮流、线路负载、电压和剩余偏差安全闸门 | 生产级潮流/安全约束服务 + TEE |
 | 区块链层 | `MockBlockchainAdapter` | 交易哈希、区块高度、证据核验 | FISCO BCOS 证据合约 |
 | 数据层 | `models.py`、`services/vault.py` | SQLite + 组织域 Vault | PostgreSQL + 企业数据网关 |
 | 基础设施层 | Docker Compose | 单机可运行原型 | K8s、密码机、监控告警 |
@@ -32,7 +33,7 @@
 1. 新能源消纳：`RENEWABLE_FORECAST` 与发电计量承诺形成预测风险摘要，供市场任务引用。
 2. 电力市场交易：交易规则经 RAG 引用、DSL 固化和人工签署后形成 `RulePackage`。
 3. 虚拟电厂运营：`VPP_RESOURCE` 在隐私沙箱内聚合，仅输出可调容量和偏差修正量。
-4. 电网调度：`GRID_CONSTRAINT` 不出调度域，结算前对剩余偏差执行安全闸门；不通过则终止结算。
+4. 电网调度：`GRID_CONSTRAINT` 不出调度域，结算前使用 pandapower 三母线模型对剩余偏差执行安全闸门；不通过则终止结算。
 
 四场景以 `trade_batch_no` 对齐，以 `capsule_id` 关联身份、许可、计算和证据，形成“预测 -> 市场 -> 响应 -> 校核 -> 结算”的业务闭环。
 
@@ -54,7 +55,7 @@
 | 新能源与负荷联合预测 | 联邦学习 | 差分隐私输出 | 生成可验证 ComputePlan，算法适配器待替换 |
 | 电力市场联合结算 | PSI + MPC | 确定性规则引擎 | 可运行秘密共享语义模拟 |
 | 虚拟电厂资源聚合 | 秘密共享 + 同态加密 | 差分隐私输出 | 可运行聚合模拟，单户数据不返回 |
-| 实时调度安全校核 | TEE 机密计算 | 策略沙箱 | 可运行边界闸门模拟，潮流模型待接入 |
+| 实时调度安全校核 | TEE 机密计算 | 策略沙箱 | pandapower 三母线校核已接入，生产级 TEE 待替换 |
 
 `AdaptivePrivacyRouter` 根据场景、敏感等级、参与主体数量和时延要求生成 `ComputePlan` 与 `plan_hash`。路由结果属于强制执行参数，不是页面推荐文案。
 
@@ -83,14 +84,14 @@
 
 1. `GET /api/data/catalog` 发布数据产品元数据、语义标识、Schema、质量和用途限制，不发布原始明细。
 2. 结算工作流为每个提供方生成 DataContract，并通过 `DataSpaceConnectorAdapter.negotiate` 完成提供方/使用方 DID、算法、用途、期限和数据产品 ID 的协议协商。
-3. `DataSpaceConnectorAdapter.enforce` 按 PEP/PDP 思路检查主体、用途、胶囊、算法、执行环境、输出模式、有效期和使用次数。
+3. `DataSpaceConnectorAdapter.enforce` 通过 OPA REST 或同构本地 Rego 兼容引擎按 PEP/PDP 思路检查主体、用途、胶囊、算法、执行环境、输出模式、有效期和使用次数，并记录策略输入哈希与决策哈希。
 4. 计算完成后生成带协议 ID、使用决定、输入承诺、输出哈希和原始数据导出标记的 DataSpace receipt，并写入三阶段证据。
 
 导入文件还可为每类数据声明 `ingress`：来源类型、接入层（终端/边缘/云端/业务）、HTTPS/MQTT/WebSocket 协议、TLS 版本和来源证明。导入接口先完成整份清单校验，再写入主体域 Vault；后续计算或安全闸门失败时，数据库记录与新写入的 Vault 原文一并回滚。
 
 新增 `data_space_agreements` 表用于保存协议状态：`OFFERED → NEGOTIATED → ACTIVE → CONSUMED`。这让“访问控制”与“访问后使用控制”区分开来，也为后续替换真实 EDC/OPA 保留稳定接口。
 
-> 当前仍是标准对齐参考实现：`MockPrivacyComputeAdapter`、`MockBlockchainAdapter` 和 `MockDidAdapter` 的替换边界没有被伪装成生产节点。
+> 当前仍是标准对齐参考实现：隐私计算、区块链和 DID 的替换边界没有被伪装成生产节点；策略判定与电网安全校核已分别接入 OPA 兼容实现和 pandapower MVP 引擎。
 
 ## 9. 数据库实体
 

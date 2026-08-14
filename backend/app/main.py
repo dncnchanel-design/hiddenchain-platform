@@ -13,6 +13,7 @@ from .database import SessionLocal, engine, ensure_runtime_schema
 from .models import Base
 from .routers import audit, auth, data, system, trade, trust
 from .seed import seed_demo
+from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 
 
 @asynccontextmanager
@@ -52,6 +53,10 @@ def health() -> dict:
         "service": settings.app_name,
         "mode": "MVP_WITH_REPLACEABLE_ADAPTERS",
         "security_boundary": "Agent orchestration is separated from deterministic execution.",
+        "mvp_adapters": {
+            "policy": OPAPolicyAdapter.status(),
+            "grid": PandapowerGridAdapter.status(),
+        },
     }
 
 

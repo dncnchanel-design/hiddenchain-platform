@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -166,8 +168,214 @@ class MockDidAdapter:
         return {"claims": claims, "token_signature": sign_value(claims, agent_did)}
 
 
+class OPAPolicyAdapter:
+    """Evaluate the local policy contract through OPA's REST shape.
+
+    The local evaluator intentionally mirrors the bundled Rego policy. This
+    keeps the offline demo and unit tests deterministic while Docker Compose
+    can use a real OPA sidecar by setting ``OPA_URL``.
+    """
+
+    code = "OPA_REGO_COMPAT"
+    policy_version = "hiddenchain/v1"
+
+    @staticmethod
+    def _epoch(value: datetime | None) -> float | None:
+        return value.timestamp() if value else None
+
+    @classmethod
+    def _input(
+        cls,
+        contract: DataContract,
+        requested_purpose: str,
+        capsule_id: str,
+        *,
+        consumer_did: str | None,
+        algorithm_code: str,
+        execution_environment: str,
+        output_mode: str,
+        raw_data_export: bool,
+        use_count: int | None,
+        max_uses: int | None,
+        agreement_state: str | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        constraints = contract.policy_json.get("constraint", {})
+        valid_from = _parse_dt(constraints.get("valid_from"))
+        expires_at = _parse_dt(constraints.get("expires_at"))
+        return {
+            "contract_status": contract.status,
+            "contract_purpose": contract.purpose,
+            "requested_purpose": requested_purpose,
+            "expected_capsule_id": constraints.get("capsule_id"),
+            "capsule_id": capsule_id,
+            "expected_consumer_did": constraints.get("consumer_did"),
+            "consumer_did": consumer_did,
+            "allowed_algorithms": constraints.get("algorithm_codes") or [algorithm_code],
+            "algorithm_code": algorithm_code,
+            "expected_execution_environment": constraints.get("execution_environment"),
+            "execution_environment": execution_environment,
+            "expected_output_mode": constraints.get("output_mode"),
+            "output_mode": output_mode,
+            "contract_raw_data_export": constraints.get("raw_data_export"),
+            "raw_data_export": raw_data_export,
+            "valid_from_epoch": cls._epoch(valid_from),
+            "expires_at_epoch": cls._epoch(expires_at),
+            "now_epoch": cls._epoch(now),
+            "use_count": use_count,
+            "max_uses": max_uses,
+            "agreement_state": agreement_state,
+            "obligations": contract.policy_json.get("obligation", []),
+        }
+
+    @staticmethod
+    def _local_decision(policy_input: dict[str, Any]) -> dict[str, Any]:
+        reasons: list[str] = []
+        if policy_input["contract_status"] != "ACTIVE":
+            reasons.append("CONTRACT_NOT_ACTIVE")
+        if policy_input["contract_purpose"] != policy_input["requested_purpose"]:
+            reasons.append("PURPOSE_MISMATCH")
+        if policy_input["expected_capsule_id"] != policy_input["capsule_id"]:
+            reasons.append("CAPSULE_MISMATCH")
+        expected_consumer = policy_input.get("expected_consumer_did")
+        if expected_consumer and policy_input.get("consumer_did") is not None and expected_consumer != policy_input["consumer_did"]:
+            reasons.append("CONSUMER_MISMATCH")
+        if policy_input["algorithm_code"] not in policy_input["allowed_algorithms"]:
+            reasons.append("ALGORITHM_NOT_ALLOWED")
+        expected_environment = policy_input.get("expected_execution_environment")
+        if expected_environment and policy_input["execution_environment"] != expected_environment:
+            reasons.append("EXECUTION_ENVIRONMENT_NOT_ALLOWED")
+        expected_output_mode = policy_input.get("expected_output_mode")
+        if expected_output_mode and policy_input["output_mode"] != expected_output_mode:
+            reasons.append("OUTPUT_MODE_NOT_ALLOWED")
+        if policy_input["raw_data_export"] or policy_input.get("contract_raw_data_export") is not False:
+            reasons.append("RAW_DATA_EXPORT_NOT_ALLOWED")
+        valid_from = policy_input.get("valid_from_epoch")
+        expires_at = policy_input.get("expires_at_epoch")
+        now = policy_input.get("now_epoch")
+        if valid_from is not None and now < valid_from:
+            reasons.append("CONTRACT_NOT_YET_VALID")
+        if expires_at is not None and now >= expires_at:
+            reasons.append("CONTRACT_EXPIRED")
+        if policy_input.get("agreement_state") and policy_input["agreement_state"] not in {"NEGOTIATED", "ACTIVE"}:
+            reasons.append("AGREEMENT_NOT_ACTIVE")
+        if policy_input.get("max_uses") is not None and policy_input.get("use_count", 0) >= policy_input["max_uses"]:
+            reasons.append("USE_LIMIT_REACHED")
+        return {
+            "allow": not reasons,
+            "reasons": reasons,
+            "obligations": policy_input.get("obligations", []),
+        }
+
+    @classmethod
+    def _remote_decision(cls, policy_input: dict[str, Any]) -> dict[str, Any] | None:
+        if not settings.opa_url:
+            return None
+        endpoint = f"{settings.opa_url}{settings.opa_policy_path}"
+        try:
+            response = httpx.post(
+                endpoint,
+                json={"input": policy_input},
+                timeout=settings.opa_timeout_seconds,
+            )
+            response.raise_for_status()
+            payload = response.json().get("result")
+            if not isinstance(payload, dict) or not isinstance(payload.get("allow"), bool):
+                return None
+            return {
+                "allow": payload["allow"],
+                "reasons": list(payload.get("reasons") or []),
+                "obligations": list(payload.get("obligations") or policy_input.get("obligations", [])),
+            }
+        except (httpx.HTTPError, ValueError, TypeError):
+            return None
+
+    @classmethod
+    def evaluate(
+        cls,
+        contract: DataContract,
+        requested_purpose: str,
+        capsule_id: str,
+        *,
+        consumer_did: str | None = None,
+        algorithm_code: str = "SETTLEMENT_MPC_V1",
+        execution_environment: str = "AUTHORIZED_COMPUTE_SANDBOX",
+        output_mode: str = "AGGREGATE_ONLY",
+        raw_data_export: bool = False,
+        use_count: int | None = None,
+        max_uses: int | None = None,
+        agreement_state: str | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        now = now or utc_now()
+        policy_input = cls._input(
+            contract,
+            requested_purpose,
+            capsule_id,
+            consumer_did=consumer_did,
+            algorithm_code=algorithm_code,
+            execution_environment=execution_environment,
+            output_mode=output_mode,
+            raw_data_export=raw_data_export,
+            use_count=use_count,
+            max_uses=max_uses,
+            agreement_state=agreement_state,
+            now=now,
+        )
+        remote = cls._remote_decision(policy_input)
+        if remote is None and settings.opa_url and not settings.opa_local_fallback:
+            evaluated = {
+                "allow": False,
+                "reasons": ["OPA_UNAVAILABLE"],
+                "obligations": policy_input.get("obligations", []),
+            }
+        else:
+            evaluated = remote or cls._local_decision(policy_input)
+        fallback_used = remote is None and bool(settings.opa_url) and settings.opa_local_fallback
+        engine = (
+            "OPA_REST"
+            if remote is not None
+            else ("OPA_REGO_COMPAT_LOCAL" if fallback_used or not settings.opa_url else "OPA_FAIL_CLOSED")
+        )
+        result_basis = {
+            "policy_hash": contract.policy_hash,
+            "input_hash": sha256_json(policy_input),
+            "allow": evaluated["allow"],
+            "reasons": evaluated["reasons"],
+        }
+        return {
+            "decision": "PERMIT" if evaluated["allow"] else "DENY",
+            "policy_hash": contract.policy_hash,
+            "policy_engine": engine,
+            "policy_version": cls.policy_version,
+            "policy_input_hash": sha256_json(policy_input),
+            "decision_hash": sha256_json(result_basis),
+            "policy_remote_configured": bool(settings.opa_url),
+            "policy_local_fallback": fallback_used,
+            "purpose": requested_purpose,
+            "consumer_did": consumer_did or policy_input.get("expected_consumer_did"),
+            "algorithm_code": algorithm_code,
+            "execution_environment": execution_environment,
+            "output_mode": output_mode,
+            "reasons": evaluated["reasons"],
+            "obligations": evaluated["obligations"],
+        }
+
+    @classmethod
+    def status(cls) -> dict[str, Any]:
+        return {
+            "code": cls.code,
+            "policy_version": cls.policy_version,
+            "remote_configured": bool(settings.opa_url),
+            "local_fallback_enabled": settings.opa_local_fallback,
+            "endpoint": settings.opa_policy_path,
+        }
+
+
 class MockDataSpaceAdapter:
-    code = "MOCK_EDC_ODRL_OPA"
+    """Backward-compatible facade for the OPA-compatible policy adapter."""
+
+    code = OPAPolicyAdapter.code
 
     @staticmethod
     def create_contract(
@@ -245,49 +453,25 @@ class MockDataSpaceAdapter:
         execution_environment: str = "AUTHORIZED_COMPUTE_SANDBOX",
         output_mode: str = "AGGREGATE_ONLY",
         raw_data_export: bool = False,
+        use_count: int | None = None,
+        max_uses: int | None = None,
+        agreement_state: str | None = None,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        constraints = contract.policy_json.get("constraint", {})
-        now = now or utc_now()
-        reasons: list[str] = []
-        if contract.status != "ACTIVE":
-            reasons.append("CONTRACT_NOT_ACTIVE")
-        if contract.purpose != requested_purpose:
-            reasons.append("PURPOSE_MISMATCH")
-        if constraints.get("capsule_id") != capsule_id:
-            reasons.append("CAPSULE_MISMATCH")
-        expected_consumer = constraints.get("consumer_did")
-        if expected_consumer and consumer_did is not None and expected_consumer != consumer_did:
-            reasons.append("CONSUMER_MISMATCH")
-        allowed_algorithms = constraints.get("algorithm_codes") or [algorithm_code]
-        if algorithm_code not in allowed_algorithms:
-            reasons.append("ALGORITHM_NOT_ALLOWED")
-        expected_environment = constraints.get("execution_environment")
-        if expected_environment and execution_environment != expected_environment:
-            reasons.append("EXECUTION_ENVIRONMENT_NOT_ALLOWED")
-        expected_output_mode = constraints.get("output_mode")
-        if expected_output_mode and output_mode != expected_output_mode:
-            reasons.append("OUTPUT_MODE_NOT_ALLOWED")
-        if raw_data_export or constraints.get("raw_data_export") is not False:
-            reasons.append("RAW_DATA_EXPORT_NOT_ALLOWED")
-        valid_from = _parse_dt(constraints.get("valid_from"))
-        expires_at = _parse_dt(constraints.get("expires_at"))
-        if valid_from and now < valid_from:
-            reasons.append("CONTRACT_NOT_YET_VALID")
-        if expires_at and now >= expires_at:
-            reasons.append("CONTRACT_EXPIRED")
-        allowed = not reasons
-        return {
-            "decision": "PERMIT" if allowed else "DENY",
-            "policy_hash": contract.policy_hash,
-            "purpose": requested_purpose,
-            "consumer_did": consumer_did or expected_consumer,
-            "algorithm_code": algorithm_code,
-            "execution_environment": execution_environment,
-            "output_mode": output_mode,
-            "reasons": reasons,
-            "obligations": contract.policy_json.get("obligation", []),
-        }
+        return OPAPolicyAdapter.evaluate(
+            contract,
+            requested_purpose,
+            capsule_id,
+            consumer_did=consumer_did,
+            algorithm_code=algorithm_code,
+            execution_environment=execution_environment,
+            output_mode=output_mode,
+            raw_data_export=raw_data_export,
+            use_count=use_count,
+            max_uses=max_uses,
+            agreement_state=agreement_state,
+            now=now,
+        )
 
 
 class DataSpaceConnectorAdapter:
@@ -462,13 +646,18 @@ class DataSpaceConnectorAdapter:
             execution_environment=execution_environment,
             output_mode=output_mode,
             raw_data_export=raw_data_export,
+            use_count=agreement.use_count,
+            max_uses=agreement.max_uses,
+            agreement_state=agreement.state,
         )
         if agreement.state not in {"NEGOTIATED", "ACTIVE"}:
             decision["decision"] = "DENY"
-            decision.setdefault("reasons", []).append("AGREEMENT_NOT_ACTIVE")
+            if "AGREEMENT_NOT_ACTIVE" not in decision.setdefault("reasons", []):
+                decision["reasons"].append("AGREEMENT_NOT_ACTIVE")
         if agreement.use_count >= agreement.max_uses:
             decision["decision"] = "DENY"
-            decision.setdefault("reasons", []).append("USE_LIMIT_REACHED")
+            if "USE_LIMIT_REACHED" not in decision.setdefault("reasons", []):
+                decision["reasons"].append("USE_LIMIT_REACHED")
         if utc_now() >= agreement.expires_at:
             decision["decision"] = "DENY"
             decision.setdefault("reasons", []).append("AGREEMENT_EXPIRED")
@@ -603,6 +792,158 @@ class AdaptivePrivacyRouter:
         ]
 
 
+class PandapowerGridAdapter:
+    """Run a small deterministic three-bus security check with pandapower."""
+
+    code = "PANDAPOWER_3_BUS"
+    network_version = "3-bus-110kv-v1"
+
+    @classmethod
+    def status(cls) -> dict[str, Any]:
+        try:
+            import importlib.util
+
+            installed = importlib.util.find_spec("pandapower") is not None
+        except (ImportError, ModuleNotFoundError):
+            installed = False
+        return {
+            "code": cls.code,
+            "network_version": cls.network_version,
+            "installed": installed,
+            "mode": "DETERMINISTIC_THREE_BUS_SECURITY_CHECK",
+        }
+
+    @staticmethod
+    def _number(payload: dict[str, Any], key: str, default: float) -> float:
+        value = payload.get(key, default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def check(
+        self,
+        *,
+        generation_mwh: float,
+        retail_mwh: float,
+        vpp_adjustment_mwh: float,
+        deviation_mwh: float,
+        grid_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = grid_payload or {}
+        dispatch_hours = max(self._number(payload, "dispatch_hours", 720.0), 1.0)
+        line_limit_mw = max(self._number(payload, "line_limit_mw", 120.0), 0.1)
+        congestion_margin_pct = min(max(self._number(payload, "congestion_margin_pct", 0.0), 0.0), 100.0)
+        max_line_loading_pct = min(
+            max(self._number(payload, "max_line_loading_pct", 100.0 - congestion_margin_pct), 1.0),
+            100.0,
+        )
+        min_voltage_pu = self._number(payload, "min_voltage_pu", 0.95)
+        max_voltage_pu = self._number(payload, "max_voltage_pu", 1.05)
+        max_residual = self._number(payload, "max_residual_imbalance_mwh", 999999.0)
+        n_minus_one_passed = bool(payload.get("n_minus_one_passed", True))
+
+        try:
+            import pandapower as pp
+
+            net = pp.create_empty_network(sn_mva=100.0)
+            grid_bus = pp.create_bus(net, vn_kv=110.0, name="grid")
+            generator_bus = pp.create_bus(net, vn_kv=110.0, name="generator")
+            load_bus = pp.create_bus(net, vn_kv=110.0, name="retail-load")
+            pp.create_ext_grid(net, grid_bus, vm_pu=1.0, name="system-grid")
+            pp.create_sgen(
+                net,
+                generator_bus,
+                p_mw=max(float(generation_mwh), 0.0) / dispatch_hours,
+                q_mvar=0.0,
+                name="renewable-generation",
+            )
+            pp.create_load(
+                net,
+                load_bus,
+                p_mw=max(float(retail_mwh) - float(vpp_adjustment_mwh), 0.0) / dispatch_hours,
+                q_mvar=0.0,
+                name="retail-load",
+            )
+            max_i_ka = line_limit_mw / (math.sqrt(3.0) * 110.0)
+            line_kwargs = {
+                "length_km": 1.0,
+                "r_ohm_per_km": 0.03,
+                "x_ohm_per_km": 0.08,
+                "c_nf_per_km": 10.0,
+                "max_i_ka": max_i_ka,
+                "name": "grid-boundary-line",
+            }
+            pp.create_line_from_parameters(net, grid_bus, generator_bus, **line_kwargs)
+            pp.create_line_from_parameters(net, generator_bus, load_bus, **line_kwargs)
+            pp.runpp(net, calculate_voltage_angles=False, init="flat", numba=False)
+
+            line_loadings = [
+                float(value)
+                for value in net.res_line.loading_percent.tolist()
+                if math.isfinite(float(value))
+            ]
+            voltage_values = [
+                float(value)
+                for value in net.res_bus.vm_pu.tolist()
+                if math.isfinite(float(value))
+            ]
+            max_line_loading = max(line_loadings, default=0.0)
+            min_voltage = min(voltage_values, default=0.0)
+            max_voltage = max(voltage_values, default=0.0)
+            reasons: list[str] = []
+            if not n_minus_one_passed:
+                reasons.append("N_MINUS_ONE_REJECTED")
+            if float(deviation_mwh) > max_residual:
+                reasons.append("RESIDUAL_IMBALANCE_EXCEEDED")
+            if max_line_loading > max_line_loading_pct:
+                reasons.append("LINE_LOADING_EXCEEDED")
+            if min_voltage < min_voltage_pu or max_voltage > max_voltage_pu:
+                reasons.append("VOLTAGE_LIMIT_EXCEEDED")
+            return {
+                "adapter": self.code,
+                "network_version": self.network_version,
+                "passed": not reasons,
+                "reasons": reasons,
+                "metrics": {
+                    "dispatch_hours": dispatch_hours,
+                    "max_line_loading_pct": round(max_line_loading, 4),
+                    "min_voltage_pu": round(min_voltage, 6),
+                    "max_voltage_pu": round(max_voltage, 6),
+                    "residual_imbalance_mwh": round(float(deviation_mwh), 4),
+                },
+                "constraints": {
+                    "max_line_loading_pct": max_line_loading_pct,
+                    "min_voltage_pu": min_voltage_pu,
+                    "max_voltage_pu": max_voltage_pu,
+                    "max_residual_imbalance_mwh": max_residual,
+                    "n_minus_one_passed": n_minus_one_passed,
+                },
+                "raw_data_exposed": False,
+            }
+        except (ImportError, ModuleNotFoundError):
+            return {
+                "adapter": self.code,
+                "network_version": self.network_version,
+                "passed": False,
+                "reasons": ["PANDAPOWER_NOT_INSTALLED"],
+                "metrics": {},
+                "constraints": {},
+                "raw_data_exposed": False,
+            }
+        except Exception as exc:
+            return {
+                "adapter": self.code,
+                "network_version": self.network_version,
+                "passed": False,
+                "reasons": ["POWER_FLOW_FAILED"],
+                "error_type": type(exc).__name__,
+                "metrics": {},
+                "constraints": {},
+                "raw_data_exposed": False,
+            }
+
+
 class MockPrivacyComputeAdapter:
     code = "MOCK_SECRET_FLOW"
 
@@ -665,9 +1006,17 @@ class MockPrivacyComputeAdapter:
         deviation = max(gross_deviation - vpp_adjustment, Decimal("0"))
         max_residual = Decimal(str(grid_private.get("max_residual_imbalance_mwh", "999999")))
         n_minus_one_passed = bool(grid_private.get("n_minus_one_passed", True))
-        grid_check_passed = n_minus_one_passed and deviation <= max_residual
+        grid_powerflow = PandapowerGridAdapter().check(
+            generation_mwh=float(generation),
+            retail_mwh=float(retail),
+            vpp_adjustment_mwh=float(vpp_adjustment),
+            deviation_mwh=float(deviation),
+            grid_payload=grid_private,
+        )
+        grid_check_passed = n_minus_one_passed and deviation <= max_residual and grid_powerflow["passed"]
         if not grid_check_passed:
-            raise ValueError("Grid security gate rejected the settlement compute plan")
+            reasons = ", ".join(grid_powerflow.get("reasons", [])) or "GRID_CONSTRAINT_REJECTED"
+            raise ValueError(f"Grid security gate rejected the settlement compute plan: {reasons}")
         base_amount = settlement_energy * price
         excess_deviation = max(deviation - threshold, Decimal("0"))
         deviation_penalty = excess_deviation * penalty_rate
@@ -715,6 +1064,7 @@ class MockPrivacyComputeAdapter:
                     "artifact": scenario_uploads.get("GRID_CONSTRAINT").commitment if scenario_uploads.get("GRID_CONSTRAINT") else None,
                 },
             ],
+            "grid_security": grid_powerflow,
         }
         receipt = {
             "adapter": self.code,
@@ -724,6 +1074,7 @@ class MockPrivacyComputeAdapter:
                 {"algorithm": algorithm_code, "capsule_id": capsule_id, "strategy": compute_strategy}
             ),
             "compute_strategy": compute_strategy,
+            "grid_security": grid_powerflow,
             "scenario_commitments": {
                 code: upload.commitment for code, upload in scenario_uploads.items()
             },
@@ -732,6 +1083,8 @@ class MockPrivacyComputeAdapter:
                 "raw_data_exported": False,
                 "deterministic_engine": "decimal-v1",
                 "grid_security_gate": "PASSED",
+                "grid_powerflow_adapter": grid_powerflow["adapter"],
+                "grid_powerflow_network": grid_powerflow["network_version"],
             },
             "output_hash": sha256_json(result),
         }
@@ -739,7 +1092,8 @@ class MockPrivacyComputeAdapter:
         logs.extend(
             [
                 f"VPP: {float(vpp_adjustment):.3f} MWh flexibility applied inside secure sandbox",
-                "Grid gate: N-1 flag and residual imbalance constraint passed",
+                f"Pandapower: {grid_powerflow['network_version']} power-flow check passed",
+                "Grid gate: N-1 flag, residual imbalance and pandapower constraints passed",
                 "Deterministic engine: RuleHash, precision and rounding policy applied",
             ]
         )

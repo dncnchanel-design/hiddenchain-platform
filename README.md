@@ -58,8 +58,8 @@ DEEPSEEK_MAX_TOKENS=800
 - 前端：React、TypeScript、Vite、React Router、Lucide、Recharts
 - 后端：FastAPI、SQLAlchemy、Pydantic、SQLite（兼容 PostgreSQL）
 - 安全：PBKDF2 密码哈希、JWT、DID/VC 模拟、能力令牌、HMAC 签名、SHA-256 承诺
-- 可信能力：数据合同与 ODRL 风格策略、OPA 风格策略判定、MPC 适配器、模拟链、证据图谱
-- 场景适配：新能源预测资产、虚拟电厂资源池、调度安全边界、偏差响应和电力交易场景验证
+- 可信能力：数据合同与 ODRL 风格策略、OPA REST/同构本地策略判定、MPC 适配器、模拟链、证据图谱
+- 场景适配：新能源预测资产、虚拟电厂资源池、pandapower 三母线电网安全校核、偏差响应和电力交易场景验证
 
 ## 快速启动
 
@@ -89,7 +89,7 @@ pnpm dev
 docker compose up --build
 ```
 
-容器启动后仍访问 `http://localhost:5173`，OpenAPI 文档位于 `http://localhost:5173/api/docs`。
+容器启动后仍访问 `http://localhost:5173`，OpenAPI 文档位于 `http://localhost:5173/api/docs`。Compose 会同时启动 OPA 策略服务；离线启动脚本未配置 `OPA_URL` 时使用同构本地策略引擎。
 
 ## 按角色开放的功能页面
 
@@ -117,6 +117,7 @@ hiddenchain-platform/
 │  └─ runtime/           # SQLite 与模拟数据域（运行时生成）
 ├─ frontend/
 │  └─ src/               # 按角色开放的功能页面
+├─ policy/                # OPA Rego 策略包
 ├─ docs/                  # 架构映射与开发任务分工
 └─ docker-compose.yml
 ```
@@ -129,22 +130,35 @@ hiddenchain-platform/
 
 - `/api/data/catalog` 提供电力数据产品目录、语义标识、Schema、质量和用途限制，原始数据仍留在组织 Vault。
 - `/api/data/agreements` 查看提供方与使用方之间的协商协议；`/api/data-space/protocol` 查看连接器能力和“三统一”映射。
-- `/api/data-space/usage-control/check` 可验证用途、算法、执行环境、输出模式、原始数据导出和使用次数等策略。
+- `/api/data-space/usage-control/check` 可通过 OPA REST 或同构本地 Rego 兼容引擎验证用途、算法、执行环境、输出模式、原始数据导出和使用次数等策略，并返回策略输入哈希与决策哈希。
 - “可信数据调用”前端页面展示目录、协议能力、协商状态、使用次数和回执记录；“隐私计算”页面展示策略路由、计算任务和 ComputeReceipt。
+- 结算安全闸门使用 `pandapower` 对 110kV 三母线模型执行潮流、线路负载、电压和剩余偏差校核；结果只返回约束摘要，不返回原始数据。
 
 该实现是 IDS-RAM/ODS-RAM 与国内可信数据空间标准方向的 MVP 对齐实现，隐私计算、联盟链和 DID 仍通过适配器保留真实组件替换边界。
 
 ## 生产化替换点
 
-1. `MockDataSpaceAdapter` 替换为 EDC Connector，并将数据合同映射到 ODRL Profile。
+1. 当前 MVP 已将 `MockDataSpaceAdapter` 保留为兼容外壳，策略判定接入 OPA REST/同构本地 Rego；后续再将数据空间连接器替换为 EDC Connector，并将数据合同映射到 ODRL Profile。
 2. `MockPrivacyComputeAdapter` 替换为 SecretFlow 多节点任务，保持 `DataPermit → ComputeReceipt` 接口不变。
    - 新能源联合预测接入联邦学习与差分隐私。
    - 能源场景验证接入 PSI + MPC。
    - 虚拟电厂聚合接入秘密共享/HEU。
-   - 实时调度校核接入 TEE 与经过验证的潮流/安全约束服务。
+   - 实时调度校核在当前 MVP 使用 pandapower 三母线模型；后续再接入 TEE 与经过验证的生产级潮流/安全约束服务。
 3. `MockBlockchainAdapter` 替换为 FISCO BCOS SDK 与证据合约。
-4. `MockDidAdapter` 替换为 WeIdentity 或企业统一身份体系。
+4. `MockDidAdapter` 替换为 walt.id 或企业统一身份体系。
 5. 市场交易 Agent 的本地知识条款替换为正式规则库与可审计 RAG；LLM 仍不能越过 DSL、OPA、调度安全闸门和人工签署闸门。
+
+## MVP 组件配置
+
+`docker-compose.yml` 会启动 `openpolicyagent/opa:1.17.0`，加载 `policy/hiddenchain.rego`，后端通过以下配置访问：
+
+```text
+OPA_URL=http://opa:8181
+OPA_POLICY_PATH=/v1/data/hiddenchain/decision
+OPA_LOCAL_FALLBACK=true
+```
+
+生产 Compose 默认关闭策略服务不可用时的本地回退，避免远程 PDP 故障时继续授权。离线演示不依赖 Docker OPA，仍使用相同输入结构和规则语义的本地兼容实现。
 
 ## 测试
 
@@ -158,7 +172,7 @@ pnpm build
 
 ### 前端流畅度长稳验证
 
-项目内置四小时轻量巡检脚本，验证页面入口、健康检查、登录、任务、隐私计算、可信凭证和数据目录接口。脚本不会创建结算任务或上传数据；登录接口会按正常行为留下登录审计记录。日志写入 `runtime/performance/`，该目录已加入 Git 忽略。
+项目内置四小时轻量巡检脚本，验证页面入口、健康检查、登录、任务、隐私计算、可信凭证、数据目录和数据空间策略协议接口。脚本不会创建结算任务或上传数据；登录接口会按正常行为留下登录审计记录。日志写入 `runtime/performance/`，该目录已加入 Git 忽略。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\performance-soak.ps1

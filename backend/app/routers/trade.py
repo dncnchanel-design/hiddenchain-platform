@@ -33,7 +33,12 @@ from ..schemas import (
     WorkflowRunRequest,
 )
 from ..security import sha256_json, sign_value
-from ..services.adapters import AdaptivePrivacyRouter, DataSpaceConnectorAdapter
+from ..services.adapters import (
+    AdaptivePrivacyRouter,
+    DataSpaceConnectorAdapter,
+    OPAPolicyAdapter,
+    PandapowerGridAdapter,
+)
 from ..services.common import add_audit_log, model_dict
 from ..services.workflow import run_privacy_analysis, run_settlement_workflow, task_summary
 from ..services.vault import LocalDomainVault
@@ -361,6 +366,10 @@ def data_space_protocol(
         "trusted_acquisition": "校验通过后才登记 DataRef",
         "secure_transport": "HTTPS/MQTT/WebSocket 接口边界已预留",
         "maturity_note": "虚拟仿真验证实现；真实 EDC、隐私计算引擎和联盟链通过适配器替换。",
+        "mvp_adapters": {
+            "policy": OPAPolicyAdapter.status(),
+            "grid": PandapowerGridAdapter.status(),
+        },
     }
 
 

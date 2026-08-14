@@ -8,7 +8,7 @@
   -> DNS 解析到云服务器，或 Cloudflare 命名 Tunnel
   -> 云服务器 Docker Compose
   -> Caddy/Nginx 前端与 /api 反向代理
-  -> FastAPI 后端与持久化数据卷
+  -> FastAPI 后端、OPA 策略服务与持久化数据卷
 ```
 
 与临时 `trycloudflare.com` 链接不同，此方案使用固定域名和云服务器。服务器重启后 Docker 会自动恢复容器，公网地址不会变化。
@@ -49,6 +49,8 @@ CORS_ORIGINS=https://demo.<团队域名>
 ```bash
 docker compose --env-file .env.production -f docker-compose.production.yml --profile direct-domain up -d --build
 ```
+
+生产 Compose 会同时启动内部 OPA PDP 和 FastAPI；OPA 不暴露公网端口，后端通过 `OPA_URL=http://opa:8181` 调用 `policy/hiddenchain.rego`。生产配置默认关闭本地策略回退，PDP 不可用时请求会 fail-closed。
 
 `caddy` 会自动申请和续期 HTTPS 证书。最终访问地址为：
 
