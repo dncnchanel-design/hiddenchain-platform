@@ -80,6 +80,7 @@ while ((Get-Date) -lt $endsAt) {
         $cycle.Add((Invoke-Probe "api.privacy" "$BaseUrl/api/privacy/jobs" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.evidence" "$BaseUrl/api/chain/evidence?task_id=task-ready-demo" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.catalog" "$BaseUrl/api/data/catalog?trade_batch_no=TB-2026-07-DEMO" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.protocol" "$BaseUrl/api/data-space/protocol" -RequestHeaders $authHeaders))
     } catch {
         $cycle.Add([pscustomobject]@{ name = "api.auth"; ok = $false; status = 0; latency_ms = 0; error = $_.Exception.Message })
     }

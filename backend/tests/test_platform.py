@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+from app.services.adapters import PandapowerGridAdapter
+from app.services import adapters as adapter_module
 
 
 def test_login_response_never_exposes_password_hash(client):
@@ -72,6 +76,13 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
     }
     assert all(item["status"] == "PASSED" for item in coordination)
     assert result["compute_job"]["result_json"]["gross_deviation_mwh"] > result["compute_job"]["result_json"]["deviation_mwh"]
+    assert result["compute_job"]["result_json"]["grid_security"]["adapter"] == "PANDAPOWER_3_BUS"
+    assert result["compute_job"]["result_json"]["grid_security"]["passed"] is True
+    assert all(
+        item["decision_json"]["policy_engine"] in {"OPA_REST", "OPA_REGO_COMPAT_LOCAL"}
+        for item in result["data_space"]["agreements"]
+    )
+    assert all(item["decision_json"]["policy_input_hash"] for item in result["data_space"]["agreements"])
 
     events = client.get(
         "/api/agents/events?task_id=task-ready-demo",
@@ -238,6 +249,96 @@ def test_usage_control_rejects_raw_output_and_wrong_algorithm(client, auth_heade
     assert denied.status_code == 200
     reasons = set(denied.json()["reasons"])
     assert {"RAW_DATA_EXPORT_NOT_ALLOWED", "OUTPUT_MODE_NOT_ALLOWED", "EXECUTION_ENVIRONMENT_NOT_ALLOWED"} <= reasons
+    assert denied.json()["policy_engine"] in {"OPA_REST", "OPA_REGO_COMPAT_LOCAL"}
+    assert denied.json()["policy_input_hash"]
+    assert denied.json()["decision_hash"]
+
+
+def test_health_exposes_mvp_adapters(client):
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mvp_adapters"]["policy"]["code"] == "OPA_REGO_COMPAT"
+    assert payload["mvp_adapters"]["grid"]["code"] == "PANDAPOWER_3_BUS"
+    assert payload["mvp_adapters"]["grid"]["installed"] is True
+
+
+def test_pandapower_adapter_has_pass_and_reject_paths():
+    adapter = PandapowerGridAdapter()
+    passed = adapter.check(
+        generation_mwh=12500,
+        retail_mwh=12320,
+        vpp_adjustment_mwh=100,
+        deviation_mwh=80,
+        grid_payload={
+            "n_minus_one_passed": True,
+            "max_residual_imbalance_mwh": 90,
+            "congestion_margin_pct": 14.2,
+        },
+    )
+    assert passed["passed"] is True
+    assert passed["metrics"]["max_line_loading_pct"] < passed["constraints"]["max_line_loading_pct"]
+
+    rejected = adapter.check(
+        generation_mwh=12500,
+        retail_mwh=12320,
+        vpp_adjustment_mwh=0,
+        deviation_mwh=180,
+        grid_payload={
+            "n_minus_one_passed": True,
+            "max_residual_imbalance_mwh": 999999,
+            "line_limit_mw": 0.01,
+        },
+    )
+    assert rejected["passed"] is False
+    assert "LINE_LOADING_EXCEEDED" in rejected["reasons"]
+
+
+def test_opa_rest_adapter_accepts_opa_decision_shape(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        @staticmethod
+        def json():
+            return {"result": {"allow": True, "reasons": [], "obligations": ["LOG_USAGE"]}}
+
+    monkeypatch.setattr(adapter_module.httpx, "post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        adapter_module,
+        "settings",
+        SimpleNamespace(
+            opa_url="http://opa:8181",
+            opa_policy_path="/v1/data/hiddenchain/decision",
+            opa_timeout_seconds=1.0,
+            opa_local_fallback=False,
+        ),
+    )
+    contract = SimpleNamespace(
+        status="ACTIVE",
+        purpose="POWER_SETTLEMENT",
+        policy_hash="policy-hash",
+        policy_json={
+            "constraint": {
+                "capsule_id": "capsule-1",
+                "consumer_did": "did:example:consumer",
+                "algorithm_codes": ["SETTLEMENT_MPC_V1"],
+                "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
+                "output_mode": "AGGREGATE_ONLY",
+                "raw_data_export": False,
+            },
+            "obligation": ["LOG_USAGE"],
+        },
+    )
+    result = adapter_module.OPAPolicyAdapter.evaluate(
+        contract,
+        "POWER_SETTLEMENT",
+        "capsule-1",
+        consumer_did="did:example:consumer",
+    )
+    assert result["decision"] == "PERMIT"
+    assert result["policy_engine"] == "OPA_REST"
+    assert result["policy_remote_configured"] is True
 
 
 def test_audit_query_is_grounded_in_evidence(client, auth_headers):

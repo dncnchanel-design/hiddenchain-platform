@@ -1,6 +1,18 @@
 services:
+  opa:
+    image: openpolicyagent/opa:1.17.0
+    restart: unless-stopped
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    volumes:
+      - ./policy:/policies:ro
+    expose:
+      - "8181"
+
   backend:
     build: ./backend
+    depends_on:
+      opa:
+        condition: service_started
     restart: unless-stopped
     environment:
       DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
@@ -9,6 +21,10 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       DEMO_SEED: ${DEMO_SEED:-false}
       MOCK_DELAY_MS: ${MOCK_DELAY_MS:-80}
+      OPA_URL: ${OPA_URL:-http://opa:8181}
+      OPA_POLICY_PATH: ${OPA_POLICY_PATH:-/v1/data/hiddenchain/decision}
+      OPA_TIMEOUT_SECONDS: ${OPA_TIMEOUT_SECONDS:-1.0}
+      OPA_LOCAL_FALLBACK: ${OPA_LOCAL_FALLBACK:-false}
       DEEPSEEK_ENABLED: ${DEEPSEEK_ENABLED:-false}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
