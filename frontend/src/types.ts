@@ -93,7 +93,7 @@ export const MESSAGE_TYPE_LABELS: Record<string, string> = {
   ComputeReceipt: "计算回执",
   AuditBundle: "审计证据包",
   ReportArtifact: "报告凭证",
-  DeepSeekAgentAnalysis: "智能体分析",
+  DeepSeekAgentAnalysis: "能力模块分析",
   AuditExplanation: "审计解释",
 };
 
@@ -184,10 +184,10 @@ export const ACTION_LABELS: Record<string, string> = {
   CONFIRM_SETTLEMENT_RESULT: "确认结果回执",
   RUN_PRIVACY_LOAD_ANALYSIS: "运行隐私分析",
   VERIFY_CHAIN_EVIDENCE: "核验链上证据",
-  INVOKE_DEEPSEEK_AGENT: "调用智能体",
+  INVOKE_DEEPSEEK_AGENT: "调用受控能力",
   RUN_TRUSTED_SETTLEMENT_WORKFLOW: "执行可信验证闭环",
   GENERATE_AUDIT_REPORT: "生成审计报告",
-  AGENT_AUDIT_QUERY: "发起审计问答",
+  AGENT_AUDIT_QUERY: "发起证据检索",
   INJECT_DEMO_ANOMALY: "注入演示风险事件",
   RESOLVE_ANOMALY: "处理风险事件",
   UPLOAD_DATA_REFERENCE: "登记数据引用",
@@ -203,7 +203,7 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   SETTLEMENT_RESULT: "结果回执",
   PRIVACY_ANALYSIS_JOB: "隐私分析",
   BLOCKCHAIN_EVIDENCE: "链上证据",
-  AGENT: "智能体",
+  AGENT: "能力模块",
   AUDIT_REPORT: "审计报告",
   ANOMALY_EVENT: "风险事件",
 };
