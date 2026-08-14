@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Blocks, FileSearch, MessageSquareText, RefreshCw, Send, ShieldCheck, Workflow } from "lucide-react";
+import { Blocks, Calculator, FileSearch, MessageSquareText, RefreshCw, Send, ShieldCheck, Workflow } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
 import { Button, CodeValue, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -44,6 +44,11 @@ export function AuditPage() {
   return (
     <>
       <PageHeader eyebrow="安全审计" title="审计与复核" description="按时间检查可信采集、授权、隐私计算、结果核验和链上凭证。" actions={<Button icon={RefreshCw} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button>} />
+      <div className="audit-trust-strip" aria-label="双层可信核验入口">
+        <div><ShieldCheck size={18} /><span><small>安全可信</small><strong>原始数据不出域</strong><em>DID · 策略 · 边界</em></span></div>
+        <div><Calculator size={18} /><span><small>计算可信</small><strong>结果可复算、可确认</strong><em>公式 · 聚合 · 人工复核</em></span></div>
+        <div><Blocks size={18} /><span><small>可追溯</small><strong>证据哈希持续留痕</strong><em>8 步工作流 · 链上凭证</em></span></div>
+      </div>
       <div className="filter-bar">
         <label><span>审计对象</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
         {timeline.data?.task && <><div><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div><div><span>原始数据</span><StatusTag value="SUCCESS" label="未进入审计域" /></div></>}
