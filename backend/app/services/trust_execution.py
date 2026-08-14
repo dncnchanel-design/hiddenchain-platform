@@ -218,13 +218,33 @@ class DynamicPolicyEngine:
     """Configuration-driven five-way data classification policy engine."""
 
     def __init__(self, policy_path: str | None = None) -> None:
-        self.policy_path = Path(policy_path or settings.execution_policy_path)
+        configured_path = Path(policy_path or settings.execution_policy_path)
+        self.policy_path = self._resolve_policy_path(configured_path)
         self.document = self._load_document()
         self.version = str(self.document.get("version", "energy-execution/unknown"))
         self.policy_hash = sha256_json(self.document)
         self.rules = sorted(
             self.document.get("rules", []), key=lambda item: int(item.get("priority", 1000))
         )
+
+    @staticmethod
+    def _resolve_policy_path(configured_path: Path) -> Path:
+        """Resolve policy paths across local, source-tree, and container layouts."""
+        candidates = [configured_path]
+        filename = configured_path.name or "energy_execution_policy.json"
+        module_path = Path(__file__).resolve()
+        for root in (module_path.parents[2], module_path.parents[3]):
+            candidates.append(root / "policy" / filename)
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            normalized = candidate if candidate.is_absolute() else candidate.resolve()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            if normalized.is_file():
+                return normalized
+        return configured_path
 
     def _load_document(self) -> dict[str, Any]:
         try:
