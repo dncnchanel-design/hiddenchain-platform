@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from app.services.adapters import PandapowerGridAdapter
 from app.services import adapters as adapter_module
-from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine
+from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode
 
 
 def test_login_response_never_exposes_password_hash(client):
@@ -554,6 +554,41 @@ def test_dynamic_policy_engine_supports_all_five_actions(tmp_path):
     }
     assert decisions["TEST_PROHIBIT"].permitted is False
     assert decisions["TEST_AGGREGATE"].group_by == ("region",)
+
+
+def test_electricity_node_sums_multiple_same_period_commitments(monkeypatch):
+    from app.services import trust_execution as trust_execution_module
+
+    node = ElectricityNode(None)
+    uploads = [
+        SimpleNamespace(data_ref="domain-ref-a", commitment="commitment-a"),
+        SimpleNamespace(data_ref="domain-ref-b", commitment="commitment-b"),
+    ]
+    payloads = {
+        "domain-ref-a": {"period": "2026-07", "energy_mwh": 12680.0},
+        "domain-ref-b": {"period": "2026-07", "energy_mwh": 1320.0},
+    }
+    monkeypatch.setattr(node, "_uploads", lambda asset_type, period: uploads)
+    monkeypatch.setattr(trust_execution_module.LocalDomainVault, "read", lambda ref: payloads[ref])
+
+    intent = AgenticQueryOrchestrator().resolve(
+        {
+            "question": "核对火电出力汇总",
+            "consumer_role": "ENERGY_BUREAU",
+            "purpose": "CROSS_ENERGY_TREND",
+            "period_start": "2026-07-01",
+            "period_end": "2026-07-31",
+            "target_data_types": ["POWER_THERMAL_OUTPUT"],
+            "group_by": ["region", "period"],
+        }
+    )
+    decision = DynamicPolicyEngine().decide(intent, "POWER_THERMAL_OUTPUT")
+    row = node.query("POWER_THERMAL_OUTPUT", intent, decision)[0]
+
+    assert row["value"] == 14000.0
+    assert row["aggregation"] == "SUM"
+    assert row["group_size"] == 2
+    assert row["source_commitments"] == ["commitment-a", "commitment-b"]
 
 
 def test_trusted_execution_requires_trusted_role(client, auth_headers):
