@@ -52,11 +52,12 @@ function EvidenceValue({ value }: { value: unknown }) {
 export function TrustedExecutionReviewPanel() {
   const { session } = useAuth();
   const [selected, setSelected] = useState<JsonRecord | null>(null);
+  const [reviewStatus, setReviewStatus] = useState("PENDING");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const reviews = useRemote<JsonRecord[]>(
-    () => api("/trusted-execution/reviews?review_status=PENDING", { cache: "no-store" }),
-    [],
+    () => api(`/trusted-execution/reviews${reviewStatus ? `?review_status=${reviewStatus}` : ""}`, { cache: "no-store" }),
+    [reviewStatus],
   );
   const canConfirm = ["REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
 
@@ -83,7 +84,7 @@ export function TrustedExecutionReviewPanel() {
       });
       setMessage("计算结果已确认，审查 DID 签名和链上复核凭证已生成。");
       setSelected(null);
-      await reviews.reload();
+      setReviewStatus("CONFIRMED");
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "计算结果确认失败");
     } finally {
@@ -100,12 +101,12 @@ export function TrustedExecutionReviewPanel() {
       <Surface
         title="计算复核队列"
         note="自动核验通过后仍需授权审计人员确认；这里仅展示安全聚合结果和来源证明。"
-        actions={<Button icon={RefreshCw} onClick={reviews.reload}>刷新</Button>}
+        actions={<><label className="review-filter"><span>查看状态</span><select aria-label="查看复核状态" value={reviewStatus} onChange={(event) => { setSelected(null); setReviewStatus(event.target.value); }}><option value="PENDING">待确认</option><option value="CONFIRMED">已确认</option><option value="REJECTED">已拒绝</option><option value="">全部</option></select></label><Button icon={RefreshCw} onClick={reviews.reload}>刷新</Button></>}
       >
         <DataTable
           keyField="review_id"
           rows={reviews.data}
-          empty="当前没有待人工确认的可信执行结果"
+          empty={reviewStatus === "PENDING" ? "当前没有待人工确认的可信执行结果" : "当前筛选没有可信执行结果"}
           columns={[
             { key: "request_id", label: "请求", render: (row) => <CodeValue title={row.request_id}>{shortHash(row.request_id, 10)}</CodeValue> },
             { key: "target_data", label: "数据目标", render: (row) => (Array.isArray(row.target_data) ? row.target_data : []).map(targetLabel).join(" · ") || "受控聚合" },
