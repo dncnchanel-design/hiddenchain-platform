@@ -200,7 +200,7 @@ def dashboard_summary(
         {"code": "DID", "name": "DID身份链", "metric": valid_dids, "unit": "个有效凭证", "artifact": "VC + 能力令牌"},
         {"code": "PRIVACY", "name": "隐私计算链", "metric": privacy_job_count, "unit": "个计算回执", "artifact": "DataPermit + ComputeReceipt"},
         {"code": "BLOCKCHAIN", "name": "区块链存证链", "metric": evidence_count, "unit": "项证据索引", "artifact": "证据哈希 + 交易索引"},
-        {"code": "AGENT", "name": "智能体协作链", "metric": agent_event_count, "unit": "次签名调用", "artifact": "Agent DID + I/O哈希"},
+        {"code": "AGENT", "name": "受控能力协作链", "metric": agent_event_count, "unit": "次签名调用", "artifact": "能力 DID + I/O哈希"},
     ]
     return {
         "kpis": {
