@@ -5950,6 +5950,27 @@ table tbody td {
   background: #fafdfe;
 }
 
+.review-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.review-filter span {
+  color: #8aa0a7;
+  font-size: 9px;
+}
+
+.review-filter select {
+  min-width: 84px;
+  padding: 6px 24px 6px 8px;
+  border: 1px solid #d8e5e7;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #365869;
+  font-size: 10px;
+}
+
 .audit-trust-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
