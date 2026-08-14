@@ -29,6 +29,11 @@ const policyActionLabels: Record<string, string> = {
   PROHIBIT: "禁止提供",
 };
 
+function targetLabel(value: unknown) {
+  const code = String(value || "");
+  return targetLabels[code] || code || "数据目标";
+}
+
 function boolValue(value: unknown) {
   return value === true || value === "true" || value === "PASSED";
 }
@@ -103,7 +108,7 @@ export function TrustedExecutionReviewPanel() {
           empty="当前没有待人工确认的可信执行结果"
           columns={[
             { key: "request_id", label: "请求", render: (row) => <CodeValue title={row.request_id}>{shortHash(row.request_id, 10)}</CodeValue> },
-            { key: "target_data", label: "数据目标", render: (row) => (row.target_data || []).join(" · ") },
+            { key: "target_data", label: "数据目标", render: (row) => (Array.isArray(row.target_data) ? row.target_data : []).map(targetLabel).join(" · ") || "受控聚合" },
             { key: "automatic_status", label: "自动核验", render: (row) => <StatusTag value={row.automatic_status} /> },
             { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
             { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
@@ -165,7 +170,7 @@ function PolicyHitStrip({ hits }: { hits: JsonRecord[] }) {
         {hits.map((hit, index) => {
           const action = String(hit.action || "PROHIBIT");
           const grouping = Array.isArray(hit.group_by) ? hit.group_by.join("、") : String(hit.group_by || "");
-          return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabels[String(hit.target_data_type)] || hit.target_data_type}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `按 ${grouping} 汇总` : `规则 ${shortHash(hit.rule_id, 10)}`}</small></article>;
+          return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabel(hit.target_data_type)}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `按 ${grouping} 汇总` : `规则 ${shortHash(hit.rule_id, 10)}`}</small></article>;
         })}
       </div>
     </div>
