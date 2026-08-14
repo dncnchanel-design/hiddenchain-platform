@@ -5942,6 +5942,84 @@ table tbody td {
   color: #be6d63;
 }
 
+.review-policy-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #dce9eb;
+  border-radius: 11px;
+  background: #fafdfe;
+}
+
+.review-policy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.review-policy-heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.review-policy-heading strong {
+  color: #2d5666;
+  font-size: 11px;
+}
+
+.review-policy-heading span {
+  color: #8aa0a7;
+  font-size: 9px;
+}
+
+.review-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-policy-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid #e0ebed;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.review-policy-item > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.review-policy-item strong {
+  overflow: hidden;
+  color: #365869;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-policy-item > span {
+  color: #197d82;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.review-policy-item small {
+  overflow: hidden;
+  color: #849ba3;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .review-evidence-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6271,6 +6349,16 @@ table tbody td {
   .review-trend-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .review-policy-heading,
+  .review-policy-heading > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .review-policy-grid {
+    grid-template-columns: 1fr;
   }
 
   .review-confirm-bar {
