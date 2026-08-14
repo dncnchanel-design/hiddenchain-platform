@@ -6,6 +6,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -31,6 +32,15 @@ class PolicyAction(StrEnum):
 
 
 SENSITIVITY_RANK = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
+METRIC_QUANTUM = Decimal("0.0001")
+
+
+def _round_metric(value: float | Decimal) -> float:
+    """Use a documented decimal rounding rule and reject non-finite metrics."""
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError("NON_FINITE_METRIC")
+    return float(Decimal(str(numeric)).quantize(METRIC_QUANTUM, rounding=ROUND_HALF_UP))
 
 
 TARGET_CATALOG: dict[str, dict[str, Any]] = {
@@ -516,7 +526,7 @@ class ElectricityNode:
                 "data_type": target_type,
                 "period": period,
                 "region": self.region,
-                "value": round(value, 4),
+                "value": _round_metric(value),
                 "unit": unit,
                 "aggregation": "SUM" if decision.action == PolicyAction.AGGREGATE else decision.release_mode,
                 "group_size": max(1, len(commitments)),
@@ -561,7 +571,7 @@ class CoalNode:
                 "data_type": target_type,
                 "period": key[0],
                 "region": key[1],
-                "value": round(value, 4),
+                "value": _round_metric(value),
                 "unit": "tons",
                 "aggregation": "GROUP_BY_SUM",
                 "group_by": list(decision.group_by),
@@ -603,7 +613,7 @@ class OilGasNode:
                 "data_type": target_type,
                 "period": key[0],
                 "region": key[1],
-                "value": round(value, 4),
+                "value": _round_metric(value),
                 "unit": "million_m3",
                 "aggregation": "GROUP_BY_SUM",
                 "group_by": list(decision.group_by),
@@ -717,7 +727,7 @@ class ResultAuditor:
             balance = item.get("grid_balance_margin_mwh")
             if thermal is None or load is None:
                 continue
-            expected = round(float(thermal) - float(load), 4)
+            expected = _round_metric(float(thermal) - float(load))
             if balance is None or not math.isclose(float(balance), expected, abs_tol=0.0001):
                 errors.append(
                     {
@@ -756,8 +766,8 @@ class ResultAuditor:
                 )
                 continue
             key = (str(source.get("period")), str(source.get("region")), field)
-            source_aggregates[key] = round(
-                source_aggregates.get(key, 0.0) + float(source.get("value", 0)), 4
+            source_aggregates[key] = _round_metric(
+                source_aggregates.get(key, 0.0) + float(source.get("value", 0))
             )
 
         for (period, region, field), expected in source_aggregates.items():
@@ -1060,9 +1070,9 @@ class TrustworthyExecutionController:
             )
             field_name, _ = field_map.get(row["data_type"], (row["data_type"].lower(), row["unit"]))
             if field_name in entry and decision_map.get(row["data_type"], None) is not None:
-                entry[field_name] = round(float(entry[field_name]) + float(row["value"]), 4)
+                entry[field_name] = _round_metric(float(entry[field_name]) + float(row["value"]))
             else:
-                entry[field_name] = round(float(row["value"]), 4)
+                entry[field_name] = _round_metric(float(row["value"]))
             entry.setdefault("units", {})[field_name] = row["unit"]
             entry.setdefault("source_nodes", []).append(row["node"])
         series = []
@@ -1070,7 +1080,7 @@ class TrustworthyExecutionController:
             thermal = entry.get("thermal_output_mwh")
             load = entry.get("grid_load_mwh")
             if thermal is not None and load is not None:
-                entry["grid_balance_margin_mwh"] = round(thermal - load, 4)
+                entry["grid_balance_margin_mwh"] = _round_metric(thermal - load)
                 entry["balance_status"] = "SURPLUS" if thermal >= load else "GAP"
             series.append(entry)
 
@@ -1078,7 +1088,7 @@ class TrustworthyExecutionController:
             values = [item[field] for item in series if field in item]
             if len(values) < 2 or values[0] == 0:
                 return None
-            return round((values[-1] - values[0]) / abs(values[0]) * 100, 4)
+            return _round_metric((values[-1] - values[0]) / abs(values[0]) * 100)
 
         thermal_change = change("thermal_output_mwh")
         load_change = change("grid_load_mwh")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -49,6 +50,8 @@ class DataUploadCreate(StrictModel):
             value = payload.get(name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(f"local_payload.{name} must be a number")
+            if not math.isfinite(float(value)):
+                raise ValueError(f"local_payload.{name} must be finite")
             if minimum is not None and value < minimum:
                 raise ValueError(f"local_payload.{name} must be >= {minimum}")
             if maximum is not None and value > maximum:
@@ -63,7 +66,13 @@ class DataUploadCreate(StrictModel):
             curve = payload.get("load_curve")
             if not isinstance(curve, list) or len(curve) != 24:
                 raise ValueError("local_payload.load_curve must contain exactly 24 values")
-            if any(isinstance(item, bool) or not isinstance(item, (int, float)) or item < 0 for item in curve):
+            if any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(float(item))
+                or item < 0
+                for item in curve
+            ):
                 raise ValueError("local_payload.load_curve must contain non-negative numbers")
         elif self.asset_type == "VPP_RESOURCE":
             number("adjustable_capacity_mw", minimum=0)
