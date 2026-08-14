@@ -718,6 +718,13 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
     assert result["released"] is True
     assert result["raw_data_returned"] is False
     assert result["output_mode"] == "AGGREGATED_AND_COMPUTE_ONLY"
+    assert result["calculation_contract"] == {
+        "aggregation_key": ["period", "region", "data_type"],
+        "aggregation_method": "SUM_PER_SOURCE_GROUP",
+        "rounding_scale": 4,
+        "rounding_mode": "HALF_UP",
+        "balance_formula": "thermal_output_mwh - grid_load_mwh",
+    }
     assert result["privacy_controls"]["compute_environment"] == "SIMULATED_TEE"
     assert result["privacy_controls"]["topology_coordinate_offset"]["coordinates_returned"] is False
     assert any("coal_inventory_tons" in item for item in result["series"])
