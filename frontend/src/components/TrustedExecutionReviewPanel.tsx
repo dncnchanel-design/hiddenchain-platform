@@ -12,6 +12,23 @@ const regionLabels: Record<string, string> = {
   "CENTRAL-CHINA": "华中",
 };
 
+const targetLabels: Record<string, string> = {
+  COAL_INVENTORY: "电煤库存",
+  POWER_THERMAL_OUTPUT: "火电出力",
+  GRID_LOAD: "电网负荷",
+  POWER_TRADING: "交易摘要",
+  POWER_DISPATCH: "调度边界",
+  OIL_GAS_SUPPLY: "油气供应",
+};
+
+const policyActionLabels: Record<string, string> = {
+  AGGREGATE: "汇总提供",
+  ALLOW: "开放提供",
+  DELAY: "延迟提供",
+  COMPUTE_ONLY: "仅计算",
+  PROHIBIT: "禁止提供",
+};
+
 function boolValue(value: unknown) {
   return value === true || value === "true" || value === "PASSED";
 }
@@ -104,6 +121,7 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
   const result = (selected.result || {}) as JsonRecord;
   const snapshots = Array.isArray(selected.source_snapshot) ? selected.source_snapshot as JsonRecord[] : [];
   const series = Array.isArray(result.series) ? result.series as JsonRecord[] : [];
+  const policyHits = Array.isArray(selected.policy_hits) ? selected.policy_hits as JsonRecord[] : [];
   const sourceReconciliation = checks.source_aggregate_reconciliation === true && checks.source_result_mapping === true;
   const hashRecorded = typeof selected.result_hash === "string" && selected.result_hash.length > 0;
   const hashCheck = typeof checks.result_hash === "boolean" ? checks.result_hash : hashRecorded;
@@ -125,6 +143,7 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
         <CheckItem label="结果哈希凭证" value={hashCheck} />
         <CheckItem label="原始数据边界" value={checks.raw_data_boundary} />
       </div>
+      {policyHits.length > 0 && <PolicyHitStrip hits={policyHits} />}
       {series.length > 0 && <ReviewTrend series={series} />}
       <div className="review-evidence-grid">
         <div className="review-evidence-card"><div className="review-evidence-heading"><Database size={17} /><strong>来源快照</strong><span>{snapshots.length} 个节点</span></div><div className="review-evidence-list">{snapshots.slice(0, 6).map((item, index) => <div key={`${item.node || item.provider || "source"}-${index}`}><span>{item.node || item.provider || item.target_data_type || "数据节点"}</span><strong>{item.target_data_type || item.data_type || "安全聚合"}</strong><small>{item.raw_data_exposed === false ? "原始数据未出域" : "需复核"} · {item.group_by ? `按 ${Array.isArray(item.group_by) ? item.group_by.join("、") : item.group_by} 汇总` : "受控计算"}</small></div>)}</div></div>
@@ -134,6 +153,21 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
       {selected.verification_status === "PENDING" && canConfirm && <div className="review-confirm-bar"><div><strong>确认计算结果</strong><span>确认后将写入审查 DID 签名，并生成 REVIEW_CONFIRMED 链上事件。</span></div><Button icon={CheckCircle2} variant="primary" busy={busy === `confirm:${selected.review_id}`} onClick={onConfirm}>确认并留痕</Button></div>}
       {selected.verification_status === "PENDING" && !canConfirm && <Notice tone="warning">当前角色可以查看复核材料，但只有监管方或系统管理员可以确认计算结果。</Notice>}
     </Surface>
+  );
+}
+
+function PolicyHitStrip({ hits }: { hits: JsonRecord[] }) {
+  return (
+    <div className="review-policy-panel">
+      <div className="review-policy-heading"><div><strong>策略命中</strong><span>最终裁决来自确定性规则，不由解释服务决定</span></div><span>{hits.length} 个数据目标</span></div>
+      <div className="review-policy-grid">
+        {hits.map((hit, index) => {
+          const action = String(hit.action || "PROHIBIT");
+          const grouping = Array.isArray(hit.group_by) ? hit.group_by.join("、") : String(hit.group_by || "");
+          return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabels[String(hit.target_data_type)] || hit.target_data_type}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `按 ${grouping} 汇总` : `规则 ${shortHash(hit.rule_id, 10)}`}</small></article>;
+        })}
+      </div>
+    </div>
   );
 }
 
