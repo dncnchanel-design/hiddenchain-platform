@@ -36,6 +36,21 @@ const chainLabels: Record<string, string> = {
   AGENT: "受控编排",
 };
 
+const nodeLabels: Record<string, string> = {
+  ELECTRICITY_NODE: "电力节点",
+  COAL_NODE: "煤炭节点",
+  OIL_GAS_NODE: "油气节点",
+};
+
+const dataTypeLabels: Record<string, string> = {
+  COAL_INVENTORY: "电煤库存",
+  POWER_THERMAL_OUTPUT: "火电出力",
+  GRID_LOAD: "电网负荷",
+  POWER_TRADING: "交易摘要",
+  POWER_DISPATCH: "调度边界",
+  OIL_GAS_SUPPLY: "油气供应",
+};
+
 const flow = [
   ["可信采集", "来源与格式校验"],
   ["安全传输", "加密接口接入"],
@@ -53,6 +68,7 @@ type OverviewData = {
   logs?: JsonRecord[];
   metrics?: JsonRecord;
   pendingReviews?: JsonRecord[];
+  trustedStatus?: JsonRecord;
 };
 
 export function OverviewPage() {
@@ -60,11 +76,12 @@ export function OverviewPage() {
   const isAdmin = session?.user.role_code === "ADMIN";
   const canReview = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
   const loader = async (): Promise<OverviewData> => {
-    const [summary, pendingReviews] = await Promise.all([
+    const [summary, pendingReviews, trustedStatus] = await Promise.all([
       api<JsonRecord>("/dashboard/summary"),
       canReview ? api<JsonRecord[]>("/trusted-execution/reviews?review_status=PENDING") : Promise.resolve([] as JsonRecord[]),
+      canReview ? api<JsonRecord>("/trusted-execution/status") : Promise.resolve(undefined as JsonRecord | undefined),
     ]);
-    if (!isAdmin) return { summary, pendingReviews };
+    if (!isAdmin) return { summary, pendingReviews, trustedStatus };
     const [orgs, users, dids, agents, logs, metrics] = await Promise.all([
       api<JsonRecord[]>("/system/organizations"),
       api<JsonRecord[]>("/system/users"),
@@ -73,7 +90,7 @@ export function OverviewPage() {
       api<JsonRecord[]>("/audit/logs"),
       api<JsonRecord>("/metrics/summary"),
     ]);
-    return { summary, orgs, users, dids, agents, logs, metrics, pendingReviews };
+    return { summary, orgs, users, dids, agents, logs, metrics, pendingReviews, trustedStatus };
   };
   const { data, loading, error, reload } = useRemote<OverviewData>(loader, [isAdmin, canReview]);
 
@@ -91,8 +108,9 @@ export function OverviewPage() {
         description={`${String(session?.org.org_name || "当前主体")} · 数据调用与隐私计算`}
         actions={<Button icon={RefreshCw} onClick={reload}>刷新状态</Button>}
       />
-      <OperationsRibbon scope={String(session?.org.org_name || "当前主体")} />
-      <TrustPosture />
+      <OperationsRibbon scope={String(session?.org.org_name || "当前主体")} status={data.trustedStatus} pendingCount={data.pendingReviews?.length || 0} />
+      <TrustPosture status={data.trustedStatus} />
+      <NodeTopology status={data.trustedStatus} />
       <ReviewQueue reviews={data.pendingReviews || []} visible={canReview} />
       <div className="portal-notice" id="notice">
         <div><Megaphone size={17} /><strong>平台状态</strong></div>
@@ -215,8 +233,9 @@ function AdminOverview({ data, reload, canReview }: { data: OverviewData; reload
         description="维护主体身份和平台服务状态。"
         actions={<Button icon={RefreshCw} onClick={reload}>刷新状态</Button>}
       />
-      <OperationsRibbon scope="平台运维域" />
-      <TrustPosture />
+      <OperationsRibbon scope="平台运维域" status={data.trustedStatus} pendingCount={data.pendingReviews?.length || 0} />
+      <TrustPosture status={data.trustedStatus} />
+      <NodeTopology status={data.trustedStatus} />
       <ReviewQueue reviews={data.pendingReviews || []} visible={canReview} />
       <div className="metrics-grid five">
         <Metric label="注册组织" value={orgs.length} meta="参与主体" />
@@ -282,18 +301,22 @@ function AdminOverview({ data, reload, canReview }: { data: OverviewData; reload
   );
 }
 
-function OperationsRibbon({ scope }: { scope: string }) {
+function OperationsRibbon({ scope, status, pendingCount }: { scope: string; status?: JsonRecord; pendingCount: number }) {
+  const policyEngine = (status?.policy_engine || {}) as JsonRecord;
+  const policyVersion = String(policyEngine.version || "energy-execution/v1");
   return (
     <div className="ops-ribbon" aria-label="可信运营状态">
       <div className="ops-ribbon-context"><span className="ops-live-dot" /><div><small>当前运营域</small><strong>{scope}</strong></div></div>
       <div className="ops-ribbon-item"><ShieldCheck size={17} /><span><small>安全边界</small><strong>原始数据不出域</strong></span></div>
-      <div className="ops-ribbon-item"><Activity size={17} /><span><small>计算校验</small><strong>确定性复核在线</strong></span></div>
-      <div className="ops-ribbon-item"><Blocks size={17} /><span><small>审计留痕</small><strong>链上队列正常</strong></span></div>
+      <div className="ops-ribbon-item"><Activity size={17} /><span><small>计算校验</small><strong>{status ? `策略 ${policyVersion}` : "确定性复核在线"}</strong></span></div>
+      <div className="ops-ribbon-item"><Blocks size={17} /><span><small>审计留痕</small><strong>{pendingCount ? `${pendingCount} 项待确认` : "链上队列正常"}</strong></span></div>
     </div>
   );
 }
 
-function TrustPosture() {
+function TrustPosture({ status }: { status?: JsonRecord }) {
+  const accuracyReview = (status?.accuracy_review || {}) as JsonRecord;
+  const manualRequired = accuracyReview.manual_confirmation_required !== false;
   return (
     <div className="trust-posture" aria-label="两层可信状态">
       <article className="trust-posture-card trust-posture-security">
@@ -302,9 +325,31 @@ function TrustPosture() {
       </article>
       <article className="trust-posture-card trust-posture-accuracy">
         <div className="trust-posture-index">02</div>
-        <div><div className="trust-posture-heading"><Activity size={19} /><span>计算可信</span><StatusTag value="PASSED" label="复核在线" /></div><strong>结果可重算、可确认</strong><p>自动核对公式、来源快照和结果哈希，人工确认后形成签名凭证。</p><ul><li><CheckCircle2 size={14} />确定性复算通过</li><li><CheckCircle2 size={14} />确认记录异步留痕</li></ul></div>
+        <div><div className="trust-posture-heading"><Activity size={19} /><span>计算可信</span><StatusTag value="PASSED" label="复核在线" /></div><strong>结果可重算、可确认</strong><p>自动核对公式、来源快照和结果哈希，人工确认后形成签名凭证。</p><ul><li><CheckCircle2 size={14} />确定性复算通过</li><li><CheckCircle2 size={14} />{manualRequired ? "确认记录异步留痕" : "确认流程已配置"}</li></ul></div>
       </article>
     </div>
+  );
+}
+
+function NodeTopology({ status }: { status?: JsonRecord }) {
+  const nodes = Array.isArray(status?.nodes) ? status.nodes as JsonRecord[] : [];
+  if (!nodes.length) return null;
+  return (
+    <Surface title="能源节点目录" note="平台只登记节点接口能力；原始数据仍保留在各主体域内。">
+      <div className="node-topology-grid">
+        {nodes.map((node) => {
+          const types = Array.isArray(node.supported_data_types) ? node.supported_data_types as string[] : [];
+          return (
+            <article className="node-topology-card" key={String(node.node_code)}>
+              <div className="node-topology-card-header"><div className="node-topology-icon"><RadioTower size={18} /></div><StatusTag value="READY" label="接口已登记" /></div>
+              <strong>{nodeLabels[String(node.node_code)] || node.node_code}</strong>
+              <span className="node-topology-code">{node.node_code} · {node.interface_version || "ENERGY-NODE-1.0"}</span>
+              <small>{types.length} 个数据产品 · {types.map((type) => dataTypeLabels[type] || type).join("、") || "等待登记"}</small>
+            </article>
+          );
+        })}
+      </div>
+    </Surface>
   );
 }
 

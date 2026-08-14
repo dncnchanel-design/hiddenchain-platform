@@ -21,8 +21,18 @@
 | [grafana/grafana](https://github.com/grafana/grafana) | AGPL-3.0；约 76k stars；2026-08-14 仍有提交 | 中：独立部署快，但要接入数据源、权限和面板管理 | 可组合面板、时间范围、状态/日志/指标联动 | 借鉴面板密度和状态表达，不嵌入 Grafana |
 | [apache/superset](https://github.com/apache/superset) | Apache-2.0；约 74k stars；2026-08-14 仍有提交 | 高：Python Web、元数据数据库、缓存/异步任务和前端构建 | 报表、筛选器、可视化探索、数据集权限 | 仅借鉴报表和过滤器，不替换当前前端 |
 | [powsybl/powsybl-core](https://github.com/powsybl/powsybl-core) / [open-loadflow](https://github.com/powsybl/powsybl-open-loadflow) | MPL-2.0；2026-08-13 仍有提交 | 中高：Java/Maven，电力模型和算法接入需专业建模 | 潮流、灵敏度、安全分析适配器 | 作为后续计算插件候选 |
+| [OpenLEADR/openleadr-rs](https://github.com/OpenLEADR/openleadr-rs) | Apache/MIT 信息以仓库声明为准；2026-08-13 仍有提交 | 中：Rust 服务 + PostgreSQL + Docker；协议侧部署独立 | OpenADR VTN/VEN、需求响应事件与资源授权 | 作为未来需求响应连接器候选，不进入当前核心链路 |
+| [GRIDAPPSD/GOSS-GridAPPS-D](https://github.com/GRIDAPPSD/GOSS-GridAPPS-D) / [gridappsd-viz](https://github.com/GRIDAPPSD/gridappsd-viz) | 未在 API 快照中给出统一 SPDX；2026-08-10/02-19 仍有提交 | 高：Java 消息总线、CIM/拓扑模型、Docker 运行时 | 配电网拓扑、仿真应用、可视化工作台 | 借鉴拓扑与设备状态表达，不引入整套运行时 |
+| [Grid2op/grid2op](https://github.com/Grid2op/grid2op) | MPL-2.0；2026-06-19 有提交、2026-08-11 有仓库更新 | 中：Python 仿真测试环境，不是面向业务用户的生产控制台 | 潮流安全场景、调度动作、策略回归与压力测试 | 作为后续安全策略测试夹具 |
+| [bbartling/OpenADR-2B-PyServer](https://github.com/bbartling/OpenADR-2B-PyServer) | MIT；仓库已于 2025-12-25 归档 | 低到中，但维护风险已不可接受 | OpenADR Web 控制台示例 | 排除，不作为依赖或生产基线 |
 
 维护状态以上述 GitHub 仓库页面和 API 在调研时间的公开信息为准；stars、issue 数和最近提交只用于判断活跃度，不等同于项目质量保证。
+
+### 第二轮筛选结论
+
+- **协议适配优先**：OpenLEADR 只放在 `EnergyNode`/需求响应连接器边界，不能越过当前策略引擎和人工确认闸门。
+- **拓扑计算隔离**：GridAPPS-D、Grid2Op 的模型或测试能力可以服务电力安全校核，但原始拓扑仍留在电力主体域，结果只回到 `ComputeReceipt` 和审计凭证。
+- **维护优先于“看起来能跑”**：已归档的 OpenADR Web 服务不纳入候选；大型 Java/CIM 栈不作为 MVP 的直接依赖。
 
 ## 从公开平台提炼的界面模式
 
