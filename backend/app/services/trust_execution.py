@@ -1424,6 +1424,16 @@ class TrustworthyExecutionController:
 def trusted_execution_status() -> dict[str, Any]:
     return {
         "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",
+        "security_boundary": {
+            "raw_data_transferred": False,
+            "raw_data_returned": False,
+            "anti_inference_checks": True,
+            "topology_coordinates_released": False,
+        },
+        "audit": {
+            "asynchronous_blockchain_logging": True,
+            "result_hash_required": True,
+        },
         "workflow_steps": [
             "INGEST",
             "AUTHENTICATE",

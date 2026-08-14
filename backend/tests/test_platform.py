@@ -557,6 +557,23 @@ def test_dynamic_policy_engine_supports_all_five_actions(tmp_path):
 
 
 def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_headers):
+    status_response = client.get(
+        "/api/trusted-execution/status",
+        headers=auth_headers["exchange"],
+    )
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["security_boundary"] == {
+        "raw_data_transferred": False,
+        "raw_data_returned": False,
+        "anti_inference_checks": True,
+        "topology_coordinates_released": False,
+    }
+    assert status_payload["audit"] == {
+        "asynchronous_blockchain_logging": True,
+        "result_hash_required": True,
+    }
+
     response = client.post(
         "/api/trusted-execution/query",
         headers=auth_headers["exchange"],
