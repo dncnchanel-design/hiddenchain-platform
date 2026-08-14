@@ -144,6 +144,7 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
         <CheckItem label="原始数据边界" value={checks.raw_data_boundary} />
       </div>
       {policyHits.length > 0 && <PolicyHitStrip hits={policyHits} />}
+      {series.length > 0 && <ReviewMathStrip series={series} checks={checks} />}
       {series.length > 0 && <ReviewTrend series={series} />}
       <div className="review-evidence-grid">
         <div className="review-evidence-card"><div className="review-evidence-heading"><Database size={17} /><strong>来源快照</strong><span>{snapshots.length} 个节点</span></div><div className="review-evidence-list">{snapshots.slice(0, 6).map((item, index) => <div key={`${item.node || item.provider || "source"}-${index}`}><span>{item.node || item.provider || item.target_data_type || "数据节点"}</span><strong>{item.target_data_type || item.data_type || "安全聚合"}</strong><small>{item.raw_data_exposed === false ? "原始数据未出域" : "需复核"} · {item.group_by ? `按 ${Array.isArray(item.group_by) ? item.group_by.join("、") : item.group_by} 汇总` : "受控计算"}</small></div>)}</div></div>
@@ -166,6 +167,28 @@ function PolicyHitStrip({ hits }: { hits: JsonRecord[] }) {
           const grouping = Array.isArray(hit.group_by) ? hit.group_by.join("、") : String(hit.group_by || "");
           return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabels[String(hit.target_data_type)] || hit.target_data_type}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `按 ${grouping} 汇总` : `规则 ${shortHash(hit.rule_id, 10)}`}</small></article>;
         })}
+      </div>
+    </div>
+  );
+}
+
+function ReviewMathStrip({ series, checks }: { series: JsonRecord[]; checks: JsonRecord }) {
+  const rows = series.map((item) => ({
+    thermal: Number(item.thermal_output_mwh),
+    load: Number(item.grid_load_mwh),
+  })).filter((item) => Number.isFinite(item.thermal) && Number.isFinite(item.load));
+  const thermalTotal = rows.reduce((total, item) => total + item.thermal, 0);
+  const loadTotal = rows.reduce((total, item) => total + item.load, 0);
+  const margin = thermalTotal - loadTotal;
+  const format = (value: number) => value.toLocaleString("zh-CN", { maximumFractionDigits: 1 });
+  return (
+    <div className="review-math-panel">
+      <div className="review-math-heading"><div><strong>可复算口径</strong><span>按已授权聚合序列核对，不回读主体明细</span></div><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
+      <div className="review-math-grid">
+        <div><span>核对公式</span><strong>火电出力 − 电网负荷</strong><small>逐区域、逐期间核对平衡差</small></div>
+        <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "-"}</strong><small>安全聚合结果</small></div>
+        <div><span>电网负荷合计</span><strong>{rows.length ? `${format(loadTotal)} MWh` : "-"}</strong><small>安全聚合结果</small></div>
+        <div><span>平衡差合计</span><strong>{rows.length ? `${format(margin)} MWh` : "-"}</strong><small>{rows.length ? (margin >= 0 ? "总体 SURPLUS" : "总体 GAP") : "等待可复算序列"}</small></div>
       </div>
     </div>
   );
