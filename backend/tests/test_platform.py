@@ -638,6 +638,18 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
     assert review_payload["source_snapshot"]
     assert all(item["raw_data_exposed"] is False for item in review_payload["source_snapshot"])
 
+    review_queue = client.get(
+        "/api/trusted-execution/reviews?review_status=PENDING",
+        headers=auth_headers["regulator"],
+    )
+    assert review_queue.status_code == 200
+    queue_item = next(item for item in review_queue.json() if item["request_id"] == payload["request_id"])
+    assert queue_item["target_data"] == [
+        "COAL_INVENTORY",
+        "POWER_THERMAL_OUTPUT",
+        "GRID_LOAD",
+    ]
+
     confirmation = client.post(
         f"/api/trusted-execution/reviews/{payload['request_id']}/confirm",
         headers=auth_headers["regulator"],

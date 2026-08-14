@@ -852,6 +852,7 @@ class TrustedExecutionReviewService:
             "automatic_status": review.automatic_status,
             "verification_status": review.verification_status,
             "checks": review.checks_json,
+            "target_data": review.target_data_json,
             "reviewer_user_id": review.reviewer_user_id,
             "reviewer_org_id": review.reviewer_org_id,
             "reviewer_did": review.reviewer_did,
