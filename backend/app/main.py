@@ -11,9 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import SessionLocal, engine, ensure_runtime_schema
 from .models import Base
-from .routers import audit, auth, data, system, trade, trust
+from .routers import audit, auth, data, execution, system, trade, trust
 from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
+from .services.trust_execution import DynamicPolicyEngine
 
 
 @asynccontextmanager
@@ -42,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router]:
+for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router]:
     app.include_router(router, prefix=settings.api_prefix)
 
 
@@ -56,6 +57,22 @@ def health() -> dict:
         "mvp_adapters": {
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
+        },
+        "trusted_execution": {
+            "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",
+            "policy_version": DynamicPolicyEngine().version,
+            "workflow_steps": [
+                "INGEST",
+                "AUTHENTICATE",
+                "RESOLVE",
+                "ARBITRATE",
+                "EXECUTE",
+                "AUDIT",
+                "DELIVER",
+                "LOG",
+            ],
+            "raw_data_transferred": False,
+            "async_blockchain_audit": True,
         },
     }
 

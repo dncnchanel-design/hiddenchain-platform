@@ -5,6 +5,7 @@ import { Button, CodeValue, ErrorState, LoadingState, Notice, PageHeader, Status
 import { useRemote } from "../hooks";
 import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
+import { TrustedExecutionReviewPanel } from "../components/TrustedExecutionReviewPanel";
 
 const kindIcons: Record<string, React.ElementType> = { AGENT_EVENT: Bot, CHAIN_EVIDENCE: Blocks, ANOMALY: ShieldCheck };
 
@@ -77,6 +78,7 @@ export function AuditPage() {
           </div>
         </Surface>
       </div>
+      <TrustedExecutionReviewPanel />
     </>
   );
 }

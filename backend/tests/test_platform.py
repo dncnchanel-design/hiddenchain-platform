@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.services.adapters import PandapowerGridAdapter
 from app.services import adapters as adapter_module
+from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine
 
 
 def test_login_response_never_exposes_password_hash(client):
@@ -509,3 +511,147 @@ def test_import_accepts_real_scene_flag_and_rolls_back_failed_run(client, auth_h
     assert "Grid security gate" in response.json()["detail"]
     tasks = client.get("/api/settlement/tasks", headers=auth_headers["exchange"]).json()
     assert all(item["trade_batch_no"] != "TB-ROLLBACK-202608" for item in tasks)
+
+
+def test_dynamic_policy_engine_supports_all_five_actions(tmp_path):
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "version": "test-policy/v1",
+                "default_action": "PROHIBIT",
+                "rules": [
+                    {"id": "allow", "priority": 10, "action": "ALLOW", "match": {"data_types": ["TEST_ALLOW"]}},
+                    {"id": "delay", "priority": 20, "action": "DELAY", "delay_days": 1, "match": {"data_types": ["TEST_DELAY"]}},
+                    {"id": "aggregate", "priority": 30, "action": "AGGREGATE", "group_by": ["region"], "match": {"data_types": ["TEST_AGGREGATE"]}},
+                    {"id": "compute", "priority": 40, "action": "COMPUTE_ONLY", "match": {"data_types": ["TEST_COMPUTE"]}},
+                    {"id": "prohibit", "priority": 50, "action": "PROHIBIT", "match": {"data_types": ["TEST_PROHIBIT"]}},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    intent = AgenticQueryOrchestrator().resolve(
+        {
+            "question": "test policy",
+            "period_start": "2026-07-01",
+            "period_end": "2026-07-31",
+            "target_data_types": [],
+        }
+    )
+    engine = DynamicPolicyEngine(str(policy_path))
+    decisions = {
+        target: engine.decide(intent, target)
+        for target in ("TEST_ALLOW", "TEST_DELAY", "TEST_AGGREGATE", "TEST_COMPUTE", "TEST_PROHIBIT")
+    }
+    assert {item.action.value for item in decisions.values()} == {
+        "ALLOW",
+        "DELAY",
+        "AGGREGATE",
+        "COMPUTE_ONLY",
+        "PROHIBIT",
+    }
+    assert decisions["TEST_PROHIBIT"].permitted is False
+    assert decisions["TEST_AGGREGATE"].group_by == ("region",)
+
+
+def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_headers):
+    response = client.post(
+        "/api/trusted-execution/query",
+        headers=auth_headers["exchange"],
+        json={
+            "question": "分析上月由于电煤库存变化引起的火电出力与电网负荷平衡趋势",
+            "consumer_role": "ENERGY_BUREAU",
+            "purpose": "CROSS_ENERGY_TREND",
+            "group_by": ["region", "period"],
+            "output_mode": "SUMMARY",
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["execution_status"] == "SUCCEEDED"
+    assert [item["code"] for item in payload["workflow_steps"]] == [
+        "INGEST",
+        "AUTHENTICATE",
+        "RESOLVE",
+        "ARBITRATE",
+        "EXECUTE",
+        "AUDIT",
+        "DELIVER",
+        "LOG",
+    ]
+    assert set(payload["intent"]["target_data_types"]) == {
+        "COAL_INVENTORY",
+        "POWER_THERMAL_OUTPUT",
+        "GRID_LOAD",
+    }
+    assert payload["caller_identity"]["did_verified"] is True
+    actions = {item["target_data_type"]: item["action"] for item in payload["policy_hits"]}
+    assert actions == {
+        "COAL_INVENTORY": "AGGREGATE",
+        "POWER_THERMAL_OUTPUT": "AGGREGATE",
+        "GRID_LOAD": "AGGREGATE",
+    }
+    result = payload["result"]
+    assert result["released"] is True
+    assert result["raw_data_returned"] is False
+    assert result["output_mode"] == "AGGREGATED_AND_COMPUTE_ONLY"
+    assert result["privacy_controls"]["compute_environment"] == "SIMULATED_TEE"
+    assert result["privacy_controls"]["topology_coordinate_offset"]["coordinates_returned"] is False
+    assert any("coal_inventory_tons" in item for item in result["series"])
+    assert any("thermal_output_mwh" in item and "grid_load_mwh" in item for item in result["series"])
+    assert all(item["raw_data_exposed"] is False for item in result["sources"])
+    assert payload["chain_audit"]["status"] == "QUEUED"
+
+    audit = None
+    for _ in range(40):
+        audit = client.get(
+            f"/api/trusted-execution/audit/{payload['request_id']}",
+            headers=auth_headers["regulator"],
+        )
+        if audit.json()["status"] == "CONFIRMED":
+            break
+        time.sleep(0.05)
+    assert audit is not None
+    assert audit.status_code == 200
+    audit_payload = audit.json()
+    assert audit_payload["status"] == "CONFIRMED"
+    chain_payload = audit_payload["items"][0]["payload_json"]
+    assert set(
+        ("Request_ID", "Caller_Identity", "Target_Data", "Policy_Hit", "Execution_Status", "Result_Hash")
+    ) <= set(chain_payload)
+    assert chain_payload["Request_ID"] == payload["request_id"]
+    assert chain_payload["Result_Hash"] == payload["result_hash"]
+    assert len(chain_payload["Workflow_Steps"]) == 8
+    assert chain_payload["Source_Attestations"]
+
+    review = client.get(
+        f"/api/trusted-execution/reviews/{payload['request_id']}",
+        headers=auth_headers["regulator"],
+    )
+    assert review.status_code == 200, review.text
+    review_payload = review.json()
+    assert review_payload["verification_status"] == "PENDING"
+    assert review_payload["automatic_status"] == "PASSED"
+    assert review_payload["checks"]["checks"]["balance_formula"] is True
+    assert review_payload["source_snapshot"]
+    assert all(item["raw_data_exposed"] is False for item in review_payload["source_snapshot"])
+
+    confirmation = client.post(
+        f"/api/trusted-execution/reviews/{payload['request_id']}/confirm",
+        headers=auth_headers["regulator"],
+        json={"opinion": "已核对节点汇总、平衡公式和结果哈希，确认", "accept": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    confirmation_payload = confirmation.json()
+    assert confirmation_payload["verification_status"] == "CONFIRMED"
+    assert confirmation_payload["signature"]
+    assert confirmation_payload["chain_audit"]["status"] == "QUEUED"
+
+    confirmed = client.get(
+        f"/api/trusted-execution/reviews/{payload['request_id']}",
+        headers=auth_headers["admin"],
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["verification_status"] == "CONFIRMED"
