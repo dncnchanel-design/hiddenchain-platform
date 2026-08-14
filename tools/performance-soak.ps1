@@ -64,6 +64,44 @@ function Invoke-Probe {
     }
 }
 
+function Invoke-TrustedExecutionProbe {
+    param(
+        [string]$Uri,
+        [hashtable]$RequestHeaders = $headers
+    )
+
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $payload = Invoke-RestMethod -Uri $Uri -Method Get -Headers $RequestHeaders -TimeoutSec 15
+        $watch.Stop()
+        $boundary = $payload.security_boundary
+        $audit = $payload.audit
+        $ok = $payload.controller -eq "TRUSTWORTHY_EXECUTION_CONTROLLER_V1" `
+            -and $boundary.raw_data_transferred -eq $false `
+            -and $boundary.raw_data_returned -eq $false `
+            -and $boundary.anti_inference_checks -eq $true `
+            -and $boundary.topology_coordinates_released -eq $false `
+            -and $audit.asynchronous_blockchain_logging -eq $true `
+            -and $audit.result_hash_required -eq $true
+        return [pscustomobject]@{
+            name = "api.trusted_execution.boundary"
+            ok = $ok
+            status = 200
+            latency_ms = [int]$watch.ElapsedMilliseconds
+            error = if ($ok) { $null } else { "trusted execution security boundary mismatch" }
+        }
+    } catch {
+        $watch.Stop()
+        return [pscustomobject]@{
+            name = "api.trusted_execution.boundary"
+            ok = $false
+            status = 0
+            latency_ms = [int]$watch.ElapsedMilliseconds
+            error = $_.Exception.Message
+        }
+    }
+}
+
 Write-Host "Performance soak started: $startedAt -> $endsAt"
 Write-Host "Events: $eventsPath"
 
@@ -81,7 +119,7 @@ while ((Get-Date) -lt $endsAt) {
         $cycle.Add((Invoke-Probe "api.evidence" "$BaseUrl/api/chain/evidence?task_id=task-ready-demo" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.catalog" "$BaseUrl/api/data/catalog?trade_batch_no=TB-2026-07-DEMO" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.protocol" "$BaseUrl/api/data-space/protocol" -RequestHeaders $authHeaders))
-        $cycle.Add((Invoke-Probe "api.trusted_execution.status" "$BaseUrl/api/trusted-execution/status" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-TrustedExecutionProbe "$BaseUrl/api/trusted-execution/status" -RequestHeaders $authHeaders))
     } catch {
         $cycle.Add([pscustomobject]@{ name = "api.auth"; ok = $false; status = 0; latency_ms = 0; error = $_.Exception.Message })
     }
