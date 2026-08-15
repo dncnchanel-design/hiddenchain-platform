@@ -2,7 +2,6 @@ package hiddenchain
 
 import rego.v1
 
-
 test_valid_contract_is_allowed if {
 	decision := data.hiddenchain.decision with input as {
 		"contract_status": "ACTIVE",
@@ -32,7 +31,6 @@ test_valid_contract_is_allowed if {
 	decision.reasons == []
 }
 
-
 test_raw_export_is_denied if {
 	decision := data.hiddenchain.decision with input as {
 		"contract_status": "ACTIVE",
@@ -54,7 +52,6 @@ test_raw_export_is_denied if {
 	not decision.allow
 	decision.reasons == ["RAW_DATA_EXPORT_NOT_ALLOWED"]
 }
-
 
 test_use_limit_is_denied if {
 	decision := data.hiddenchain.decision with input as {
