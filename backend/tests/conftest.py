@@ -16,7 +16,21 @@ os.environ["DEMO_SEED"] = "true"
 os.environ["MOCK_DELAY_MS"] = "0"
 os.environ["DEEPSEEK_ENABLED"] = "false"
 
+from app.database import SessionLocal, ensure_runtime_schema, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models import Base  # noqa: E402
+from app.seed import seed_demo  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_demo_database():
+    """Give every test a fresh seeded database so order randomization is valid."""
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
+    with SessionLocal() as db:
+        seed_demo(db)
+    yield
 
 
 @pytest.fixture(scope="session")

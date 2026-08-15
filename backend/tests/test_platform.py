@@ -346,6 +346,12 @@ def test_opa_rest_adapter_accepts_opa_decision_shape(monkeypatch):
 
 
 def test_audit_query_is_grounded_in_evidence(client, auth_headers):
+    settled = client.post(
+        "/api/settlement/tasks/task-ready-demo/run",
+        headers=auth_headers["exchange"],
+        json={"compute_mode": "MPC_MOCK", "algorithm_code": "SETTLEMENT_MPC_V1"},
+    )
+    assert settled.status_code == 200, settled.text
     response = client.post(
         "/api/agent/query",
         headers=auth_headers["regulator"],

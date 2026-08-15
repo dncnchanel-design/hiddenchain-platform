@@ -34,11 +34,11 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install --disable-pip-version-check -r backend/requirements.txt
 
-      - name: Install coverage.py
-        run: python -m pip install --disable-pip-version-check coverage==7.15.4
+      - name: Install coverage and randomized test runner
+        run: python -m pip install --disable-pip-version-check coverage==7.15.4 pytest-randomly==4.1.0
 
       - name: Run backend tests with branch coverage
-        run: python -m coverage run --branch --source=backend/app -m pytest -q
+        run: python -m coverage run --branch --source=backend/app -m pytest -q --randomly-seed=20260816
 
       - name: Enforce backend coverage floor
         run: python -m coverage report --fail-under=75
