@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from jsonschema import Draft201909Validator
+
 from ..security import sha256_json
+from .dataspace_schema import DATASPACE_CATALOG_SCHEMA
 
 
 class DataspaceProtocolAdapter:
@@ -26,6 +29,7 @@ class DataspaceProtocolAdapter:
             "context": cls.context,
             "participant_id": cls.participant_id,
             "catalog_projection": "DCAT_DATASET_ODRL_POLICY",
+            "schema_validation": "JSON_SCHEMA_DRAFT_2019_09_LOCAL_PROFILE",
             "raw_data_exposed": False,
         }
 
@@ -104,8 +108,15 @@ class DataspaceProtocolAdapter:
 
     @classmethod
     def validate(cls, descriptor: dict[str, Any]) -> list[str]:
-        """Validate the protocol fields that are stable in the 2024-1 schema."""
-        errors: list[str] = []
+        """Validate a local, offline profile plus the metadata safety boundary."""
+        validator = Draft201909Validator(DATASPACE_CATALOG_SCHEMA)
+        schema_errors = sorted(
+            validator.iter_errors(descriptor),
+            key=lambda error: (tuple(str(item) for item in error.absolute_path), error.message),
+        )
+        errors = [
+            f"{cls._error_path(error)}: {error.message}" for error in schema_errors
+        ]
         if descriptor.get("@context") != cls.context:
             errors.append("@context must be the Dataspace Protocol 2024-1 context")
         if descriptor.get("@type") != "dcat:Catalog":
@@ -125,6 +136,13 @@ class DataspaceProtocolAdapter:
         if not isinstance(services, list) or not services:
             errors.append("dcat:service must contain at least one data service")
         return errors
+
+    @staticmethod
+    def _error_path(error: Any) -> str:
+        path = "$"
+        for item in error.absolute_path:
+            path += f"[{item}]" if isinstance(item, int) else f".{item}"
+        return path
 
     @classmethod
     def build(cls, entries: list[dict[str, Any]]) -> dict[str, Any]:
