@@ -11,6 +11,7 @@
 | [OpenLineage/OpenLineage](https://github.com/OpenLineage/OpenLineage) | 未归档；Apache-2.0；2026-08-15 有提交；标准 JSON Schema | 生成标准 RunEvent JSONL；仅写数据产品标识、承诺、哈希、策略哈希和安全标记，不写 Vault 路径或原始记录；审计接口可按 run 查询 | 低；默认写持久化 runtime 卷，可选 HTTP collector |
 | [google/osv-scanner](https://github.com/google/osv-scanner) + [google/osv-scanner-action](https://github.com/google/osv-scanner-action) | 未归档；Apache-2.0；2026-08-14/08-07 有更新；支持 Python、Node、容器等依赖扫描 | 新增 `.github/workflows/osv-scanner.yml`，固定到 v2.5.0 对应提交，同时覆盖 PR 增量和定期全量扫描 | 低；只影响 GitHub Actions，不改运行时 |
 | [anchore/syft](https://github.com/anchore/syft) + [anchore/sbom-action](https://github.com/anchore/sbom-action) | 未归档；Apache-2.0；Syft 2026-08-14 有提交，SBOM Action 2026-08-14 有提交 | 新增 `.github/workflows/sbom.yml`，生成 CycloneDX JSON SBOM 并作为短期 GitHub Actions artifact 保存，便于依赖审计和发布前核验 | 低；只影响 GitHub Actions，不进入业务请求路径 |
+| [sigstore/cosign](https://github.com/sigstore/cosign) + [sigstore/cosign-installer](https://github.com/sigstore/cosign-installer) | 未归档；Apache-2.0；Cosign 2026-08-15 有提交；Installer v4.1.2 | SBOM 主分支发布任务使用 GitHub OIDC 做 keyless `sign-blob`，随后用 workflow identity 和 Sigstore issuer 验签，并上传签名 bundle | 低；仅签名 SBOM artifact，不签业务数据、不持有长期私钥；只在 `main` push 执行 |
 | [aquasecurity/trivy](https://github.com/aquasecurity/trivy) + [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) | 未归档；Apache-2.0；Trivy 2026-08-14 有提交，Action 2026-08-14 有提交 | 新增 `.github/workflows/trivy.yml`，审计依赖漏洞、密钥、IaC 配置和许可证，并保留 14 天 JSON artifact | 低；当前为报告型扫描，不把偶发历史漏洞直接变成发布阻断 |
 | [zizmorcore/zizmor](https://github.com/zizmorcore/zizmor) + [zizmorcore/zizmor-action](https://github.com/zizmorcore/zizmor-action) | 未归档；MIT；zizmor 2026-08-13 有提交，Action 2026-08-15 有提交 | 新增 `.github/workflows/zizmor.yml`，审计 GitHub Actions 的不安全权限、浮动依赖和供应链配置 | 低；仅扫描工作流文件，使用固定 action 提交 |
 | [ossf/scorecard](https://github.com/ossf/scorecard) + [ossf/scorecard-action](https://github.com/ossf/scorecard-action) | 未归档；Apache-2.0；Scorecard 2026-08-15 有提交；Action v2.4.4 | 新增 `.github/workflows/scorecard.yml`，发布可验证的 OpenSSF 供应链评分并保留 SARIF artifact，README 增加公开评分入口 | 低；仅运行 GitHub Actions，不进入业务请求路径 |
@@ -45,7 +46,7 @@
 - `backend/app/services/common.py`、`workflow.py`、`trust_execution.py`：审计和可信执行与 lineage/trace 关联。
 - `backend/app/routers/audit.py`：`GET /api/audit/lineage/{run_id}`，只返回脱敏血缘事件。
 - `.github/workflows/osv-scanner.yml`：依赖漏洞扫描，使用固定提交，避免浮动 action tag。
-- `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，使用固定提交，避免浮动 action tag。
+- `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，并在 `main` push 使用 Cosign/Sigstore keyless 签名与验签，使用固定提交，避免浮动 action tag。
 - `.github/workflows/trivy.yml`、`.github/workflows/zizmor.yml`：分别审计运行时依赖/部署配置和 Actions 供应链，均固定 action 提交。
 - `.github/workflows/scorecard.yml`：使用 OpenSSF Scorecard 发布供应链健康评分并保存 SARIF artifact；README 提供评分查看入口。
 - `.github/workflows/opa.yml`、`policy/hiddenchain_test.rego`：固定 OPA CLI 做 Rego 格式检查和策略语义回归。
@@ -58,7 +59,7 @@
 2. OpenLineage 只接收产品 ID、承诺、摘要哈希和结果哈希；禁止把 `data_ref`、Vault 内容、用户标识或原始负荷序列写入事件。
 3. OpenTelemetry 默认关闭；开启后只导出路由、耗时、状态和 trace 关联，不把请求体作为业务证据发送。
 4. OSV-Scanner 只扫描依赖清单、锁文件和容器/仓库元数据，不把业务数据上传到扫描器；当前仓库未启用 GitHub Code Scanning，因此保留 JSON/SARIF artifact，不上传 Security 代码扫描面板。
-5. SBOM 工作流只上传依赖组件清单，不包含 `backend/runtime`、业务上传文件或请求数据；artifact 默认只保留 14 天。
+5. SBOM 工作流只上传依赖组件清单及其签名 bundle，不包含 `backend/runtime`、业务上传文件或请求数据；artifact 默认只保留 14 天。
 6. Trivy 当前设置为报告型扫描（`exit-code: 0`），避免历史依赖告警阻断演示发布；转生产前应按团队风险门槛改为关键/高危阻断并处理例外。
 7. Prometheus 指标使用专用 registry 和路由模板标签，且端点需要监管或管理员 token；不得把数据产品 ID、DID、查询参数或原始负荷放入 labels。
 8. pvlib 只输出太阳几何和辐照度派生结果，输入通过哈希关联；它不能替代 pandapower 的电网安全校核、OPA 策略或人工确认。
@@ -66,7 +67,8 @@
 10. OPA CI 只验证策略包的格式和决策样例，生产服务仍必须配置安全的 OPA sidecar、网络边界和 fail-closed 回退策略。
 11. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
 12. Scorecard 发布的是仓库供应链健康信号，不等于业务代码安全证明；评分结果和 SARIF 仅作为发布前风险输入，不能替代 Trivy、OSV、SBOM、zizmor 或人工审查。
+13. Cosign 使用 GitHub OIDC 临时身份签名 SBOM，验签身份被固定为本仓库的 `sbom.yml` 主分支工作流；不得把同一流程扩展为业务原始数据签名或把长期私钥写入仓库。
 
 ## 本轮结论
 
-当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor + OpenSSF Scorecard 把依赖、部署、工作流和仓库供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
+当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Cosign + Trivy + zizmor + OpenSSF Scorecard 把依赖、SBOM 完整性、部署、工作流和仓库供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
