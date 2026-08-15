@@ -159,6 +159,28 @@ def test_dataspace_protocol_catalog_is_valid_and_metadata_only(client, auth_head
     assert payload["raw_data_exposed"] is False
 
 
+def test_dataspace_local_json_schema_profile_rejects_missing_policy():
+    descriptor = DataspaceProtocolAdapter.build(
+        [
+            {
+                "data_product_id": "DP-schema-test",
+                "label": "Schema profile test",
+                "asset_type": "GENERATION_DATA",
+                "semantic_ref": "energy:GenerationMeasurement",
+                "owner_did": "did:hiddenchain:org:test",
+                "usage": {"allowed_purposes": ["POWER_SETTLEMENT"]},
+                "transport": {"protocol": "HTTPS"},
+            }
+        ]
+    )["descriptor"]
+    descriptor["dcat:dataset"][0].pop("odrl:hasPolicy")
+
+    errors = DataspaceProtocolAdapter.validate(descriptor)
+
+    assert errors
+    assert any("odrl:hasPolicy" in error for error in errors)
+
+
 def test_openlineage_event_is_standard_and_contains_no_raw_payload(tmp_path, monkeypatch):
     patched_settings = replace(
         lineage_module.settings,
@@ -202,6 +224,7 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["integrations"]["credential_canonicalization"]["installed"] is True
     assert payload["integrations"]["credential_canonicalization"]["remote_context_fetch"] is False
     assert payload["integrations"]["dataspace_protocol"]["version"] == "2024-1"
+    assert payload["integrations"]["dataspace_protocol"]["schema_validation"] == "JSON_SCHEMA_DRAFT_2019_09_LOCAL_PROFILE"
     assert payload["integrations"]["dataspace_protocol"]["raw_data_exposed"] is False
     assert payload["integrations"]["lineage"]["raw_data_policy"]
 

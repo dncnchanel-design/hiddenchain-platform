@@ -30,9 +30,10 @@ export function DataSpacePage() {
   const loader = () => Promise.all([
     api<JsonRecord>(`/data/catalog?trade_batch_no=${encodeURIComponent(batch)}`),
     api<JsonRecord>(`/data/catalog/package?trade_batch_no=${encodeURIComponent(batch)}`),
+    api<JsonRecord>(`/data/catalog/dataspace?trade_batch_no=${encodeURIComponent(batch)}`),
     api<JsonRecord>("/data-space/protocol"),
     api<JsonRecord[]>(`/data/agreements?task_id=task-ready-demo`),
-  ]).then(([catalog, packageDescriptor, protocol, agreements]) => ({ catalog, packageDescriptor, protocol, agreements }));
+  ]).then(([catalog, packageDescriptor, dataspaceProtocol, protocol, agreements]) => ({ catalog, packageDescriptor, dataspaceProtocol, protocol, agreements }));
   const { data, loading, error, reload } = useRemote(loader, [batch]);
   const entries = data?.catalog.entries || [];
   const agreements = data?.agreements || [];
@@ -70,6 +71,16 @@ export function DataSpacePage() {
         <Metric label="原始数据传输" value="0" meta="安全边界" tone="green" />
         <Metric label="标准目录描述" value={data.packageDescriptor.profile === "data-package" ? "v1" : "—"} meta={`${data.packageDescriptor.resource_count || 0} 项资源`} tone="green" />
       </div>
+      <Surface title="Dataspace Protocol 目录" note="协议目录只发布元数据、用途策略和受控连接器入口">
+        <div className="detail-grid">
+          <div><span>协议版本</span><strong>{data.dataspaceProtocol.protocol} · {data.dataspaceProtocol.version}</strong></div>
+          <div><span>目录数据集</span><strong>{data.dataspaceProtocol.dataset_count} 项</strong></div>
+          <div><span>本地校验</span><strong><StatusTag value={data.dataspaceProtocol.schema_validation?.valid ? "PASSED" : "FAILED"} label={data.dataspaceProtocol.schema_validation?.valid ? "通过" : "失败"} /></strong></div>
+          <div><span>目录指纹</span><strong><CodeValue>{shortHash(data.dataspaceProtocol.descriptor_hash, 12)}</CodeValue></strong></div>
+          <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不出域</strong></div>
+        </div>
+        <Notice>目录与 ODRL 用途描述用于跨主体发现；真实数据访问仍须经过 OPA 授权和受控计算。</Notice>
+      </Surface>
       <div className="content-grid two-equal">
         <Surface title="调用能力">
           <div className="acceptance-list">
