@@ -97,8 +97,8 @@ export function AppShell() {
       <div className={`drawer-backdrop ${open ? "show" : ""}`} onClick={() => setOpen(false)} />
       <aside className={`sidebar ${open ? "open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark"><LayoutDashboard size={22} /></div>
-          <div><strong>工作台</strong><span>隐链明算</span></div>
+          <div className="brand-mark"><ShieldCheck size={22} /></div>
+          <div><strong>隐链明算</strong><span>可信数据协同平台</span></div>
           <button className="icon-button mobile-only" onClick={() => setOpen(false)} title="关闭导航"><X size={19} /></button>
         </div>
         <div className="space-context">
