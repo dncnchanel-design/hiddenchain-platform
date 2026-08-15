@@ -4,6 +4,7 @@ import importlib.util
 from typing import Any
 
 from ..security import sha256_json
+from .arrow_connector import ArrowConnectorAdapter
 
 
 class FrictionlessCatalogAdapter:
@@ -97,13 +98,16 @@ class FrictionlessCatalogAdapter:
                 "connector_protocol": "HCDS-1.0",
                 "raw_data_exposed": False,
                 "usage_control": "OPA_REGO_COMPAT",
+                "columnar_interop": ArrowConnectorAdapter.describe_resources(resources),
             }
         }
+        columnar_interop = descriptor["custom"]["hiddenchain"]["columnar_interop"]
         return {
             "adapter": cls.code,
             "profile": "data-package",
             "resource_count": len(resources),
             "package_hash": sha256_json(descriptor),
             "descriptor": descriptor,
+            "columnar_interop": columnar_interop,
             "raw_data_exposed": False,
         }

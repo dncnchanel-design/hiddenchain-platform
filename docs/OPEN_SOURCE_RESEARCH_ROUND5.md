@@ -18,6 +18,7 @@
 | [prometheus/client_python](https://github.com/prometheus/client_python) | 未归档；Apache-2.0；v0.26.0 于 2026-07-24 发布，2026-08-13 有提交 | 新增专用 registry、低基数 HTTP middleware 和受角色保护的 `/api/metrics/prometheus`，用于接入 Prometheus/Grafana | 低；只输出方法、路由模板、状态和耗时，不输出业务 ID、查询参数或请求体 |
 | [pvlib/pvlib-python](https://github.com/pvlib/pvlib-python) | 未归档；BSD-3-Clause；v0.15.2 于 2026-06-16 发布，2026-08-10 有提交 | 新增 `/api/energy/solar/evaluate`，计算太阳位置和组件面辐照度，并以输入哈希关联新能源资源校核 | 中；依赖 pandas/scipy 生态，作为可替换能源模型，不越过隐私和电网安全闸门 |
 | [frictionlessdata/frictionless-py](https://github.com/frictionlessdata/frictionless-py) | 未归档；MIT；v5.19.0 于 2026-04-13 发布，2026-07-28 有提交 | 新增 `/api/data/catalog/package`，将能源目录映射为标准 Data Package 描述和连接器 URI | 低；只发布元数据、质量摘要和用途限制，不暴露 Vault 路径或原始数据 |
+| [apache/arrow](https://github.com/apache/arrow) / [apache/arrow-rs](https://github.com/apache/arrow-rs) | 未归档；Apache-2.0；Arrow v25.0.1 于 2026-08-10 发布，2026-08-15 有提交；PyArrow 25.0.1 | 在 Frictionless 目录的连接器边界生成 Arrow-compatible schema、字段摘要和 schema fingerprint；不读取或搬运 Vault 原始 payload | 中；PyArrow wheel 约 29 MB，列式 schema 只作为可替换连接器互操作能力 |
 
 ## 重点候选与取舍
 
@@ -52,6 +53,7 @@
 - `.github/workflows/opa.yml`、`policy/hiddenchain_test.rego`：固定 OPA CLI 做 Rego 格式检查和策略语义回归。
 - `backend/requirements.txt`、`frontend/pnpm-workspace.yaml`、`frontend/pnpm-lock.yaml`：根据 OSV-Scanner 全量扫描结果升级 FastAPI/Starlette 依赖链、PyJWT、python-multipart、pytest、nanoid、postcss 和 react-router，保持漏洞扫描为 fail-on-vuln。
 - `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/services/datapackage.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标、pvlib 新能源资源计算和 Frictionless 目录接口。
+- `backend/app/services/arrow_connector.py`：使用 PyArrow 生成 Data Package 资源的列式 schema 与指纹，只输出连接器元数据。
 - `backend/requirements.txt`、`.env.example`、`production.env.example`、Compose 文件：运行时和部署配置。
 
 ## 安全边界
@@ -70,7 +72,8 @@
 12. Scorecard 在本私有仓库只生成并保留 SARIF，不向公共 API 发布结果；它是供应链健康信号，不等于业务代码安全证明，不能替代 Trivy、OSV、SBOM、zizmor 或人工审查。
 13. Cosign 使用 GitHub OIDC 临时身份签名 SBOM，验签身份被固定为本仓库的 `sbom.yml` 主分支工作流；不得把同一流程扩展为业务原始数据签名或把长期私钥写入仓库。
 14. OSV 全量扫描发现的漏洞必须通过升级依赖或经过明确风险审查处理；不得用 `upload-sarif: false` 或报告 artifact 掩盖 `fail-on-vuln` 结果。
+15. Apache Arrow 适配器只把字段类型、schema 文本和指纹写入目录描述；Arrow Table 不读取 Vault 数据，任何真实数据读取仍必须经过连接器、OPA 用途控制和受控计算闸门。
 
 ## 本轮结论
 
-当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Cosign + Trivy + zizmor + OpenSSF Scorecard 把依赖、SBOM 完整性、部署、工作流和仓库供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
+当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package + Apache Arrow schema 补齐可互操作目录和列式连接器边界，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Cosign + Trivy + zizmor + OpenSSF Scorecard 把依赖、SBOM 完整性、部署、工作流和仓库供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。

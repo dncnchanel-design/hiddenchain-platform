@@ -8,6 +8,7 @@ from pathlib import Path
 
 import app.services.lineage as lineage_module
 from app.services.lineage import emit_run_event
+from app.services.arrow_connector import ArrowConnectorAdapter
 from app.services.datapackage import FrictionlessCatalogAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
@@ -85,6 +86,11 @@ def test_frictionless_catalog_package_contains_metadata_only(client, auth_header
     assert "data_ref" not in descriptor_text
     assert "password_hash" not in descriptor_text
     assert "connector://hiddenchain/products/DP-" in descriptor_text
+    assert payload["columnar_interop"]["code"] == ArrowConnectorAdapter.code
+    assert payload["columnar_interop"]["installed"] is True
+    assert payload["columnar_interop"]["raw_data_exposed"] is False
+    assert payload["columnar_interop"]["resources"]
+    assert "energy_mwh" in descriptor_text
 
 
 def test_openlineage_event_is_standard_and_contains_no_raw_payload(tmp_path, monkeypatch):
@@ -125,6 +131,8 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["mvp_adapters"]["solar_resource"]["installed"] is True
     assert payload["integrations"]["prometheus"]["package_available"] is True
     assert payload["integrations"]["data_package"]["installed"] is True
+    assert payload["integrations"]["columnar_connector"]["installed"] is True
+    assert payload["integrations"]["columnar_connector"]["raw_data_exposed"] is False
     assert payload["integrations"]["lineage"]["raw_data_policy"]
 
     response = client.get(
