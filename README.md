@@ -204,3 +204,4 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
 - GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。
+- GitHub Actions 已加入 Trivy 文件系统安全审计和 zizmor 工作流供应链审计；报告型扫描默认不阻断业务发布，先保留 artifact 和审计输出。
