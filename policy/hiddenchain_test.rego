@@ -30,6 +30,7 @@ test_valid_contract_is_allowed if {
 	}
 	decision.allow
 	decision.reasons == []
+}
 
 
 test_raw_export_is_denied if {
