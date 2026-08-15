@@ -16,6 +16,7 @@ from .routers import audit, auth, data, energy, execution, system, trade, trust
 from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
+from .services.credentials import JsonLdCredentialAdapter
 from .services.datapackage import FrictionlessCatalogAdapter
 from .services.lineage import lineage_status
 from .services.observability import observability_status, setup_observability
@@ -99,6 +100,7 @@ def health() -> dict:
             "prometheus": prometheus_status(),
             "data_package": FrictionlessCatalogAdapter.status(),
             "columnar_connector": ArrowConnectorAdapter.status(),
+            "credential_canonicalization": JsonLdCredentialAdapter.status(),
         },
         "trusted_execution": {
             "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",

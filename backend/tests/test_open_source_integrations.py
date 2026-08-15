@@ -9,6 +9,7 @@ from pathlib import Path
 import app.services.lineage as lineage_module
 from app.services.lineage import emit_run_event
 from app.services.arrow_connector import ArrowConnectorAdapter
+from app.services.credentials import JsonLdCredentialAdapter
 from app.services.datapackage import FrictionlessCatalogAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
@@ -58,6 +59,47 @@ def test_pvlib_solar_adapter_returns_derived_metrics_only():
     assert len(result["input_hash"]) == 64
     assert result["raw_data_exposed"] is False
     assert result["plane_of_array_irradiance_wm2"]["poa_global"] >= 0
+
+
+def test_pyld_canonicalizes_did_vc_with_stable_fingerprint():
+    credential = {
+        "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
+        "issuer": "did:hiddenchain:regulator:demo",
+        "credentialSubject": {
+            "id": "did:hiddenchain:org:demo",
+            "orgType": "GENERATOR",
+        },
+    }
+    reordered = {
+        "credentialSubject": {
+            "orgType": "GENERATOR",
+            "id": "did:hiddenchain:org:demo",
+        },
+        "issuer": "did:hiddenchain:regulator:demo",
+        "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
+    }
+
+    first = JsonLdCredentialAdapter.fingerprint(credential)
+    second = JsonLdCredentialAdapter.fingerprint(reordered)
+
+    assert first["status"] == "CANONICALIZED"
+    assert first["credential_hash"] == second["credential_hash"]
+    assert first["normalization"] == "URDNA2015"
+    assert first["remote_context_fetch"] is False
+    assert first["raw_data_exposed"] is False
+
+
+def test_pyld_blocks_remote_credential_contexts():
+    result = JsonLdCredentialAdapter.fingerprint(
+        {
+            "@context": "https://attacker.invalid/credential-context.jsonld",
+            "type": "VerifiableCredential",
+        }
+    )
+
+    assert result["status"] == "EXTERNAL_CONTEXT_BLOCKED"
+    assert "credential_hash" not in result
+    assert result["raw_data_exposed"] is False
 
 
 def test_prometheus_endpoint_is_protected_and_has_no_business_labels(client, auth_headers):
@@ -133,6 +175,8 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["integrations"]["data_package"]["installed"] is True
     assert payload["integrations"]["columnar_connector"]["installed"] is True
     assert payload["integrations"]["columnar_connector"]["raw_data_exposed"] is False
+    assert payload["integrations"]["credential_canonicalization"]["installed"] is True
+    assert payload["integrations"]["credential_canonicalization"]["remote_context_fetch"] is False
     assert payload["integrations"]["lineage"]["raw_data_policy"]
 
     response = client.get(

@@ -740,6 +740,9 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
         "GRID_LOAD",
     }
     assert payload["caller_identity"]["did_verified"] is True
+    assert payload["caller_identity"]["credential_canonicalization"] == "CANONICALIZED"
+    assert len(payload["caller_identity"]["credential_hash"]) == 64
+    assert "credential_json" not in json.dumps(payload["caller_identity"], ensure_ascii=False)
     actions = {item["target_data_type"]: item["action"] for item in payload["policy_hits"]}
     assert actions == {
         "COAL_INVENTORY": "AGGREGATE",
