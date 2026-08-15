@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,12 +12,14 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import SessionLocal, engine, ensure_runtime_schema
 from .models import Base
-from .routers import audit, auth, data, execution, system, trade, trust
+from .routers import audit, auth, data, energy, execution, system, trade, trust
 from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.lineage import lineage_status
 from .services.observability import observability_status, setup_observability
 from .services.privacy import OpenDPAdapter
+from .services.prometheus import observe_http_request, prometheus_status
+from .services.solar import PvlibSolarAdapter
 from .services.trust_execution import DynamicPolicyEngine
 
 
@@ -47,7 +50,31 @@ app.add_middleware(
 )
 setup_observability(app)
 
-for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router]:
+
+@app.middleware("http")
+async def collect_prometheus_metrics(request: Request, call_next):
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        route = request.scope.get("route")
+        observe_http_request(
+            method=request.method,
+            path=getattr(route, "path", "/unmatched"),
+            status_code=500,
+            duration_seconds=time.perf_counter() - started,
+        )
+        raise
+    route = request.scope.get("route")
+    observe_http_request(
+        method=request.method,
+        path=getattr(route, "path", "/unmatched"),
+        status_code=response.status_code,
+        duration_seconds=time.perf_counter() - started,
+    )
+    return response
+
+for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router, energy.router]:
     app.include_router(router, prefix=settings.api_prefix)
 
 
@@ -62,10 +89,12 @@ def health() -> dict:
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
             "differential_privacy": OpenDPAdapter.status(),
+            "solar_resource": PvlibSolarAdapter.status(),
         },
         "integrations": {
             "observability": observability_status(),
             "lineage": lineage_status(),
+            "prometheus": prometheus_status(),
         },
         "trusted_execution": {
             "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",

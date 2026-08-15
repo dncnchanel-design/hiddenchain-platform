@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 import math
 from typing import Any, Literal
 
@@ -83,6 +83,23 @@ class DataUploadCreate(StrictModel):
                 raise ValueError("local_payload.n_minus_one_passed must be a boolean")
             number("max_residual_imbalance_mwh", minimum=0)
             number("congestion_margin_pct", minimum=0, maximum=100)
+        return self
+
+
+class SolarEvaluationRequest(StrictModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    timestamp_utc: datetime
+    surface_tilt: float = Field(ge=0, le=180)
+    surface_azimuth: float = Field(ge=-360, le=360)
+    ghi_wm2: float = Field(ge=0, le=1500)
+    dni_wm2: float = Field(ge=0, le=1500)
+    dhi_wm2: float = Field(ge=0, le=1500)
+
+    @model_validator(mode="after")
+    def require_timezone(self) -> "SolarEvaluationRequest":
+        if self.timestamp_utc.tzinfo is None or self.timestamp_utc.utcoffset() is None:
+            raise ValueError("timestamp_utc must include a timezone")
         return self
 
 
