@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
+from pathlib import Path
 
 import app.services.lineage as lineage_module
 from app.services.lineage import emit_run_event
 from app.services.privacy import OpenDPAdapter
+
+
+def test_security_workflows_pin_every_action_to_a_commit():
+    workflows_dir = Path(__file__).parents[2] / ".github" / "workflows"
+    uses_lines = [
+        line.strip()
+        for workflow in workflows_dir.glob("*.yml")
+        for line in workflow.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("uses:")
+    ]
+
+    assert uses_lines
+    assert all(re.search(r"@[0-9a-f]{40}(?:\s|$)", line) for line in uses_lines)
 
 
 def test_opendp_release_returns_redacted_curve_and_controls():
