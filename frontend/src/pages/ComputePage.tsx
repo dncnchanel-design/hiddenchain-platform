@@ -130,6 +130,13 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
       </div>
       <div className="strategy-receipt"><Route size={18} /><div><span>执行策略</span><strong>{strategyName(strategy.primary)}</strong><small>{strategy.reason}</small></div><CodeValue>{shortHash(strategy.plan_hash, 12)}</CodeValue></div>
       {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="#d7e3ef" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "#63778e" }} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="#0b5cab" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
+      {result.privacy_controls && <div className="detail-grid privacy-receipt-grid">
+        <div><span>隐私引擎</span><strong>{result.privacy_controls.engine || "-"}</strong></div>
+        <div><span>噪声机制</span><strong>{result.privacy_controls.mechanism || "-"}</strong></div>
+        <div><span>每小时预算</span><strong>{result.privacy_controls.epsilon_per_hour_release ?? "-"}</strong></div>
+        <div><span>边界约束</span><strong>{result.privacy_controls.bound_mw ? `${result.privacy_controls.bound_mw} MW` : "-"}</strong></div>
+      </div>}
+      {result.privacy_controls?.engine === "OpenDP" && <Notice tone="success">已使用 OpenDP 有界求和 + Laplace 机制；图表仅展示经过后处理的隐私保护序列，未返回原始负荷曲线。</Notice>}
       <Notice tone="success">返回值为群组聚合结果，不包含用户标识和单户曲线。</Notice>
     </Modal>
   );

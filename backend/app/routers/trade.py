@@ -39,8 +39,13 @@ from ..services.adapters import (
     OPAPolicyAdapter,
     PandapowerGridAdapter,
 )
-from ..services.common import add_audit_log, model_dict
-from ..services.workflow import run_privacy_analysis, run_settlement_workflow, task_summary
+from ..services.common import add_audit_log, model_dict, trace_id
+from ..services.workflow import (
+    emit_settlement_lineage,
+    run_privacy_analysis,
+    run_settlement_workflow,
+    task_summary,
+)
 from ..services.vault import LocalDomainVault
 
 
@@ -302,7 +307,31 @@ def import_and_run_settlement(
     db.commit()
     result["task"] = task_summary(db, task)
     result["verification_profile"] = result["task"].get("verification_profile")
-    return {"fixture_id": payload.fixture_id, "uploads": [model_dict(item) for item in uploaded], "privacy_analysis": analysis, **result}
+    summary_result = next(
+        (item for item in result.get("results", []) if item.get("result_scope") == "SUMMARY"),
+        None,
+    )
+    lineage_trace = next(
+        (
+            item.get("trace_id")
+            for item in result.get("data_space", {}).get("agreements", [])
+            if item.get("trace_id")
+        ),
+        trace_id(),
+    )
+    lineage = emit_settlement_lineage(
+        task,
+        uploads=uploaded,
+        result_hash=(summary_result or {}).get("result_hash", ""),
+        trace_id_value=lineage_trace,
+    )
+    return {
+        "fixture_id": payload.fixture_id,
+        "uploads": [model_dict(item) for item in uploaded],
+        "privacy_analysis": analysis,
+        "lineage": lineage,
+        **result,
+    }
 
 
 def _task_ids_for_user(db: Session, user: User) -> list[str] | None:

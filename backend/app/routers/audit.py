@@ -17,6 +17,7 @@ from ..models import (
 )
 from ..schemas import AgentQueryRequest, AnomalyInjectCreate, AnomalyResolve, AuditReportCreate
 from ..services.common import add_audit_log, model_dict
+from ..services.lineage import read_run_events
 from ..services.workflow import answer_audit_question, create_audit_report
 
 
@@ -230,3 +231,19 @@ def list_logs(
     if action_code:
         query = query.where(AuditLog.action_code == action_code)
     return [model_dict(item) for item in db.scalars(query).all()]
+
+
+@router.get("/audit/lineage/{run_id}")
+def lineage_events(
+    run_id: str,
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+) -> dict:
+    """Return redacted OpenLineage events for a trusted execution run."""
+
+    events = read_run_events(run_id)
+    return {
+        "run_id": run_id,
+        "events": events,
+        "event_count": len(events),
+        "raw_data_included": False,
+    }

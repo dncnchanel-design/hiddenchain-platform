@@ -14,6 +14,9 @@ from .models import Base
 from .routers import audit, auth, data, execution, system, trade, trust
 from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
+from .services.lineage import lineage_status
+from .services.observability import observability_status, setup_observability
+from .services.privacy import OpenDPAdapter
 from .services.trust_execution import DynamicPolicyEngine
 
 
@@ -42,6 +45,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+setup_observability(app)
 
 for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router]:
     app.include_router(router, prefix=settings.api_prefix)
@@ -57,6 +61,11 @@ def health() -> dict:
         "mvp_adapters": {
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
+            "differential_privacy": OpenDPAdapter.status(),
+        },
+        "integrations": {
+            "observability": observability_status(),
+            "lineage": lineage_status(),
         },
         "trusted_execution": {
             "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",

@@ -91,6 +91,26 @@ class Settings:
         "EXECUTION_POLICY_PATH", str(PROJECT_DIR / "policy" / "energy_execution_policy.json")
     )
     execution_audit_workers: int = _int_env("EXECUTION_AUDIT_WORKERS", 2)
+    # OpenTelemetry is opt-in so the offline demo remains dependency-light at
+    # runtime, while deployments can send traces to any OTLP-compatible
+    # collector without changing application code.
+    otel_enabled: bool = _bool_env("OTEL_ENABLED", False)
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "hiddenchain-platform")
+    otel_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").rstrip("/")
+    otel_otlp_headers: str = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
+    otel_console_export: bool = _bool_env("OTEL_CONSOLE_EXPORT", False)
+    # OpenLineage events are local JSONL by default.  They contain only data
+    # product references, commitments and hashes; raw provider payloads never
+    # enter the event stream.
+    openlineage_enabled: bool = _bool_env("OPENLINEAGE_ENABLED", True)
+    openlineage_namespace: str = os.getenv("OPENLINEAGE_NAMESPACE", "hiddenchain")
+    openlineage_path: str = os.getenv(
+        "OPENLINEAGE_PATH", str(RUNTIME_DIR / "lineage" / "events.jsonl")
+    )
+    openlineage_http_url: str = os.getenv("OPENLINEAGE_HTTP_URL", "").rstrip("/")
+    # The bound is part of the DP contract.  Production deployments should
+    # calibrate it to the actual meter-group domain before changing the value.
+    dp_max_load_mw: float = _float_env("DP_MAX_LOAD_MW", 100.0)
     deepseek_enabled: bool = _bool_env("DEEPSEEK_ENABLED", False)
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")

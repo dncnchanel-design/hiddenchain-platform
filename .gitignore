@@ -9,6 +9,7 @@ backend/tests/*.db
 runtime/public-url.txt
 runtime/logs/
 runtime/performance/
+backend/runtime/lineage/
 runtime/*.db
 runtime/vault/
 frontend/node_modules/

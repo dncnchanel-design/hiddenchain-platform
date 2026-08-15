@@ -23,6 +23,7 @@ from ..models import (
     utc_now,
 )
 from ..security import sha256_json, sign_value
+from .privacy import OpenDPAdapter
 from .vault import LocalDomainVault
 
 
@@ -1104,6 +1105,9 @@ class MockPrivacyComputeAdapter:
         self,
         uploads: list[DataUpload],
         strategy: dict[str, Any] | None = None,
+        *,
+        privacy_level: str = "AGGREGATED",
+        privacy_budget: float = 1.0,
     ) -> tuple[dict[str, Any], int]:
         started = time.perf_counter()
         curves: list[list[float]] = []
@@ -1115,6 +1119,16 @@ class MockPrivacyComputeAdapter:
         if not curves:
             raise ValueError("No eligible 24-hour load curves")
         aggregate = [round(sum(values), 3) for values in zip(*curves)]
+        privacy_controls: dict[str, Any] = {
+            "engine": "DETERMINISTIC_AGGREGATE",
+            "raw_records_returned": False,
+            "raw_data_exposed": False,
+        }
+        if privacy_level == "DIFFERENTIAL_PRIVACY":
+            aggregate, privacy_controls = OpenDPAdapter.release_curve(
+                curves,
+                epsilon=privacy_budget,
+            )
         peak = max(aggregate)
         valley = min(aggregate)
         peak_hour = aggregate.index(peak)
@@ -1129,6 +1143,7 @@ class MockPrivacyComputeAdapter:
             "peak_valley_ratio": round(peak / valley, 3) if valley else None,
             "demand_response_potential_mw": round(max(peak - sum(aggregate) / 24, 0) * 0.35, 3),
             "raw_records_returned": False,
+            "privacy_controls": privacy_controls,
             "compute_strategy": strategy or AdaptivePrivacyRouter.recommend(
                 "VPP_AGGREGATION",
                 sensitivity_level="L3",
