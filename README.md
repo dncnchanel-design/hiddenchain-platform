@@ -210,3 +210,4 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。
 - GitHub Actions 已加入 Trivy 文件系统安全审计和 zizmor 工作流供应链审计；报告型扫描默认不阻断业务发布，先保留 artifact 和审计输出。
 - GitHub Actions 已加入固定 OPA v1.19.0 的 Rego 格式与策略测试，覆盖正常放行、原始数据导出拒绝和使用次数耗尽拒绝。
+- GitHub Actions 已加入固定 SHA 的后端测试工作流；Hypothesis 对负荷曲线输入边界和 JSON-LD 外部 context 拒绝执行属性测试，并运行 `pip check`。
