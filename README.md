@@ -2,7 +2,7 @@
 
 隐链明算是一个以“可信数据调用 + 隐私计算”为核心的可信智能执行层 MVP。能源电力交易被作为可运行的验证场景，用来验证多主体之间的数据授权、受控计算、结果回执和审计闭环；智能解释能力只是可选辅助，不承担最终裁决。
 
-本轮开源项目调研、维护状态判断、部署成本比较和界面改造依据见 [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md)。当前结论是继续基于现有 MVP 改造，不引入大型 IoT 平台重写核心链路。
+本轮开源项目调研、维护状态判断、部署成本比较和界面改造依据见 [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md)。最新一轮 GitHub 筛选与落地记录见 [docs/OPEN_SOURCE_RESEARCH_ROUND5.md](docs/OPEN_SOURCE_RESEARCH_ROUND5.md)。当前结论是继续基于现有 MVP 改造，不引入大型 IoT 平台重写核心链路。
 
 ## 已实现的核心闭环
 
@@ -59,8 +59,9 @@ DEEPSEEK_MAX_TOKENS=800
 
 - 前端：React、TypeScript、Vite、React Router、Lucide、Recharts
 - 后端：FastAPI、SQLAlchemy、Pydantic、SQLite（兼容 PostgreSQL）
-- 安全：PBKDF2 密码哈希、JWT、DID/VC 模拟、能力令牌、HMAC 签名、SHA-256 承诺
+- 安全：PBKDF2 密码哈希、JWT、DID/VC 模拟、能力令牌、HMAC 签名、SHA-256 承诺、OpenDP 差分隐私、OSV-Scanner 依赖扫描
 - 可信能力：数据合同与 ODRL 风格策略、OPA REST/同构本地策略判定、MPC 适配器、模拟链、证据图谱
+- 运行观测：可选 OpenTelemetry FastAPI tracing、OpenLineage 标准 RunEvent 脱敏血缘
 - 场景适配：新能源预测资产、虚拟电厂资源池、pandapower 三母线电网安全校核、偏差响应和电力交易场景验证
 
 ## 快速启动
@@ -195,3 +196,11 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 启动后使用 `exchange / exchange123` 登录，并按“可信采集 → 安全传输 → 可控使用 → 隐私计算 → 可溯审计”检查主链路。进入“可信调用验证”上传 `demo-data/2026-08-simulation-input.json` 即可自动运行；电力交易只作为其中的能源仿真验证场景。
 
 后端当前已增加请求数据结构校验、任务参与方校验、跨组织隐私分析隔离，以及数据签名和场景结果确认的重复请求幂等处理。生产 Compose 默认关闭演示数据灌入；正式部署前仍需设置随机 JWT 和签名密钥。
+
+### 本轮开源能力配置
+
+- 负荷分析选择“差分隐私”时，后端通过 OpenDP 生成有界求和 + Laplace 保护序列，并在回执中显示预算、边界与组合次数。
+- `OPENLINEAGE_ENABLED=true` 时，可信结算和跨能源受控调用会在 `runtime/lineage/events.jsonl` 写入不含原始数据的 OpenLineage RunEvent；可通过 `/api/audit/lineage/{run_id}` 查询。
+- 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
+- GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
+- GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。

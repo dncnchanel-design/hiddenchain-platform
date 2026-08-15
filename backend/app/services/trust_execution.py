@@ -20,6 +20,7 @@ from ..models import DataUpload, DidIdentity, Signature, TrustedExecutionReview,
 from ..security import sha256_json, sign_value
 from .adapters import MockBlockchainAdapter
 from .common import add_audit_log, trace_id
+from .lineage import emit_run_event, input_dataset
 from .vault import LocalDomainVault
 
 
@@ -1247,6 +1248,35 @@ class TrustworthyExecutionController:
             },
         )
         self.db.commit()
+        lineage_inputs = [
+            input_dataset(
+                namespace=f"hiddenchain://node/{item.get('node', 'unknown')}",
+                name=(
+                    f"data-product/{item.get('data_type', 'UNKNOWN')}/"
+                    f"{item.get('period', 'UNKNOWN')}/{item.get('region', 'UNKNOWN')}"
+                ),
+                data_product_id=(
+                    f"{item.get('data_type', 'UNKNOWN')}"
+                    f"@{item.get('node', 'unknown')}"
+                ),
+                asset_type=str(item.get("data_type", "UNKNOWN")),
+                data_hash=item.get("source_attestation"),
+                commitment=sha256_json(item.get("source_commitments", [])),
+            )
+            for item in source_snapshot
+        ]
+        lineage = emit_run_event(
+            run_id=request_id,
+            job_name="trusted-cross-energy-query",
+            event_type="COMPLETE" if status == "SUCCEEDED" else "FAIL",
+            trace_id=current_trace_id,
+            input_datasets=lineage_inputs,
+            output_name=f"trusted-execution-result/{request_id}",
+            output_hash=result_hash,
+            result_status=status,
+            policy_hash=plan.get("plan_hash") if plan else None,
+            raw_data_exported=False,
+        )
         chain = BlockchainAuditLogger.enqueue(task_id=None, payload=payload)
         self._step(steps, 8, "LOG", "QUEUED", chain)
         return {
@@ -1262,6 +1292,7 @@ class TrustworthyExecutionController:
             "result_hash": result_hash,
             "accuracy_review": TrustedExecutionReviewService.summary(review),
             "chain_audit": chain,
+            "lineage": lineage,
             "raw_data_returned": False,
         }
 

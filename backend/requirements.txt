@@ -8,3 +8,8 @@ httpx==0.28.1
 numpy==2.2.6
 pandapower==3.4.0
 pytest==8.3.4
+opendp==0.15.1
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-exporter-otlp-proto-http==1.44.0

@@ -10,6 +10,17 @@ from ..models import AuditLog, User
 
 
 def trace_id() -> str:
+    # Reuse the active OpenTelemetry trace when the optional instrumentation is
+    # enabled, so the database audit record and an external trace can be
+    # correlated without putting request payloads into telemetry.
+    try:
+        from opentelemetry import trace
+
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            return f"trace-{span_context.trace_id:032x}"
+    except (ImportError, AttributeError, RuntimeError):
+        pass
     return f"trace-{uuid.uuid4().hex[:20]}"
 
 
@@ -49,4 +60,3 @@ def model_dict(model: Any) -> dict[str, Any]:
             value = value.isoformat()
         result[column.name] = value
     return result
-

@@ -38,6 +38,7 @@ from .adapters import (
     RulePackageAdapter,
 )
 from .common import add_audit_log, model_dict, trace_id
+from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
 
 
@@ -805,7 +806,47 @@ def run_settlement_workflow(
     )
     if commit:
         db.commit()
+        emit_settlement_lineage(
+            task,
+            uploads=list({item.upload_id: item for item in [*uploads_by_role.values(), *scenario_uploads.values()]}.values()),
+            result_hash=summary_result.result_hash,
+            trace_id_value=run_trace,
+        )
     return workflow_bundle(db, task)
+
+
+def emit_settlement_lineage(
+    task: SettlementTask,
+    *,
+    uploads: list[DataUpload],
+    result_hash: str,
+    trace_id_value: str,
+) -> dict[str, Any]:
+    """Publish a redacted OpenLineage event for a completed settlement run."""
+
+    inputs = [
+        input_dataset(
+            namespace=f"hiddenchain://org/{upload.owner_org_id}",
+            name=f"data-product/{DataSpaceConnectorAdapter.data_product_id(upload)}",
+            data_product_id=DataSpaceConnectorAdapter.data_product_id(upload),
+            asset_type=upload.asset_type,
+            data_hash=upload.data_hash,
+            commitment=upload.commitment,
+        )
+        for upload in uploads
+    ]
+    return emit_run_event(
+        run_id=task.task_id,
+        job_name="trusted-settlement",
+        event_type="COMPLETE",
+        trace_id=trace_id_value,
+        input_datasets=inputs,
+        output_name=f"settlement-result/{task.task_id}",
+        output_hash=result_hash,
+        result_status="AUDITED",
+        policy_hash=sha256_json(task.verification_profile_json or {}),
+        raw_data_exported=False,
+    )
 
 
 def create_audit_report(db: Session, task_id: str, template_code: str) -> AuditReport:
@@ -1154,7 +1195,12 @@ def run_privacy_analysis(
         latency_requirement="BATCH",
         participant_count=len(eligible),
     )
-    result, duration_ms = MockPrivacyComputeAdapter().run_load_analysis(eligible, strategy)
+    result, duration_ms = MockPrivacyComputeAdapter().run_load_analysis(
+        eligible,
+        strategy,
+        privacy_level=job.privacy_level,
+        privacy_budget=job.privacy_budget,
+    )
     result.update(
         {
             "privacy_level": job.privacy_level,
