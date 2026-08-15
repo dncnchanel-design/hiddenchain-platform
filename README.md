@@ -1,7 +1,5 @@
 # 隐链明算｜可信数据调用与隐私计算平台
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dncnchanel-design/hiddenchain-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/dncnchanel-design/hiddenchain-platform)
-
 隐链明算是一个以“可信数据调用 + 隐私计算”为核心的可信智能执行层 MVP。能源电力交易被作为可运行的验证场景，用来验证多主体之间的数据授权、受控计算、结果回执和审计闭环；智能解释能力只是可选辅助，不承担最终裁决。
 
 本轮开源项目调研、维护状态判断、部署成本比较和界面改造依据见 [docs/OPEN_SOURCE_RESEARCH.md](docs/OPEN_SOURCE_RESEARCH.md)。最新一轮 GitHub 筛选与落地记录见 [docs/OPEN_SOURCE_RESEARCH_ROUND5.md](docs/OPEN_SOURCE_RESEARCH_ROUND5.md)。当前结论是继续基于现有 MVP 改造，不引入大型 IoT 平台重写核心链路。
