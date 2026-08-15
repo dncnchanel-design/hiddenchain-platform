@@ -12,6 +12,7 @@ from ..security import sign_value
 from ..services.common import add_audit_log, model_dict
 from ..services.adapters import DATA_PRODUCT_CATALOG, DataSpaceConnectorAdapter
 from ..services.datapackage import FrictionlessCatalogAdapter
+from ..services.dataspace import DataspaceProtocolAdapter
 from ..services.vault import LocalDomainVault
 
 
@@ -64,6 +65,25 @@ def data_catalog_package(
         return FrictionlessCatalogAdapter.build(entries)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="标准数据目录适配器暂不可用") from exc
+
+
+@router.get("/catalog/dataspace")
+def data_catalog_dataspace_protocol(
+    asset_type: str | None = None,
+    trade_batch_no: str | None = None,
+    owner_org_id: str | None = None,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict:
+    if user.role_code in {"GENERATOR", "RETAILER"}:
+        owner_org_id = user.org_id
+    entries = DataSpaceConnectorAdapter.catalog(
+        db,
+        asset_type=asset_type,
+        trade_batch_no=trade_batch_no,
+        owner_org_id=owner_org_id,
+    )
+    return DataspaceProtocolAdapter.build(entries)
 
 
 @router.get("/agreements")

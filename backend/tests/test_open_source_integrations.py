@@ -11,6 +11,7 @@ from app.services.lineage import emit_run_event
 from app.services.arrow_connector import ArrowConnectorAdapter
 from app.services.credentials import JsonLdCredentialAdapter
 from app.services.datapackage import FrictionlessCatalogAdapter
+from app.services.dataspace import DataspaceProtocolAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
 from app.services.solar import PvlibSolarAdapter
@@ -135,6 +136,29 @@ def test_frictionless_catalog_package_contains_metadata_only(client, auth_header
     assert "energy_mwh" in descriptor_text
 
 
+def test_dataspace_protocol_catalog_is_valid_and_metadata_only(client, auth_headers):
+    response = client.get(
+        "/api/data/catalog/dataspace?trade_batch_no=TB-2026-07-DEMO",
+        headers=auth_headers["regulator"],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adapter"] == DataspaceProtocolAdapter.code
+    assert payload["version"] == "2024-1"
+    assert payload["schema_validation"] == {"valid": True, "errors": []}
+    descriptor = payload["descriptor"]
+    assert descriptor["@context"] == DataspaceProtocolAdapter.context
+    assert descriptor["@type"] == "dcat:Catalog"
+    assert len(descriptor["dcat:dataset"]) == payload["dataset_count"]
+    assert all(item["@type"] == "dcat:Dataset" for item in descriptor["dcat:dataset"])
+    descriptor_text = json.dumps(descriptor, ensure_ascii=False)
+    assert "vault://" not in descriptor_text
+    assert "data_ref" not in descriptor_text
+    assert "load_curve" not in descriptor_text
+    assert payload["raw_data_exposed"] is False
+
+
 def test_openlineage_event_is_standard_and_contains_no_raw_payload(tmp_path, monkeypatch):
     patched_settings = replace(
         lineage_module.settings,
@@ -177,6 +201,8 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["integrations"]["columnar_connector"]["raw_data_exposed"] is False
     assert payload["integrations"]["credential_canonicalization"]["installed"] is True
     assert payload["integrations"]["credential_canonicalization"]["remote_context_fetch"] is False
+    assert payload["integrations"]["dataspace_protocol"]["version"] == "2024-1"
+    assert payload["integrations"]["dataspace_protocol"]["raw_data_exposed"] is False
     assert payload["integrations"]["lineage"]["raw_data_policy"]
 
     response = client.get(
