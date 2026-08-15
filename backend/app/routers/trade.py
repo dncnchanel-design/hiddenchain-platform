@@ -41,6 +41,7 @@ from ..services.adapters import (
 )
 from ..services.common import add_audit_log, model_dict, trace_id
 from ..services.datapackage import FrictionlessCatalogAdapter
+from ..services.duckdb_connector import DuckDBMetadataAdapter
 from ..services.solar import PvlibSolarAdapter
 from ..services.workflow import (
     emit_settlement_lineage,
@@ -402,6 +403,7 @@ def data_space_protocol(
             "grid": PandapowerGridAdapter.status(),
             "solar_resource": PvlibSolarAdapter.status(),
             "data_package": FrictionlessCatalogAdapter.status(),
+            "metadata_analytics": DuckDBMetadataAdapter.status(),
         },
     }
 

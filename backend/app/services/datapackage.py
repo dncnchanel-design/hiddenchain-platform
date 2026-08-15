@@ -5,6 +5,7 @@ from typing import Any
 
 from ..security import sha256_json
 from .arrow_connector import ArrowConnectorAdapter
+from .duckdb_connector import DuckDBMetadataAdapter
 
 
 class FrictionlessCatalogAdapter:
@@ -99,6 +100,7 @@ class FrictionlessCatalogAdapter:
                 "raw_data_exposed": False,
                 "usage_control": "OPA_REGO_COMPAT",
                 "columnar_interop": ArrowConnectorAdapter.describe_resources(resources),
+                "duckdb_analytics": DuckDBMetadataAdapter.summarize(entries),
             }
         }
         columnar_interop = descriptor["custom"]["hiddenchain"]["columnar_interop"]
@@ -109,5 +111,6 @@ class FrictionlessCatalogAdapter:
             "package_hash": sha256_json(descriptor),
             "descriptor": descriptor,
             "columnar_interop": columnar_interop,
+            "duckdb_analytics": descriptor["custom"]["hiddenchain"]["duckdb_analytics"],
             "raw_data_exposed": False,
         }

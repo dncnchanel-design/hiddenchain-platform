@@ -12,6 +12,7 @@ from app.services.arrow_connector import ArrowConnectorAdapter
 from app.services.credentials import JsonLdCredentialAdapter
 from app.services.datapackage import FrictionlessCatalogAdapter
 from app.services.dataspace import DataspaceProtocolAdapter
+from app.services.duckdb_connector import DuckDBMetadataAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
 from app.services.solar import PvlibSolarAdapter
@@ -133,6 +134,13 @@ def test_frictionless_catalog_package_contains_metadata_only(client, auth_header
     assert payload["columnar_interop"]["installed"] is True
     assert payload["columnar_interop"]["raw_data_exposed"] is False
     assert payload["columnar_interop"]["resources"]
+    assert payload["duckdb_analytics"]["code"] == DuckDBMetadataAdapter.code
+    assert payload["duckdb_analytics"]["version"] == DuckDBMetadataAdapter.version
+    assert payload["duckdb_analytics"]["installed"] is True
+    assert payload["duckdb_analytics"]["read_only_query"] is True
+    assert payload["duckdb_analytics"]["raw_data_exposed"] is False
+    assert payload["duckdb_analytics"]["groups"]
+    assert payload["duckdb_analytics"]["query_hash"]
     assert "energy_mwh" in descriptor_text
 
 
