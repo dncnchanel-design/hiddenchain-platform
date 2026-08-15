@@ -13,6 +13,7 @@
 | [anchore/syft](https://github.com/anchore/syft) + [anchore/sbom-action](https://github.com/anchore/sbom-action) | 未归档；Apache-2.0；Syft 2026-08-14 有提交，SBOM Action 2026-08-14 有提交 | 新增 `.github/workflows/sbom.yml`，生成 CycloneDX JSON SBOM 并作为短期 GitHub Actions artifact 保存，便于依赖审计和发布前核验 | 低；只影响 GitHub Actions，不进入业务请求路径 |
 | [aquasecurity/trivy](https://github.com/aquasecurity/trivy) + [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) | 未归档；Apache-2.0；Trivy 2026-08-14 有提交，Action 2026-08-14 有提交 | 新增 `.github/workflows/trivy.yml`，审计依赖漏洞、密钥、IaC 配置和许可证，并保留 14 天 JSON artifact | 低；当前为报告型扫描，不把偶发历史漏洞直接变成发布阻断 |
 | [zizmorcore/zizmor](https://github.com/zizmorcore/zizmor) + [zizmorcore/zizmor-action](https://github.com/zizmorcore/zizmor-action) | 未归档；MIT；zizmor 2026-08-13 有提交，Action 2026-08-15 有提交 | 新增 `.github/workflows/zizmor.yml`，审计 GitHub Actions 的不安全权限、浮动依赖和供应链配置 | 低；仅扫描工作流文件，使用固定 action 提交 |
+| [ossf/scorecard](https://github.com/ossf/scorecard) + [ossf/scorecard-action](https://github.com/ossf/scorecard-action) | 未归档；Apache-2.0；Scorecard 2026-08-15 有提交；Action v2.4.4 | 新增 `.github/workflows/scorecard.yml`，发布可验证的 OpenSSF 供应链评分并保留 SARIF artifact，README 增加公开评分入口 | 低；仅运行 GitHub Actions，不进入业务请求路径 |
 | [prometheus/client_python](https://github.com/prometheus/client_python) | 未归档；Apache-2.0；v0.26.0 于 2026-07-24 发布，2026-08-13 有提交 | 新增专用 registry、低基数 HTTP middleware 和受角色保护的 `/api/metrics/prometheus`，用于接入 Prometheus/Grafana | 低；只输出方法、路由模板、状态和耗时，不输出业务 ID、查询参数或请求体 |
 | [pvlib/pvlib-python](https://github.com/pvlib/pvlib-python) | 未归档；BSD-3-Clause；v0.15.2 于 2026-06-16 发布，2026-08-10 有提交 | 新增 `/api/energy/solar/evaluate`，计算太阳位置和组件面辐照度，并以输入哈希关联新能源资源校核 | 中；依赖 pandas/scipy 生态，作为可替换能源模型，不越过隐私和电网安全闸门 |
 | [frictionlessdata/frictionless-py](https://github.com/frictionlessdata/frictionless-py) | 未归档；MIT；v5.19.0 于 2026-04-13 发布，2026-07-28 有提交 | 新增 `/api/data/catalog/package`，将能源目录映射为标准 Data Package 描述和连接器 URI | 低；只发布元数据、质量摘要和用途限制，不暴露 Vault 路径或原始数据 |
@@ -34,7 +35,7 @@
 | [codenotary/immudb](https://github.com/codenotary/immudb) | 未归档；GitHub API 许可证字段为 NOASSERTION；2026-08-03 有提交 | 不可篡改 SQL/KV 审计存储与历史验证 | 先不引入；许可证和运维边界需单独尽调，当前哈希链足够支撑 MVP |
 | [cerbos/cerbos](https://github.com/cerbos/cerbos) / [openfga/openfga](https://github.com/openfga/openfga) | 未归档；Apache-2.0；2026-08-13/15 有活动 | 集中式授权、关系型权限模型 | 与现有 OPA + DID/VC 重叠，暂不增加第二套授权源 |
 | [FederatedAI/FATE](https://github.com/FederatedAI/FATE) | 未归档；Apache-2.0；2024-11-19 有代码提交，仓库问题活动较新 | 工业级联邦学习编排 | 维护信号弱于 SecretFlow/OpenDP，本轮只列为替代候选 |
-| [aquasecurity/trivy](https://github.com/aquasecurity/trivy) / [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) | 未归档；Apache-2.0；Trivy 2026-08-14 有提交，Action 2026-08-14 有提交 | 文件系统、镜像、IaC、密钥和漏洞扫描 | 与 OSV/SBOM 有交集；保留为下一轮容器镜像和部署配置扫描候选，避免本轮引入过重 CI 门禁 |
+| [aquasecurity/trivy](https://github.com/aquasecurity/trivy) / [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) | 未归档；Apache-2.0；Trivy 2026-08-14 有提交，Action 2026-08-14 有提交 | 文件系统、镜像、IaC、密钥和漏洞扫描 | 已接入报告型容器/部署配置扫描；保留 `exit-code: 0`，待生产风险门槛确定后再阻断 |
 
 ## 代码落地点
 
@@ -46,6 +47,7 @@
 - `.github/workflows/osv-scanner.yml`：依赖漏洞扫描，使用固定提交，避免浮动 action tag。
 - `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，使用固定提交，避免浮动 action tag。
 - `.github/workflows/trivy.yml`、`.github/workflows/zizmor.yml`：分别审计运行时依赖/部署配置和 Actions 供应链，均固定 action 提交。
+- `.github/workflows/scorecard.yml`：使用 OpenSSF Scorecard 发布供应链健康评分并保存 SARIF artifact；README 提供评分查看入口。
 - `.github/workflows/opa.yml`、`policy/hiddenchain_test.rego`：固定 OPA CLI 做 Rego 格式检查和策略语义回归。
 - `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/services/datapackage.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标、pvlib 新能源资源计算和 Frictionless 目录接口。
 - `backend/requirements.txt`、`.env.example`、`production.env.example`、Compose 文件：运行时和部署配置。
@@ -63,7 +65,8 @@
 9. Frictionless Data Package 只描述发现、质量、连接器 URI 和使用限制；连接器必须再次执行 OPA 使用控制，不能凭目录描述直接获得原始数据。
 10. OPA CI 只验证策略包的格式和决策样例，生产服务仍必须配置安全的 OPA sidecar、网络边界和 fail-closed 回退策略。
 11. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
+12. Scorecard 发布的是仓库供应链健康信号，不等于业务代码安全证明；评分结果和 SARIF 仅作为发布前风险输入，不能替代 Trivy、OSV、SBOM、zizmor 或人工审查。
 
 ## 本轮结论
 
-当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor 把依赖、部署和工作流供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
+当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor + OpenSSF Scorecard 把依赖、部署、工作流和仓库供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
