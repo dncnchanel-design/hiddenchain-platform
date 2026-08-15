@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..models import DidIdentity, Organization, User, utc_now
 from ..schemas import LoginRequest
 from ..security import create_access_token, verify_password
 from ..services.common import add_audit_log, model_dict
+from ..services.rate_limit import limiter
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -73,7 +75,8 @@ def demo_users() -> list[dict]:
 
 
 @router.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
+@limiter.limit(settings.auth_login_rate_limit)
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     user = db.scalar(select(User).where(User.username == payload.username))
     if user is None or not verify_password(payload.password, user.password_hash):
         add_audit_log(
