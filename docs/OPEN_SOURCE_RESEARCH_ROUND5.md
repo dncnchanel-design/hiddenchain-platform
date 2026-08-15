@@ -26,7 +26,7 @@
 | [eclipse-tractusx/tractusx-edc](https://github.com/eclipse-tractusx/tractusx-edc) | 未归档；Apache-2.0；2026-08-14 有提交；Java | 双 Connector、数据平面、Vault/PostgreSQL/Helm 部署经验 | 适合部署试验环境，暂不进入单机 MVP |
 | [secretflow/secretflow](https://github.com/secretflow/secretflow) / [secretflow/spu](https://github.com/secretflow/spu) | 未归档；Apache-2.0；SecretFlow 2026-04 有代码提交，2026-08 仍有仓库活动 | MPC、联邦学习、安全设备抽象 | 继续通过 `ComputeAdapter` 替换；不在演示环境引入 Kuscia 多方集群 |
 | [OpenMined/PySyft](https://github.com/OpenMined/PySyft) | 未归档；Apache-2.0；2026-08-14 有提交 | 数据留在主方、审批后执行受控作业 | 借鉴“数据主方批准”交互，不替代现有监管人工复核 |
-| [open-policy-agent/opa](https://github.com/open-policy-agent/opa) | 未归档；Apache-2.0；2026-08-14 有提交 | Rego PDP、策略输入/决策哈希、fail-closed 生产配置 | 已接入，继续作为用途控制主引擎 |
+| [open-policy-agent/opa](https://github.com/open-policy-agent/opa) + [setup-opa](https://github.com/open-policy-agent/setup-opa) | 未归档；Apache-2.0；OPA v1.19.0 于 2026-07-30 发布，setup-opa v2.4.0 于 2026-04-21 发布 | Rego PDP、策略输入/决策哈希、fail-closed 生产配置；新增固定版本 `opa fmt`/`opa test` CI | 已接入，继续作为用途控制主引擎 |
 | [e2nIEE/pandapower](https://github.com/e2nIEE/pandapower) | 未归档；2026-08-14 有提交；GitHub API 许可证字段需发布前复核 | 三母线潮流和安全闸门 | 已接入，保留 `PANDAPOWERGridAdapter` 替换边界 |
 | [powsybl/powsybl-core](https://github.com/powsybl/powsybl-core) | 未归档；MPL-2.0；2026-08-14 有提交；Java | 更强的电力系统分析框架 | 后续生产电网适配候选，当前不替换 pandapower |
 | [PyPSA/PyPSA](https://github.com/PyPSA/PyPSA) | 未归档；MIT；2026-08-15 有提交；Python | 多区域能源系统规划和优化 | 可用于规划类场景，和当前“可信调用执行层”边界不同，暂不引入 |
@@ -46,6 +46,7 @@
 - `.github/workflows/osv-scanner.yml`：依赖漏洞扫描，使用固定提交，避免浮动 action tag。
 - `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，使用固定提交，避免浮动 action tag。
 - `.github/workflows/trivy.yml`、`.github/workflows/zizmor.yml`：分别审计运行时依赖/部署配置和 Actions 供应链，均固定 action 提交。
+- `.github/workflows/opa.yml`、`policy/hiddenchain_test.rego`：固定 OPA CLI 做 Rego 格式检查和策略语义回归。
 - `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/services/datapackage.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标、pvlib 新能源资源计算和 Frictionless 目录接口。
 - `backend/requirements.txt`、`.env.example`、`production.env.example`、Compose 文件：运行时和部署配置。
 
@@ -60,8 +61,9 @@
 7. Prometheus 指标使用专用 registry 和路由模板标签，且端点需要监管或管理员 token；不得把数据产品 ID、DID、查询参数或原始负荷放入 labels。
 8. pvlib 只输出太阳几何和辐照度派生结果，输入通过哈希关联；它不能替代 pandapower 的电网安全校核、OPA 策略或人工确认。
 9. Frictionless Data Package 只描述发现、质量、连接器 URI 和使用限制；连接器必须再次执行 OPA 使用控制，不能凭目录描述直接获得原始数据。
-10. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
+10. OPA CI 只验证策略包的格式和决策样例，生产服务仍必须配置安全的 OPA sidecar、网络边界和 fail-closed 回退策略。
+11. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
 
 ## 本轮结论
 
-当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OpenLineage + OpenTelemetry + Prometheus 补齐可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor 把依赖、部署和工作流供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
+当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OPA + Rego CI + OpenLineage + OpenTelemetry + Prometheus 补齐策略、可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor 把依赖、部署和工作流供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
