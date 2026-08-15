@@ -1,0 +1,81 @@
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix ex: <https://hiddenchain.example/shapes/> .
+@prefix odrl: <http://www.w3.org/ns/odrl/2/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:CatalogShape a sh:NodeShape ;
+    sh:targetClass dcat:Catalog ;
+    sh:property [
+        sh:path dcat:dataset ;
+        sh:minCount 1 ;
+        sh:class dcat:Dataset
+    ] ;
+    sh:property [
+        sh:path dcat:service ;
+        sh:minCount 1 ;
+        sh:class dcat:DataService
+    ] .
+
+ex:DatasetShape a sh:NodeShape ;
+    sh:targetClass dcat:Dataset ;
+    sh:property [
+        sh:path dct:title ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path odrl:hasPolicy ;
+        sh:minCount 1 ;
+        sh:node ex:OfferShape
+    ] ;
+    sh:property [
+        sh:path dcat:distribution ;
+        sh:minCount 1 ;
+        sh:class dcat:Distribution
+    ] .
+
+ex:OfferShape a sh:NodeShape ;
+    sh:property [
+        sh:path odrl:assigner ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path odrl:permission ;
+        sh:minCount 1 ;
+        sh:node ex:PermissionShape
+    ] .
+
+ex:PermissionShape a sh:NodeShape ;
+    sh:property [
+        sh:path odrl:action ;
+        sh:minCount 1 ;
+        sh:hasValue odrl:use
+    ] ;
+    sh:property [
+        sh:path odrl:constraint ;
+        sh:minCount 1 ;
+        sh:node ex:ConstraintShape
+    ] .
+
+ex:ConstraintShape a sh:NodeShape ;
+    sh:property [ sh:path odrl:leftOperand ; sh:minCount 1 ] ;
+    sh:property [ sh:path odrl:operator ; sh:minCount 1 ] ;
+    sh:property [ sh:path odrl:rightOperand ; sh:minCount 1 ] .
+
+ex:DistributionShape a sh:NodeShape ;
+    sh:targetClass dcat:Distribution ;
+    sh:property [
+        sh:path dcat:accessService ;
+        sh:minCount 1 ;
+        sh:class dcat:DataService
+    ] .
+
+ex:DataServiceShape a sh:NodeShape ;
+    sh:targetClass dcat:DataService ;
+    sh:property [
+        sh:path dcat:endpointURL ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string
+    ] .
