@@ -15,6 +15,7 @@
 | [zizmorcore/zizmor](https://github.com/zizmorcore/zizmor) + [zizmorcore/zizmor-action](https://github.com/zizmorcore/zizmor-action) | 未归档；MIT；zizmor 2026-08-13 有提交，Action 2026-08-15 有提交 | 新增 `.github/workflows/zizmor.yml`，审计 GitHub Actions 的不安全权限、浮动依赖和供应链配置 | 低；仅扫描工作流文件，使用固定 action 提交 |
 | [prometheus/client_python](https://github.com/prometheus/client_python) | 未归档；Apache-2.0；v0.26.0 于 2026-07-24 发布，2026-08-13 有提交 | 新增专用 registry、低基数 HTTP middleware 和受角色保护的 `/api/metrics/prometheus`，用于接入 Prometheus/Grafana | 低；只输出方法、路由模板、状态和耗时，不输出业务 ID、查询参数或请求体 |
 | [pvlib/pvlib-python](https://github.com/pvlib/pvlib-python) | 未归档；BSD-3-Clause；v0.15.2 于 2026-06-16 发布，2026-08-10 有提交 | 新增 `/api/energy/solar/evaluate`，计算太阳位置和组件面辐照度，并以输入哈希关联新能源资源校核 | 中；依赖 pandas/scipy 生态，作为可替换能源模型，不越过隐私和电网安全闸门 |
+| [frictionlessdata/frictionless-py](https://github.com/frictionlessdata/frictionless-py) | 未归档；MIT；v5.19.0 于 2026-04-13 发布，2026-07-28 有提交 | 新增 `/api/data/catalog/package`，将能源目录映射为标准 Data Package 描述和连接器 URI | 低；只发布元数据、质量摘要和用途限制，不暴露 Vault 路径或原始数据 |
 
 ## 重点候选与取舍
 
@@ -45,7 +46,7 @@
 - `.github/workflows/osv-scanner.yml`：依赖漏洞扫描，使用固定提交，避免浮动 action tag。
 - `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，使用固定提交，避免浮动 action tag。
 - `.github/workflows/trivy.yml`、`.github/workflows/zizmor.yml`：分别审计运行时依赖/部署配置和 Actions 供应链，均固定 action 提交。
-- `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标和 pvlib 新能源资源计算接口。
+- `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/services/datapackage.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标、pvlib 新能源资源计算和 Frictionless 目录接口。
 - `backend/requirements.txt`、`.env.example`、`production.env.example`、Compose 文件：运行时和部署配置。
 
 ## 安全边界
@@ -58,8 +59,9 @@
 6. Trivy 当前设置为报告型扫描（`exit-code: 0`），避免历史依赖告警阻断演示发布；转生产前应按团队风险门槛改为关键/高危阻断并处理例外。
 7. Prometheus 指标使用专用 registry 和路由模板标签，且端点需要监管或管理员 token；不得把数据产品 ID、DID、查询参数或原始负荷放入 labels。
 8. pvlib 只输出太阳几何和辐照度派生结果，输入通过哈希关联；它不能替代 pandapower 的电网安全校核、OPA 策略或人工确认。
-9. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
+9. Frictionless Data Package 只描述发现、质量、连接器 URI 和使用限制；连接器必须再次执行 OPA 使用控制，不能凭目录描述直接获得原始数据。
+10. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
 
 ## 本轮结论
 
-当前最稳妥的路线仍然是“基于现有系统改造”：用 OpenDP 补齐差分隐私，用 OpenLineage + OpenTelemetry + Prometheus 补齐可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor 把依赖、部署和工作流供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。
+当前最稳妥的路线仍然是“基于现有系统改造”：用 Frictionless Data Package 补齐可互操作目录，用 OpenDP 补齐差分隐私，用 OpenLineage + OpenTelemetry + Prometheus 补齐可观测性和血缘，用 pvlib + pandapower 补齐能源模型和电网安全校核，用 OSV-Scanner + Syft + Trivy + zizmor 把依赖、部署和工作流供应链安全纳入 GitHub 流程；EDC/SecretFlow/真实 DID 服务保留为适配器替换路线，不因追求开源数量而扩大部署和审计风险。

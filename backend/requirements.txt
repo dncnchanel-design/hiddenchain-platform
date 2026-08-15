@@ -15,3 +15,4 @@ opentelemetry-instrumentation-fastapi==0.65b0
 opentelemetry-exporter-otlp-proto-http==1.44.0
 prometheus-client==0.26.0
 pvlib==0.15.2
+frictionless==5.19.0

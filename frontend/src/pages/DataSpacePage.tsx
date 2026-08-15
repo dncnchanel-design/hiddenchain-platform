@@ -29,9 +29,10 @@ export function DataSpacePage() {
   const [batchInput, setBatchInput] = useState("TB-2026-07-DEMO");
   const loader = () => Promise.all([
     api<JsonRecord>(`/data/catalog?trade_batch_no=${encodeURIComponent(batch)}`),
+    api<JsonRecord>(`/data/catalog/package?trade_batch_no=${encodeURIComponent(batch)}`),
     api<JsonRecord>("/data-space/protocol"),
     api<JsonRecord[]>(`/data/agreements?task_id=task-ready-demo`),
-  ]).then(([catalog, protocol, agreements]) => ({ catalog, protocol, agreements }));
+  ]).then(([catalog, packageDescriptor, protocol, agreements]) => ({ catalog, packageDescriptor, protocol, agreements }));
   const { data, loading, error, reload } = useRemote(loader, [batch]);
   const entries = data?.catalog.entries || [];
   const agreements = data?.agreements || [];
@@ -67,6 +68,7 @@ export function DataSpacePage() {
         <Metric label="调用能力" value={data.protocol.capabilities.length} meta="目录至回执" />
         <Metric label="已授权调用" value={data.protocol.negotiated_agreements} meta="跨主体授权" tone="green" />
         <Metric label="原始数据传输" value="0" meta="安全边界" tone="green" />
+        <Metric label="标准目录描述" value={data.packageDescriptor.profile === "data-package" ? "v1" : "—"} meta={`${data.packageDescriptor.resource_count || 0} 项资源`} tone="green" />
       </div>
       <div className="content-grid two-equal">
         <Surface title="调用能力">

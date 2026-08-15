@@ -8,6 +8,7 @@ from pathlib import Path
 
 import app.services.lineage as lineage_module
 from app.services.lineage import emit_run_event
+from app.services.datapackage import FrictionlessCatalogAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
 from app.services.solar import PvlibSolarAdapter
@@ -68,6 +69,24 @@ def test_prometheus_endpoint_is_protected_and_has_no_business_labels(client, aut
     assert "data_product_id" not in response.text
 
 
+def test_frictionless_catalog_package_contains_metadata_only(client, auth_headers):
+    response = client.get(
+        "/api/data/catalog/package?trade_batch_no=TB-2026-07-DEMO",
+        headers=auth_headers["regulator"],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["adapter"] == FrictionlessCatalogAdapter.code
+    assert payload["profile"] == "data-package"
+    assert payload["resource_count"] >= 1
+    assert payload["raw_data_exposed"] is False
+    descriptor_text = json.dumps(payload["descriptor"], ensure_ascii=False)
+    assert "data_ref" not in descriptor_text
+    assert "password_hash" not in descriptor_text
+    assert "connector://hiddenchain/products/DP-" in descriptor_text
+
+
 def test_openlineage_event_is_standard_and_contains_no_raw_payload(tmp_path, monkeypatch):
     patched_settings = replace(
         lineage_module.settings,
@@ -105,6 +124,7 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["mvp_adapters"]["differential_privacy"]["installed"] is True
     assert payload["mvp_adapters"]["solar_resource"]["installed"] is True
     assert payload["integrations"]["prometheus"]["package_available"] is True
+    assert payload["integrations"]["data_package"]["installed"] is True
     assert payload["integrations"]["lineage"]["raw_data_policy"]
 
     response = client.get(
