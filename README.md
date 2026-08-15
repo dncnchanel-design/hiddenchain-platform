@@ -204,6 +204,7 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - Prometheus 指标通过受 `REGULATOR`/`ADMIN` 角色保护的 `/api/metrics/prometheus` 提供，只记录方法、路由模板、状态和耗时，不记录查询参数或请求体。
 - `/api/energy/solar/evaluate` 使用 pvlib 计算太阳位置与组件面辐照度，只返回派生指标和输入哈希；地理坐标与辐照度原值不会进入响应或指标标签。
 - `/api/data/catalog/package` 按 Frictionless Data Package 标准输出可发现的目录元数据和连接器 URI，不返回 Vault 路径、原始记录或密码字段。
+- `/api/data/catalog/dataspace` 按 IDSA Dataspace Protocol 2024-1 输出 DCAT Catalog/Dataset、DataService 和 ODRL 用途描述；它只是元数据协议投影，真实访问仍需 OPA 再授权。
 - DID/VC 身份证据通过 PyLD 的 URDNA2015 做本地 JSON-LD 规范化，生成稳定凭证指纹；外部 `@context` 不会被远程加载，规范化结果不替代正式签名验证。
 - 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
 - GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
