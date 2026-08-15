@@ -21,6 +21,14 @@ def trace_id() -> str:
             return f"trace-{span_context.trace_id:032x}"
     except (ImportError, AttributeError, RuntimeError):
         pass
+    try:
+        from asgi_correlation_id import correlation_id
+
+        request_id = correlation_id.get()
+        if request_id:
+            return f"trace-{request_id}"
+    except (ImportError, AttributeError, RuntimeError):
+        pass
     return f"trace-{uuid.uuid4().hex[:20]}"
 
 

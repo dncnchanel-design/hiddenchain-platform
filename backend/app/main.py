@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -19,6 +20,7 @@ from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
+from .services.correlation import correlation_status
 from .services.datapackage import FrictionlessCatalogAdapter
 from .services.dataspace import DataspaceProtocolAdapter
 from .services.duckdb_connector import DuckDBMetadataAdapter
@@ -58,7 +60,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+app.add_middleware(CorrelationIdMiddleware)
 setup_observability(app)
 
 
@@ -106,6 +110,7 @@ def health() -> dict:
             "observability": observability_status(),
             "lineage": lineage_status(),
             "prometheus": prometheus_status(),
+            "correlation_id": correlation_status(),
             "rate_limiting": rate_limit_status(),
             "data_package": FrictionlessCatalogAdapter.status(),
             "columnar_connector": ArrowConnectorAdapter.status(),

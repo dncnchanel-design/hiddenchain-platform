@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from dataclasses import replace
 from pathlib import Path
 
+from asgi_correlation_id import correlation_id
 import app.services.lineage as lineage_module
+from app.services.common import trace_id
 from app.services.lineage import emit_run_event
 from app.services.arrow_connector import ArrowConnectorAdapter
 from app.services.credentials import JsonLdCredentialAdapter
@@ -236,6 +238,9 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["mvp_adapters"]["differential_privacy"]["installed"] is True
     assert payload["mvp_adapters"]["solar_resource"]["installed"] is True
     assert payload["integrations"]["prometheus"]["package_available"] is True
+    assert payload["integrations"]["correlation_id"]["code"] == "ASGI_CORRELATION_ID_5_0_1"
+    assert payload["integrations"]["correlation_id"]["header"] == "X-Request-ID"
+    assert payload["integrations"]["correlation_id"]["raw_data_exposed"] is False
     assert payload["integrations"]["rate_limiting"]["code"] == "SLOWAPI_RATE_LIMIT_0_1_10"
     assert payload["integrations"]["rate_limiting"]["installed"] is True
     assert payload["integrations"]["rate_limiting"]["protected_routes"] == ["POST /api/auth/login"]
@@ -261,6 +266,32 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
         "event_count": 0,
         "raw_data_included": False,
     }
+
+
+def test_correlation_id_generates_and_validates_request_ids(client):
+    generated = client.get("/api/health")
+    assert generated.status_code == 200
+    generated_id = generated.headers["X-Request-ID"]
+    assert re.fullmatch(r"[0-9a-f]{32}", generated_id)
+
+    supplied_id = "a" * 32
+    propagated = client.get("/api/health", headers={"X-Request-ID": supplied_id})
+    assert propagated.status_code == 200
+    assert propagated.headers["X-Request-ID"] == supplied_id
+
+    rejected = client.get("/api/health", headers={"X-Request-ID": "raw-user-value"})
+    assert rejected.status_code == 200
+    assert rejected.headers["X-Request-ID"] != "raw-user-value"
+    assert re.fullmatch(r"[0-9a-f]{32}", rejected.headers["X-Request-ID"])
+
+
+def test_audit_trace_reuses_current_correlation_id():
+    request_id = "b" * 32
+    token = correlation_id.set(request_id)
+    try:
+        assert trace_id() == f"trace-{request_id}"
+    finally:
+        correlation_id.reset(token)
 
 
 def test_slowapi_throttles_repeated_login_attempts(client):
