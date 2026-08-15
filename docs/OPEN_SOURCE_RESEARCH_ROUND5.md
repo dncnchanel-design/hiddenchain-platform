@@ -14,7 +14,7 @@
 | [sigstore/cosign](https://github.com/sigstore/cosign) + [sigstore/cosign-installer](https://github.com/sigstore/cosign-installer) | 未归档；Apache-2.0；Cosign 2026-08-15 有提交；Installer v4.1.2 | SBOM 主分支发布任务使用 GitHub OIDC 做 keyless `sign-blob`，随后用 workflow identity 和 Sigstore issuer 验签，并上传签名 bundle | 低；仅签名 SBOM artifact，不签业务数据、不持有长期私钥；只在 `main` push 执行 |
 | [aquasecurity/trivy](https://github.com/aquasecurity/trivy) + [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action) | 未归档；Apache-2.0；Trivy 2026-08-14 有提交，Action 2026-08-14 有提交 | 新增 `.github/workflows/trivy.yml`，审计依赖漏洞、密钥、IaC 配置和许可证，并保留 14 天 JSON artifact | 低；当前为报告型扫描，不把偶发历史漏洞直接变成发布阻断 |
 | [zizmorcore/zizmor](https://github.com/zizmorcore/zizmor) + [zizmorcore/zizmor-action](https://github.com/zizmorcore/zizmor-action) | 未归档；MIT；zizmor 2026-08-13 有提交，Action 2026-08-15 有提交 | 新增 `.github/workflows/zizmor.yml`，审计 GitHub Actions 的不安全权限、浮动依赖和供应链配置 | 低；仅扫描工作流文件，使用固定 action 提交 |
-| [ossf/scorecard](https://github.com/ossf/scorecard) + [ossf/scorecard-action](https://github.com/ossf/scorecard-action) | 未归档；Apache-2.0；Scorecard 2026-08-15 有提交；Action v2.4.4 | 新增 `.github/workflows/scorecard.yml`，对私有仓库执行供应链检查并保留 SARIF artifact；不向公共 Scorecard API 发布私有仓库结果 | 低；仅运行 GitHub Actions，不进入业务请求路径 |
+| [ossf/scorecard](https://github.com/ossf/scorecard) + [ossf/scorecard-action](https://github.com/ossf/scorecard-action) | 未归档；Apache-2.0；Scorecard 2026-08-15 有提交；Action v2.4.4 | 新增 `.github/workflows/scorecard.yml`，对私有仓库执行 PR 供应链检查并保留 SARIF artifact；不向公共 Scorecard API 发布私有仓库结果 | 低；仅运行 GitHub Actions，不进入业务请求路径 |
 | [prometheus/client_python](https://github.com/prometheus/client_python) | 未归档；Apache-2.0；v0.26.0 于 2026-07-24 发布，2026-08-13 有提交 | 新增专用 registry、低基数 HTTP middleware 和受角色保护的 `/api/metrics/prometheus`，用于接入 Prometheus/Grafana | 低；只输出方法、路由模板、状态和耗时，不输出业务 ID、查询参数或请求体 |
 | [pvlib/pvlib-python](https://github.com/pvlib/pvlib-python) | 未归档；BSD-3-Clause；v0.15.2 于 2026-06-16 发布，2026-08-10 有提交 | 新增 `/api/energy/solar/evaluate`，计算太阳位置和组件面辐照度，并以输入哈希关联新能源资源校核 | 中；依赖 pandas/scipy 生态，作为可替换能源模型，不越过隐私和电网安全闸门 |
 | [frictionlessdata/frictionless-py](https://github.com/frictionlessdata/frictionless-py) | 未归档；MIT；v5.19.0 于 2026-04-13 发布，2026-07-28 有提交 | 新增 `/api/data/catalog/package`，将能源目录映射为标准 Data Package 描述和连接器 URI | 低；只发布元数据、质量摘要和用途限制，不暴露 Vault 路径或原始数据 |
@@ -48,7 +48,7 @@
 - `.github/workflows/osv-scanner.yml`：依赖漏洞扫描，使用固定提交，避免浮动 action tag。
 - `.github/workflows/sbom.yml`：使用 Syft 生成 CycloneDX SBOM artifact，并在 `main` push 使用 Cosign/Sigstore keyless 签名与验签，使用固定提交，避免浮动 action tag。
 - `.github/workflows/trivy.yml`、`.github/workflows/zizmor.yml`：分别审计运行时依赖/部署配置和 Actions 供应链，均固定 action 提交。
-- `.github/workflows/scorecard.yml`：使用 OpenSSF Scorecard 执行私有仓库供应链检查并保存 SARIF artifact，不向公共 API 发布私有结果。
+- `.github/workflows/scorecard.yml`：使用 OpenSSF Scorecard 执行私有仓库 PR 供应链检查并保存 SARIF artifact，不向公共 API 发布私有结果。
 - `.github/workflows/opa.yml`、`policy/hiddenchain_test.rego`：固定 OPA CLI 做 Rego 格式检查和策略语义回归。
 - `backend/requirements.txt`、`frontend/pnpm-workspace.yaml`、`frontend/pnpm-lock.yaml`：根据 OSV-Scanner 全量扫描结果升级 FastAPI/Starlette 依赖链、PyJWT、python-multipart、pytest、nanoid、postcss 和 react-router，保持漏洞扫描为 fail-on-vuln。
 - `backend/app/services/prometheus.py`、`backend/app/services/solar.py`、`backend/app/services/datapackage.py`、`backend/app/routers/energy.py`：分别提供低基数 Prometheus 指标、pvlib 新能源资源计算和 Frictionless 目录接口。
