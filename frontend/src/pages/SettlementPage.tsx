@@ -132,7 +132,7 @@ export function SettlementPage() {
           </div>
         ) : <Surface><div className="empty-state">请选择场景验证任务</div></Surface>}
       </div>
-      {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); await reload(); }} />}
+      {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async (created) => { setShowForm(false); setMessage("任务已创建，可继续开始验证。"); await reload(); if (created?.task_id) setSelectedId(created.task_id); }} />}
       {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入并完成可信调用验证，生成 ${result.evidence?.length || 0} 项可核验证据。`); await reload(); }} />}
     </>
   );
@@ -202,7 +202,7 @@ function ImportSettlementModal({ onClose, onCreated }: { onClose: () => void; on
   );
 }
 
-function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; orgs: JsonRecord[]; onClose: () => void; onCreated: () => Promise<void> }) {
+function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; orgs: JsonRecord[]; onClose: () => void; onCreated: (created?: JsonRecord) => Promise<void> }) {
   const activeRules = rules.filter((item) => item.status === "ACTIVE");
   const generator = orgs.find((item) => item.org_type === "GENERATOR");
   const retailer = orgs.find((item) => item.org_type === "RETAILER");
@@ -217,7 +217,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
     setBusy(true);
     setError("");
     try {
-      await post("/settlement/tasks", {
+      const created = await post<JsonRecord>("/settlement/tasks", {
         task_name: name,
         trade_batch_no: batch,
         period_start: "2026-07-01",
@@ -228,7 +228,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
           { org_id: retailer?.org_id, role_in_task: "RETAILER" },
         ],
       });
-      await onCreated();
+      await onCreated(created);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "创建失败");
     } finally {

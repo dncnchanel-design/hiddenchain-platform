@@ -109,7 +109,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
             { key: "summary_json", label: "记录数", render: (row) => row.summary_json?.record_count ?? "-" },
             { key: "validation_status", label: "校验", render: (row) => <StatusTag value={row.validation_status} /> },
             { key: "created_at", label: "登记时间", render: (row) => formatDate(row.created_at) },
-            { key: "action", label: "操作", render: (row) => canSign ? <Button icon={FileSignature} busy={busy === row.upload_id} onClick={() => sign(row.upload_id)}>确认</Button> : <span className="muted-text">只读</span> },
+            { key: "action", label: "操作", render: (row) => row.signature_value ? <StatusTag value="CONFIRMED" label="已签署" /> : canSign ? <Button icon={FileSignature} busy={busy === row.upload_id} onClick={() => sign(row.upload_id)}>确认</Button> : <span className="muted-text">只读</span> },
           ]}
         />
       </Surface>

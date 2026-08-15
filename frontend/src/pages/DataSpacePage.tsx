@@ -10,6 +10,7 @@ const assetNames: Record<string, string> = {
   GENERATION_DATA: "发电计量",
   RETAIL_DATA: "售电履约",
   RENEWABLE_FORECAST: "新能源预测",
+  USER_LOAD_CURVE: "用户负荷曲线",
   VPP_RESOURCE: "虚拟电厂资源",
   GRID_CONSTRAINT: "调度安全边界",
 };
@@ -86,6 +87,7 @@ export function DataSpacePage() {
           rows={entries}
           columns={[
             { key: "data_product_id", label: "数据产品 ID", render: (row) => <CodeValue title={row.data_product_id}>{shortHash(row.data_product_id, 12)}</CodeValue> },
+            { key: "label", label: "数据产品" },
             { key: "asset_type", label: "资产类型", render: (row) => assetNames[row.asset_type] || row.asset_type },
             { key: "owner_org_name", label: "提供方" },
             { key: "semantic_ref", label: "数据说明", render: (row) => <CodeValue>{row.semantic_ref}</CodeValue> },

@@ -88,10 +88,10 @@ export function AgentsPage() {
       <div className="agent-boundary"><ShieldCheck size={20} /><div><strong>安全边界</strong><span>只读取授权摘要，不接触业务原始数据；每次执行都保留输入、输出和签名痕迹。</span></div></div>
       <Surface title="服务状态" note="能力模块可以使用本地确定性逻辑，也可以调用已配置的解释服务。">
         <div className="llm-status-panel">
-          <StatusTag value={data.llmStatus.configured ? "SUCCESS" : "FAILED"} label={data.llmStatus.configured ? "解释服务已配置" : "解释服务未配置"} />
-          <strong>{data.llmStatus.live_verified ? "受控解释服务 · 已连接" : data.llmStatus.configured ? "受控解释服务 · 已配置" : "受控解释服务 · 未配置"}</strong>
+          <StatusTag value={data.llmStatus.live_verified ? "SUCCESS" : data.llmStatus.configured ? "PENDING" : "FAILED"} label={data.llmStatus.live_verified ? "最近验证成功" : data.llmStatus.configured ? "已配置待核验" : "解释服务未配置"} />
+          <strong>{data.llmStatus.live_verified ? "受控解释服务 · 最近一次调用成功" : data.llmStatus.configured ? "受控解释服务 · 已配置，尚未成功核验" : "受控解释服务 · 未配置"}</strong>
           <span>可用能力：{data.llmStatus.supported_agent_count} 项</span>
-          <span>{data.llmStatus.live_verified ? "服务可用" : "等待配置"}</span>
+          <span>{data.llmStatus.live_verified ? "仅代表已有真实回执；当前调用仍需以本次凭证为准" : data.llmStatus.configured ? "当前调用失败时不会伪装为成功" : "配置后才可进行真实解释调用"}</span>
           {data.llmStatus.last_success && <CodeValue title={data.llmStatus.last_success.request_id}>最近回执 {shortHash(data.llmStatus.last_success.request_id, 12)} · {data.llmStatus.last_success.duration_ms}ms</CodeValue>}
         </div>
         <div className="agent-run-toolbar">
