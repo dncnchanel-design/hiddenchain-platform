@@ -28,5 +28,5 @@ jobs:
 
       - name: Format and test Rego policies
         run: |
-          opa fmt policy/hiddenchain_test.rego
+          opa fmt --fail policy/hiddenchain_test.rego
           opa test policy -v
