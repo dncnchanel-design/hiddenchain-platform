@@ -21,6 +21,7 @@ from .services.datapackage import FrictionlessCatalogAdapter
 from .services.dataspace import DataspaceProtocolAdapter
 from .services.duckdb_connector import DuckDBMetadataAdapter
 from .services.lineage import lineage_status
+from .services.odcs_connector import OpenDataContractAdapter
 from .services.observability import observability_status, setup_observability
 from .services.privacy import OpenDPAdapter
 from .services.prometheus import observe_http_request, prometheus_status
@@ -103,6 +104,7 @@ def health() -> dict:
             "data_package": FrictionlessCatalogAdapter.status(),
             "columnar_connector": ArrowConnectorAdapter.status(),
             "metadata_analytics": DuckDBMetadataAdapter.status(),
+            "data_contract": OpenDataContractAdapter.status(),
             "credential_canonicalization": JsonLdCredentialAdapter.status(),
             "dataspace_protocol": DataspaceProtocolAdapter.status(),
         },

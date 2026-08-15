@@ -6,6 +6,7 @@ from typing import Any
 from ..security import sha256_json
 from .arrow_connector import ArrowConnectorAdapter
 from .duckdb_connector import DuckDBMetadataAdapter
+from .odcs_connector import OpenDataContractAdapter
 
 
 class FrictionlessCatalogAdapter:
@@ -101,6 +102,7 @@ class FrictionlessCatalogAdapter:
                 "usage_control": "OPA_REGO_COMPAT",
                 "columnar_interop": ArrowConnectorAdapter.describe_resources(resources),
                 "duckdb_analytics": DuckDBMetadataAdapter.summarize(entries),
+                "odcs_contracts": OpenDataContractAdapter.build(entries),
             }
         }
         columnar_interop = descriptor["custom"]["hiddenchain"]["columnar_interop"]
@@ -112,5 +114,6 @@ class FrictionlessCatalogAdapter:
             "descriptor": descriptor,
             "columnar_interop": columnar_interop,
             "duckdb_analytics": descriptor["custom"]["hiddenchain"]["duckdb_analytics"],
+            "odcs_contracts": descriptor["custom"]["hiddenchain"]["odcs_contracts"],
             "raw_data_exposed": False,
         }

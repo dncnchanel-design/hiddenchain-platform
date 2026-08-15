@@ -206,6 +206,7 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - `/api/data/catalog/package` 按 Frictionless Data Package 标准输出可发现的目录元数据和连接器 URI，不返回 Vault 路径、原始记录或密码字段。
 - `/api/data/catalog/dataspace` 按 IDSA Dataspace Protocol 2024-1 输出 DCAT Catalog/Dataset、DataService 和 ODRL 用途描述；它只是元数据协议投影，真实访问仍需 OPA 再授权。
 - `/api/data/catalog/package` 还通过 [DuckDB](https://github.com/duckdb/duckdb) 1.5.5 对已脱敏目录元数据执行固定、内存、只读聚合；不接受用户 SQL，不注册 Vault 或原始业务表。
+- `/api/data/catalog/package` 同时输出 [Open Data Contract Standard](https://github.com/bitol-io/open-data-contract-standard) v3.1.0 的本地数据合同投影，固定 `apiVersion/kind/schema/servers` 字段并显式标记原始数据不出域；不抓取远程 schema。
 - Dataspace Protocol 目录使用 `python-jsonschema/jsonschema` 的离线 Draft 2019-09 本地 profile 校验，避免运行时抓取远程 schema/context；前端同步展示协议版本、数据集数量、目录指纹和校验状态。
 - DID/VC 身份证据通过 PyLD 的 URDNA2015 做本地 JSON-LD 规范化，生成稳定凭证指纹；外部 `@context` 不会被远程加载，规范化结果不替代正式签名验证。
 - 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
