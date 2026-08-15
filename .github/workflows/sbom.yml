@@ -9,12 +9,11 @@ on:
     - cron: "32 12 * * 1"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: write
-
 jobs:
   generate:
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
