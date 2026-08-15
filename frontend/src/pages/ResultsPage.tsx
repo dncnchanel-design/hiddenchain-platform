@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Download, FileSignature, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, formatDate, formatMoney, post, shortHash } from "../api";
+import { api, downloadBlob, formatDate, formatMoney, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -38,12 +38,7 @@ export function ResultsPage() {
 
   function exportReceipt(row: JsonRecord) {
     const blob = new Blob([JSON.stringify({ ...row, exported_raw_data: false }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `verification-receipt-${row.result_id}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `verification-receipt-${row.result_id}.json`);
   }
 
   if (loading) return <LoadingState />;

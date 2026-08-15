@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download, Eye, FileClock, Filter, RefreshCw, Search } from "lucide-react";
-import { api, formatDate, shortHash } from "../api";
+import { api, downloadBlob, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { ACTION_LABELS, TARGET_TYPE_LABELS } from "../types";
@@ -16,12 +16,7 @@ export function LogsPage() {
 
   function exportLogs() {
     const blob = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "hiddenchain-audit-logs.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, "hiddenchain-audit-logs.json");
   }
 
   if (loading) return <LoadingState />;

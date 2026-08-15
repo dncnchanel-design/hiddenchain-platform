@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download, Eye, FileCheck2, FilePlus2, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, formatDate, post, shortHash } from "../api";
+import { api, downloadBlob, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -39,12 +39,7 @@ export function ReportsPage() {
 
   function exportReport(report: JsonRecord) {
     const blob = new Blob([report.report_content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${report.report_title}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${report.report_title}.md`);
   }
 
   if (loading) return <LoadingState />;

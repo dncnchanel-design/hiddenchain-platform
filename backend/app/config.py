@@ -65,8 +65,14 @@ class Settings:
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{(RUNTIME_DIR / 'hiddenchain.db').as_posix()}"
     )
-    jwt_secret: str = os.getenv("JWT_SECRET", "hiddenchain-demo-jwt-secret")
-    signing_secret: str = os.getenv("SIGNING_SECRET", "hiddenchain-demo-signing-secret")
+    # Keep local/demo defaults long enough for HS256 while still allowing
+    # deployments to override them through environment variables.
+    jwt_secret: str = os.getenv(
+        "JWT_SECRET", "hiddenchain-demo-jwt-secret-2026-local-only"
+    )
+    signing_secret: str = os.getenv(
+        "SIGNING_SECRET", "hiddenchain-demo-signing-secret-2026-local-only"
+    )
     jwt_expire_minutes: int = _int_env("JWT_EXPIRE_MINUTES", 720)
     cors_origins: tuple[str, ...] = tuple(
         item.strip()

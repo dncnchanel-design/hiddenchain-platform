@@ -146,6 +146,20 @@ export function post<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
 export function shortHash(value?: string | null, length = 10): string {
   if (!value) return "-";
   if (value.length <= length * 2) return value;

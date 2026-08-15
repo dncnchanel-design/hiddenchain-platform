@@ -20,6 +20,25 @@ $passed = 0
 $failed = 0
 $maxLatency = 0
 $failureMessages = [System.Collections.Generic.List[string]]::new()
+$pagePaths = @(
+    "/login",
+    "/overview",
+    "/workbench",
+    "/data-space",
+    "/data/generation",
+    "/data/retail",
+    "/compute",
+    "/settlements",
+    "/results",
+    "/evidence",
+    "/rules",
+    "/audit",
+    "/reports",
+    "/anomalies",
+    "/agents",
+    "/logs",
+    "/metrics"
+)
 
 function Invoke-Probe {
     param(
@@ -108,17 +127,32 @@ Write-Host "Events: $eventsPath"
 while ((Get-Date) -lt $endsAt) {
     $cycleStarted = Get-Date
     $cycle = [System.Collections.Generic.List[object]]::new()
-    $cycle.Add((Invoke-Probe "page.login" "$BaseUrl/login"))
+    foreach ($pagePath in $pagePaths) {
+        $pageName = "page" + ($pagePath -replace "[^a-zA-Z0-9]", "_")
+        $cycle.Add((Invoke-Probe $pageName "$BaseUrl$pagePath"))
+    }
     $cycle.Add((Invoke-Probe "api.health" "$BaseUrl/api/health"))
 
     try {
         $login = Invoke-RestMethod -Uri "$BaseUrl/api/auth/login" -Method Post -Headers $headers -ContentType "application/json" -Body (@{ username = "exchange"; password = "exchange123" } | ConvertTo-Json -Compress) -TimeoutSec 15
         $authHeaders = @{ Authorization = "Bearer $($login.access_token)"; "Cache-Control" = "no-cache" }
+        $cycle.Add((Invoke-Probe "api.dashboard" "$BaseUrl/api/dashboard/summary" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.tasks" "$BaseUrl/api/settlement/tasks" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.rules" "$BaseUrl/api/rules" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.privacy" "$BaseUrl/api/privacy/jobs" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.analysis" "$BaseUrl/api/privacy/analysis/jobs" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.strategy" "$BaseUrl/api/privacy/strategy/catalog" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.evidence" "$BaseUrl/api/chain/evidence?task_id=task-ready-demo" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.timeline" "$BaseUrl/api/audit/timeline/task-ready-demo" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.reports" "$BaseUrl/api/audit/reports" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.anomalies" "$BaseUrl/api/anomalies" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.logs" "$BaseUrl/api/audit/logs" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.catalog" "$BaseUrl/api/data/catalog?trade_batch_no=TB-2026-07-DEMO" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.agreements" "$BaseUrl/api/data/agreements?trade_batch_no=TB-2026-07-DEMO" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-Probe "api.protocol" "$BaseUrl/api/data-space/protocol" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.execution.status" "$BaseUrl/api/trusted-execution/status" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.agent.definitions" "$BaseUrl/api/agents/definitions" -RequestHeaders $authHeaders))
+        $cycle.Add((Invoke-Probe "api.agent.events" "$BaseUrl/api/agents/events?task_id=task-ready-demo" -RequestHeaders $authHeaders))
         $cycle.Add((Invoke-TrustedExecutionProbe "$BaseUrl/api/trusted-execution/status" -RequestHeaders $authHeaders))
     } catch {
         $cycle.Add([pscustomobject]@{ name = "api.auth"; ok = $false; status = 0; latency_ms = 0; error = $_.Exception.Message })

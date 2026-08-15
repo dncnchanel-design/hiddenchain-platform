@@ -376,6 +376,38 @@ def test_deepseek_agent_endpoint_never_fakes_success_when_disabled(client, auth_
     assert "disabled" in response.json()["detail"]
 
 
+def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_headers):
+    injected = client.post(
+        "/api/anomalies/inject",
+        headers=auth_headers["admin"],
+        json={"task_id": "task-ready-demo", "event_type": "UNAUTHORIZED_ACCESS"},
+    )
+    assert injected.status_code == 201, injected.text
+    event = injected.json()
+    assert event["event_id"]
+    assert event["status"] == "OPEN"
+
+    resolved = client.post(
+        f"/api/anomalies/{event['event_id']}/resolve",
+        headers=auth_headers["admin"],
+        json={"resolution": "已完成测试处置"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["status"] == "RESOLVED"
+
+    logs = client.get("/api/audit/logs", headers=auth_headers["admin"])
+    assert logs.status_code == 200
+    matching = [
+        item
+        for item in logs.json()
+        if item["target_type"] == "ANOMALY_EVENT" and item["target_id"] == event["event_id"]
+    ]
+    assert {item["action_code"] for item in matching} >= {
+        "INJECT_DEMO_ANOMALY",
+        "RESOLVE_ANOMALY",
+    }
+
+
 def test_invalid_upload_payload_is_rejected_before_persistence(client, auth_headers):
     response = client.post(
         "/api/data/uploads",
