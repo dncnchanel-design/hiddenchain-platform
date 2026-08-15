@@ -13,6 +13,7 @@ from app.services.credentials import JsonLdCredentialAdapter
 from app.services.datapackage import FrictionlessCatalogAdapter
 from app.services.dataspace import DataspaceProtocolAdapter
 from app.services.duckdb_connector import DuckDBMetadataAdapter
+from app.services.odcs_connector import OpenDataContractAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
 from app.services.solar import PvlibSolarAdapter
@@ -141,6 +142,14 @@ def test_frictionless_catalog_package_contains_metadata_only(client, auth_header
     assert payload["duckdb_analytics"]["raw_data_exposed"] is False
     assert payload["duckdb_analytics"]["groups"]
     assert payload["duckdb_analytics"]["query_hash"]
+    assert payload["odcs_contracts"]["code"] == OpenDataContractAdapter.code
+    assert payload["odcs_contracts"]["version"] == OpenDataContractAdapter.version
+    assert payload["odcs_contracts"]["contract_count"] == payload["resource_count"]
+    assert payload["odcs_contracts"]["schema_validation"]["valid"] is True
+    assert payload["odcs_contracts"]["raw_data_exposed"] is False
+    odcs_text = json.dumps(payload["odcs_contracts"], ensure_ascii=False)
+    assert "vault://" not in odcs_text
+    assert "data_ref" not in odcs_text
     assert "energy_mwh" in descriptor_text
 
 
