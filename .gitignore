@@ -14,6 +14,7 @@ runtime/*.db
 runtime/vault/
 frontend/node_modules/
 frontend/dist/
+backend/.schemathesis/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
