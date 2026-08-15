@@ -209,6 +209,7 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - DID/VC 身份证据通过 PyLD 的 URDNA2015 做本地 JSON-LD 规范化，生成稳定凭证指纹；外部 `@context` 不会被远程加载，规范化结果不替代正式签名验证。
 - 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
 - GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
+- GitHub Actions 使用 [Bandit](https://github.com/PyCQA/bandit) 1.9.4 对 Python 后端做安全静态扫描：完整 JSON 报告作为构建产物保存，中高危问题阻断合并；演示账号的低危硬编码提示不作为生产凭据。
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。
 - GitHub Actions 已加入 Trivy 文件系统安全审计和 zizmor 工作流供应链审计；报告型扫描默认不阻断业务发布，先保留 artifact 和审计输出。
 - GitHub Actions 已加入固定 OPA v1.19.0 的 Rego 格式与策略测试，覆盖正常放行、原始数据导出拒绝和使用次数耗尽拒绝。
