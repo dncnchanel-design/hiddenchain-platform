@@ -211,6 +211,7 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
 - GitHub Actions 使用 [Bandit](https://github.com/PyCQA/bandit) 1.9.4 对 Python 后端做安全静态扫描：完整 JSON 报告作为构建产物保存，中高危问题阻断合并；演示账号的低危硬编码提示不作为生产凭据。
 - GitHub Actions 使用 [Schemathesis](https://github.com/schemathesis/schemathesis) 4.24.3 从 OpenAPI 生成确定性 API 契约用例，检查公开健康与演示登录路由的响应/方法契约；测试在隔离本地进程中运行，不触碰业务原始数据。
+- Backend Tests 使用 [coverage.py](https://github.com/coveragepy/coveragepy) 7.15.4 统计后端分支覆盖率，并以 75% 的应用代码覆盖率作为合并门槛；覆盖率工具只在 CI 使用，不进入生产运行时。
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。
 - GitHub Actions 已加入 Trivy 文件系统安全审计和 zizmor 工作流供应链审计；报告型扫描默认不阻断业务发布，先保留 artifact 和审计输出。
 - GitHub Actions 已加入固定 OPA v1.19.0 的 Rego 格式与策略测试，覆盖正常放行、原始数据导出拒绝和使用次数耗尽拒绝。
