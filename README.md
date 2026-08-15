@@ -215,6 +215,7 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 - GitHub Actions 使用 [Schemathesis](https://github.com/schemathesis/schemathesis) 4.24.3 从 OpenAPI 生成确定性 API 契约用例，检查公开健康与演示登录路由的响应/方法契约；测试在隔离本地进程中运行，不触碰业务原始数据。
 - Backend Tests 使用 [coverage.py](https://github.com/coveragepy/coveragepy) 7.15.4 统计后端分支覆盖率，并以 75% 的应用代码覆盖率作为合并门槛；覆盖率工具只在 CI 使用，不进入生产运行时。
 - Backend Tests 使用 [pytest-randomly](https://github.com/pytest-dev/pytest-randomly) 4.1.0 固定随机种子打乱测试顺序；测试夹具每项用例重新初始化演示数据库，用于发现顺序依赖，不进入生产镜像。
+- 登录入口使用 [SlowAPI](https://github.com/laurentS/slowapi) 0.1.10 按来源地址限流，默认 `10/minute`；单实例使用内存计数，多副本部署可配置 Redis 共享限流状态。
 - GitHub Actions 使用 [pySHACL](https://github.com/RDFLib/pySHACL) 0.40.1 与 RDFLib 7.6.0 在本地元数据图上验证 Dataspace Catalog/Dataset、ODRL Policy 和 DataService 语义约束；不加载远程 context，不把 SHACL 依赖放进生产镜像。
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。
 - GitHub Actions 已加入 Trivy 文件系统安全审计和 zizmor 工作流供应链审计；报告型扫描默认不阻断业务发布，先保留 artifact 和审计输出。

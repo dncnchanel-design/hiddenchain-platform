@@ -16,6 +16,7 @@ from app.services.duckdb_connector import DuckDBMetadataAdapter
 from app.services.odcs_connector import OpenDataContractAdapter
 from app.services.privacy import OpenDPAdapter
 from app.services.prometheus import prometheus_status
+from app.services.rate_limit import limiter, rate_limit_status
 from app.services.solar import PvlibSolarAdapter
 
 
@@ -235,6 +236,10 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     assert payload["mvp_adapters"]["differential_privacy"]["installed"] is True
     assert payload["mvp_adapters"]["solar_resource"]["installed"] is True
     assert payload["integrations"]["prometheus"]["package_available"] is True
+    assert payload["integrations"]["rate_limiting"]["code"] == "SLOWAPI_RATE_LIMIT_0_1_10"
+    assert payload["integrations"]["rate_limiting"]["installed"] is True
+    assert payload["integrations"]["rate_limiting"]["protected_routes"] == ["POST /api/auth/login"]
+    assert payload["integrations"]["rate_limiting"]["raw_data_exposed"] is False
     assert payload["integrations"]["data_package"]["installed"] is True
     assert payload["integrations"]["columnar_connector"]["installed"] is True
     assert payload["integrations"]["columnar_connector"]["raw_data_exposed"] is False
@@ -256,6 +261,25 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
         "event_count": 0,
         "raw_data_included": False,
     }
+
+
+def test_slowapi_throttles_repeated_login_attempts(client):
+    limiter.reset()
+    try:
+        responses = [
+            client.post(
+                "/api/auth/login",
+                json={"username": "unknown-rate-limited-user", "password": "invalid"},
+            )
+            for _ in range(11)
+        ]
+
+        assert all(response.status_code == 401 for response in responses[:10])
+        assert responses[-1].status_code == 429
+        assert "Rate limit exceeded" in responses[-1].text
+        assert rate_limit_status()["raw_data_exposed"] is False
+    finally:
+        limiter.reset()
 
 
 def test_solar_endpoint_keeps_input_out_of_response(client, auth_headers):

@@ -91,6 +91,12 @@ class Settings:
         "EXECUTION_POLICY_PATH", str(PROJECT_DIR / "policy" / "energy_execution_policy.json")
     )
     execution_audit_workers: int = _int_env("EXECUTION_AUDIT_WORKERS", 2)
+    # SlowAPI protects the credential entry point. The default in-memory
+    # store is suitable for the single-instance demo; production deployments
+    # can point this at Redis so limits are shared across replicas.
+    rate_limit_enabled: bool = _bool_env("RATE_LIMIT_ENABLED", True)
+    rate_limit_storage_uri: str = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
+    auth_login_rate_limit: str = os.getenv("AUTH_LOGIN_RATE_LIMIT", "10/minute")
     # OpenTelemetry is opt-in so the offline demo remains dependency-light at
     # runtime, while deployments can send traces to any OTLP-compatible
     # collector without changing application code.

@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from .config import settings
 from .database import SessionLocal, engine, ensure_runtime_schema
@@ -25,6 +27,7 @@ from .services.odcs_connector import OpenDataContractAdapter
 from .services.observability import observability_status, setup_observability
 from .services.privacy import OpenDPAdapter
 from .services.prometheus import observe_http_request, prometheus_status
+from .services.rate_limit import limiter, rate_limit_status
 from .services.solar import PvlibSolarAdapter
 from .services.trust_execution import DynamicPolicyEngine
 
@@ -47,6 +50,8 @@ app = FastAPI(
     openapi_url=f"{settings.api_prefix}/openapi.json",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
@@ -101,6 +106,7 @@ def health() -> dict:
             "observability": observability_status(),
             "lineage": lineage_status(),
             "prometheus": prometheus_status(),
+            "rate_limiting": rate_limit_status(),
             "data_package": FrictionlessCatalogAdapter.status(),
             "columnar_connector": ArrowConnectorAdapter.status(),
             "metadata_analytics": DuckDBMetadataAdapter.status(),
