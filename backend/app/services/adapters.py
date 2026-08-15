@@ -23,6 +23,7 @@ from ..models import (
     utc_now,
 )
 from ..security import sha256_json, sign_value
+from .credentials import JsonLdCredentialAdapter
 from .privacy import OpenDPAdapter
 from .vault import LocalDomainVault
 
@@ -155,6 +156,7 @@ class MockDidAdapter:
             "did": did.did_id,
             "credential_status": did.credential_status,
             "fingerprint": did.public_key_fingerprint,
+            "credential_evidence": JsonLdCredentialAdapter.fingerprint(did.credential_json),
             "verified": True,
         }
 

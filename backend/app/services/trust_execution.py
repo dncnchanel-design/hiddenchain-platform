@@ -20,6 +20,7 @@ from ..models import DataUpload, DidIdentity, Signature, TrustedExecutionReview,
 from ..security import sha256_json, sign_value
 from .adapters import MockBlockchainAdapter
 from .common import add_audit_log, trace_id
+from .credentials import JsonLdCredentialAdapter
 from .lineage import emit_run_event, input_dataset
 from .vault import LocalDomainVault
 
@@ -156,6 +157,8 @@ class CallerIdentity:
     did: str
     credential_status: str
     did_verified: bool
+    credential_hash: str | None
+    credential_canonicalization: str
 
     @classmethod
     def from_user(cls, db: Session, user: User, requested_role: str) -> "CallerIdentity":
@@ -165,6 +168,11 @@ class CallerIdentity:
             .order_by(DidIdentity.created_at.desc())
         )
         credential_status = did_record.credential_status if did_record else "MISSING"
+        credential_evidence = (
+            JsonLdCredentialAdapter.fingerprint(did_record.credential_json)
+            if did_record
+            else {"status": "MISSING"}
+        )
         return cls(
             user_id=user.user_id,
             username=user.username,
@@ -174,6 +182,8 @@ class CallerIdentity:
             did=did_record.did_id if did_record else f"did:hiddenchain:org:{user.org_id}",
             credential_status=credential_status,
             did_verified=credential_status == "VALID",
+            credential_hash=credential_evidence.get("credential_hash"),
+            credential_canonicalization=str(credential_evidence.get("status", "UNKNOWN")),
         )
 
     def to_dict(self) -> dict[str, Any]:
