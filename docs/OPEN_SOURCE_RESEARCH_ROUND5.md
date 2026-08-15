@@ -50,7 +50,7 @@
 1. OpenDP 只处理授权后的群组曲线；输入先按配置上界裁剪，输出再做非负/上限后处理，绝不返回单户曲线。
 2. OpenLineage 只接收产品 ID、承诺、摘要哈希和结果哈希；禁止把 `data_ref`、Vault 内容、用户标识或原始负荷序列写入事件。
 3. OpenTelemetry 默认关闭；开启后只导出路由、耗时、状态和 trace 关联，不把请求体作为业务证据发送。
-4. OSV-Scanner 只扫描依赖清单、锁文件和容器/仓库元数据，不把业务数据上传到扫描器。
+4. OSV-Scanner 只扫描依赖清单、锁文件和容器/仓库元数据，不把业务数据上传到扫描器；当前仓库未启用 GitHub Code Scanning，因此保留 JSON/SARIF artifact，不上传 Security 代码扫描面板。
 5. SBOM 工作流只上传依赖组件清单，不包含 `backend/runtime`、业务上传文件或请求数据；artifact 默认只保留 14 天。
 6. Trivy 当前设置为报告型扫描（`exit-code: 0`），避免历史依赖告警阻断演示发布；转生产前应按团队风险门槛改为关键/高危阻断并处理例外。
 7. EDC、SecretFlow、walt.id、immudb 等重型能力仍必须经过真实部署、许可证、密钥管理和故障演练后才能进入生产边界；它们不能绕过 OPA、结果审计或人工确认。
