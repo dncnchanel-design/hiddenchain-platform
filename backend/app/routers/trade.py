@@ -40,6 +40,7 @@ from ..services.adapters import (
     PandapowerGridAdapter,
 )
 from ..services.common import add_audit_log, model_dict, trace_id
+from ..services.solar import PvlibSolarAdapter
 from ..services.workflow import (
     emit_settlement_lineage,
     run_privacy_analysis,
@@ -398,6 +399,7 @@ def data_space_protocol(
         "mvp_adapters": {
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
+            "solar_resource": PvlibSolarAdapter.status(),
         },
     }
 

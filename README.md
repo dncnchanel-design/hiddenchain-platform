@@ -62,7 +62,7 @@ DEEPSEEK_MAX_TOKENS=800
 - 安全：PBKDF2 密码哈希、JWT、DID/VC 模拟、能力令牌、HMAC 签名、SHA-256 承诺、OpenDP 差分隐私、OSV-Scanner 依赖扫描
 - 可信能力：数据合同与 ODRL 风格策略、OPA REST/同构本地策略判定、MPC 适配器、模拟链、证据图谱
 - 运行观测：可选 OpenTelemetry FastAPI tracing、OpenLineage 标准 RunEvent 脱敏血缘
-- 场景适配：新能源预测资产、虚拟电厂资源池、pandapower 三母线电网安全校核、偏差响应和电力交易场景验证
+- 场景适配：新能源预测资产、pvlib 太阳资源校核、虚拟电厂资源池、pandapower 三母线电网安全校核、偏差响应和电力交易场景验证
 
 ## 快速启动
 
@@ -201,6 +201,8 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 
 - 负荷分析选择“差分隐私”时，后端通过 OpenDP 生成有界求和 + Laplace 保护序列，并在回执中显示预算、边界与组合次数。
 - `OPENLINEAGE_ENABLED=true` 时，可信结算和跨能源受控调用会在 `runtime/lineage/events.jsonl` 写入不含原始数据的 OpenLineage RunEvent；可通过 `/api/audit/lineage/{run_id}` 查询。
+- Prometheus 指标通过受 `REGULATOR`/`ADMIN` 角色保护的 `/api/metrics/prometheus` 提供，只记录方法、路由模板、状态和耗时，不记录查询参数或请求体。
+- `/api/energy/solar/evaluate` 使用 pvlib 计算太阳位置与组件面辐照度，只返回派生指标和输入哈希；地理坐标与辐照度原值不会进入响应或指标标签。
 - 设置 `OTEL_ENABLED=true` 并提供 `OTEL_EXPORTER_OTLP_ENDPOINT` 后，FastAPI 请求会发往 OTLP collector，审计 `trace_id` 可与外部链路关联。
 - GitHub Actions 已加入 OSV-Scanner；提交或 PR 进入 GitHub 后会执行依赖漏洞扫描。
 - GitHub Actions 已加入 Syft SBOM；提交或 PR 会生成 CycloneDX 组件清单 artifact，默认保留 14 天，便于发布前复核。

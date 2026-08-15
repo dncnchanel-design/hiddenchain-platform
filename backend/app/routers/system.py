@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -23,10 +23,22 @@ from ..models import (
     User,
 )
 from ..services.common import model_dict
+from ..services.prometheus import CONTENT_TYPE_LATEST, render_metrics
 from ..services.workflow import task_summary
 
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/metrics/prometheus", include_in_schema=False)
+def prometheus_metrics(
+    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+) -> Response:
+    try:
+        payload = render_metrics()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Prometheus metrics unavailable") from exc
+    return Response(content=payload, headers={"Content-Type": CONTENT_TYPE_LATEST})
 
 
 @router.get("/dashboard/summary")

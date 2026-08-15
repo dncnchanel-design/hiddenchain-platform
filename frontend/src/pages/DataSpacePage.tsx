@@ -130,6 +130,7 @@ export function DataSpacePage() {
           <div className="detail-grid">
             <div><span>策略执行</span><strong>{data.protocol.mvp_adapters?.policy?.remote_configured ? "OPA REST PDP" : "OPA 兼容本地 PDP"}</strong></div>
             <div><span>电网安全校核</span><strong>{data.protocol.mvp_adapters?.grid?.installed ? "pandapower 三母线模型" : "待安装 pandapower"}</strong></div>
+            <div><span>新能源资源模型</span><strong>{data.protocol.mvp_adapters?.solar_resource?.installed ? "pvlib 太阳辐照度" : "待安装 pvlib"}</strong></div>
             <div><span>输出形式</span><strong>仅聚合结果</strong></div>
             <div><span>回执记录</span><strong><ScrollText size={15} /> 可随时核验</strong></div>
           </div>
