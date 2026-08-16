@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Blocks, CheckCircle2, Eye, Fingerprint, RefreshCw, SearchCheck, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, Fingerprint, RefreshCw, SearchCheck, XCircle } from "lucide-react";
 import { api, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -54,20 +54,20 @@ export function EvidencePage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在同步链上证据索引" />;
+  if (loading) return <LoadingState label="正在加载审计凭证" />;
   if (error || !data) return <ErrorState message={error || "证据加载失败"} retry={reload} />;
 
-  const stageCounts = Object.fromEntries(["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"].map((stage) => [stage, filtered.filter((item) => item.stage === stage).length]));
+  const stageCounts = Object.fromEntries(Object.keys(stageLabels).map((stage) => [stage, filtered.filter((item) => item.stage === stage).length]));
 
   return (
     <>
-      <PageHeader eyebrow="审计与凭证" title="审计凭证" description="核对授权、计算和结果凭证是否一致。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
+      <PageHeader title="审计凭证" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
       <div className="filter-bar">
         <label><span>任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.task_name}</option>)}</select></label>
       </div>
       <div className="evidence-stages">
         {Object.entries(stageLabels).map(([stage, label]) => (
-          <div key={stage}><span>{label}</span><strong>{stageCounts[stage]} 项</strong><small>{stage === "PRE_COMPUTE" ? "身份与授权" : stage === "IN_COMPUTE" ? "计算与回执" : "结果与报告"}</small></div>
+          <div key={stage}><span>{label}</span><strong>{stageCounts[stage]} 项</strong></div>
         ))}
       </div>
       {message && <Notice tone={message.includes("失败") || message.includes("无权") ? "warning" : "success"}>{message}</Notice>}
@@ -91,12 +91,10 @@ export function EvidencePage() {
       {selected && <Modal title="证据载荷摘要" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
         <div className="detail-grid">
           <div><span>凭证编号</span><CodeValue>{selected.evidence_id}</CodeValue></div>
-          <div><span>记录方式</span><strong>可信存证</strong></div>
           <div><span>凭证序号</span><strong>#{selected.block_height}</strong></div>
           <div><span>状态</span><StatusTag value={selected.status} /></div>
         </div>
         <pre className="json-view">{JSON.stringify(selected.payload_json, null, 2)}</pre>
-        <Notice><Blocks size={16} />此处只展示凭证摘要，不含业务明细。</Notice>
       </Modal>}
     </>
   );

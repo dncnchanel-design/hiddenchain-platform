@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Check, Database, FileSignature, Plus, RefreshCw, ShieldCheck, Upload, X } from "lucide-react";
+import { useState } from "react";
+import { FileSignature, Plus, RefreshCw, Upload } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -55,7 +55,6 @@ export function DataPage({ mode }: { mode: DataMode }) {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const title = mode === "generation" ? "发电侧数据" : "售电与用电数据";
-  const description = mode === "generation" ? "登记发电侧数据，供授权任务调用。" : "登记售电、用电和资源数据，供授权任务调用。";
   const canCreate = createOptions.some((item) => item.code === assetType);
   const canSign = ["GENERATOR", "RETAILER", "EXCHANGE", "ADMIN"].includes(role);
   const queryType = assetType;
@@ -66,7 +65,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
     setNotice("");
     try {
       await post(`/data/${uploadId}/sign`, {});
-      setNotice("数据已确认，可用于授权任务。");
+      setNotice("数据已确认。");
       await reload();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "签名失败");
@@ -81,21 +80,14 @@ export function DataPage({ mode }: { mode: DataMode }) {
   return (
     <>
       <PageHeader
-        eyebrow="数据与授权"
         title={title}
-        description={description}
         actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canCreate && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>登记数据</Button>}</>}
       />
       <div className="segmented" role="tablist">
         {displayOptions.map((item) => <button key={item.code} className={assetType === item.code ? "active" : ""} onClick={() => setAssetType(item.code)}>{item.label}</button>)}
       </div>
-      <div className="boundary-strip">
-        <ShieldCheck size={18} />
-        <div><strong>数据调用边界生效</strong><span>原始明细留在主体域内，只提供授权范围内的结果。</span></div>
-        <StatusTag value="ACTIVE" label="已启用" />
-      </div>
       {notice && <Notice tone={notice.includes("失败") || notice.includes("无权") ? "warning" : "success"}>{notice}</Notice>}
-      <Surface title={`${assetNames[assetType]}数据`} note={`共 ${data.length} 条`}>
+      <Surface title={`${assetNames[assetType]}数据`} meta={`${data.length} 条`}>
         <DataTable
           keyField="upload_id"
           rows={data}
@@ -105,7 +97,6 @@ export function DataPage({ mode }: { mode: DataMode }) {
             { key: "trade_batch_no", label: "批次" },
             { key: "data_ref", label: "数据引用", render: (row) => <CodeValue title={row.data_ref}>{shortHash(row.data_ref, 14)}</CodeValue> },
             { key: "data_hash", label: "数据哈希", render: (row) => <CodeValue title={row.data_hash}>{shortHash(row.data_hash)}</CodeValue> },
-            { key: "secure_transport", label: "来源证明", render: (row) => `${row.secure_transport?.protocol || "HTTPS"} · ${row.secure_transport?.encryption || "TLS1.3"}` },
             { key: "summary_json", label: "记录数", render: (row) => row.summary_json?.record_count ?? "-" },
             { key: "validation_status", label: "校验", render: (row) => <StatusTag value={row.validation_status} /> },
             { key: "created_at", label: "登记时间", render: (row) => formatDate(row.created_at) },
@@ -113,7 +104,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
           ]}
         />
       </Surface>
-      {showForm && <UploadModal options={createOptions} defaultAssetType={assetType} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setNotice("数据已登记，可用于授权任务。"); await reload(); }} />}
+      {showForm && <UploadModal options={createOptions} defaultAssetType={assetType} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setNotice("数据已登记。"); await reload(); }} />}
     </>
   );
 }
@@ -121,7 +112,7 @@ export function DataPage({ mode }: { mode: DataMode }) {
 function UploadModal({ options, defaultAssetType, onClose, onCreated }: { options: AssetOption[]; defaultAssetType: string; onClose: () => void; onCreated: () => Promise<void> }) {
   const [assetType, setAssetType] = useState(defaultAssetType);
   const [label, setLabel] = useState(`2026年7月${assetNames[defaultAssetType]}`);
-  const [batch, setBatch] = useState("TB-2026-07-DEMO");
+  const [batch, setBatch] = useState("TB-2026-07-001");
   const [period, setPeriod] = useState("2026-07");
   const [energy, setEnergy] = useState("12680");
   const [accuracy, setAccuracy] = useState("92.6");
@@ -146,11 +137,11 @@ function UploadModal({ options, defaultAssetType, onClose, onCreated }: { option
     setError("");
     try {
       let localPayload: JsonRecord;
-      if (isCurve) localPayload = { period, record_count: 240, load_curve: sampleCurve, source: "MASKED_DEMO_METER_GROUP" };
-      else if (assetType === "RENEWABLE_FORECAST") localPayload = { period, record_count: 31, forecast_energy_mwh: Number(energy), forecast_accuracy_pct: Number(accuracy), source: "DEMO_FORECAST_SERVICE" };
-      else if (assetType === "VPP_RESOURCE") localPayload = { period, record_count: 1860, adjustable_capacity_mw: Number(capacity), storage_energy_mwh: Number(storage), response_minutes: Number(responseMinutes), source: "DEMO_VPP_GATEWAY" };
-      else if (assetType === "GRID_CONSTRAINT") localPayload = { period, record_count: 24, n_minus_one_passed: true, max_residual_imbalance_mwh: Number(residualLimit), congestion_margin_pct: Number(congestionMargin), source: "DEMO_DISPATCH_GATEWAY" };
-      else localPayload = { period, record_count: 31, energy_mwh: Number(energy), source: "DEMO_METER_GATEWAY" };
+      if (isCurve) localPayload = { period, record_count: 240, load_curve: sampleCurve, source: "METER_GROUP" };
+      else if (assetType === "RENEWABLE_FORECAST") localPayload = { period, record_count: 31, forecast_energy_mwh: Number(energy), forecast_accuracy_pct: Number(accuracy), source: "FORECAST_SERVICE" };
+      else if (assetType === "VPP_RESOURCE") localPayload = { period, record_count: 1860, adjustable_capacity_mw: Number(capacity), storage_energy_mwh: Number(storage), response_minutes: Number(responseMinutes), source: "VPP_GATEWAY" };
+      else if (assetType === "GRID_CONSTRAINT") localPayload = { period, record_count: 24, n_minus_one_passed: true, max_residual_imbalance_mwh: Number(residualLimit), congestion_margin_pct: Number(congestionMargin), source: "DISPATCH_GATEWAY" };
+      else localPayload = { period, record_count: 31, energy_mwh: Number(energy), source: "METER_GATEWAY" };
       await post("/data/uploads", {
         asset_type: assetType,
         trade_batch_no: batch,
@@ -178,7 +169,6 @@ function UploadModal({ options, defaultAssetType, onClose, onCreated }: { option
         {assetType === "VPP_RESOURCE" && <><Field label="可调容量（MW）"><input type="number" value={capacity} onChange={(event) => setCapacity(event.target.value)} /></Field><Field label="储能电量（MWh）"><input type="number" value={storage} onChange={(event) => setStorage(event.target.value)} /></Field><Field label="响应时间（分钟）"><input type="number" value={responseMinutes} onChange={(event) => setResponseMinutes(event.target.value)} /></Field></>}
         {assetType === "GRID_CONSTRAINT" && <><Field label="剩余偏差上限（MWh）"><input type="number" value={residualLimit} onChange={(event) => setResidualLimit(event.target.value)} /></Field><Field label="拥塞裕度（%）"><input type="number" value={congestionMargin} onChange={(event) => setCongestionMargin(event.target.value)} /></Field></>}
       </div>
-      <Notice>{isCurve ? "24点负荷曲线将写入主体本域，后续仅通过隐私计算返回聚合特征。" : `${assetNames[assetType]}原文不会进入平台业务数据库，登记后自动生成 DataRef、DataHash 和数据承诺。`}</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );

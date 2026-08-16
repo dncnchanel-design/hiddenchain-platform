@@ -4,22 +4,14 @@ import { STATUS_LABELS } from "../types";
 
 export function PageHeader({
   title,
-  description,
-  eyebrow,
   actions,
 }: {
   title: string;
-  description: string;
-  eyebrow?: string;
   actions?: ReactNode;
 }) {
   return (
     <header className="page-header">
-      <div>
-        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-        <h1>{title}</h1>
-        {description && <p>{description}</p>}
-      </div>
+      <h1>{title}</h1>
       {actions && <div className="page-actions">{actions}</div>}
     </header>
   );
@@ -27,24 +19,24 @@ export function PageHeader({
 
 export function Surface({
   title,
-  note,
+  meta,
   actions,
   children,
   className = "",
 }: {
   title?: string;
-  note?: string;
+  meta?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section className={`surface ${className}`}>
-      {(title || actions) && (
+      {(title || meta || actions) && (
         <div className="surface-header">
-          <div>
+          <div className="surface-heading">
             {title && <h2>{title}</h2>}
-            {note && <p>{note}</p>}
+            {meta && <span className="surface-meta">{meta}</span>}
           </div>
           {actions && <div className="surface-actions">{actions}</div>}
         </div>
@@ -135,7 +127,7 @@ export function DataTable({
   );
 }
 
-export function LoadingState({ label = "正在加载可信数据" }: { label?: string }) {
+export function LoadingState({ label = "正在加载" }: { label?: string }) {
   return <div className="state-block" role="status" aria-live="polite"><LoaderCircle className="spin" size={24} /><span>{label}</span><i className="loading-dots" aria-hidden="true">...</i></div>;
 }
 

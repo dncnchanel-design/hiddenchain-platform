@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, Eye, FileClock, Filter, RefreshCw, Search } from "lucide-react";
+import { Download, Eye, Filter, RefreshCw, Search } from "lucide-react";
 import { api, downloadBlob, formatDate, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -24,7 +24,7 @@ export function LogsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全与管理" title="操作记录" description="查看登录、授权、计算和风险处置记录。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Download} onClick={exportLogs}>导出记录</Button></>} />
+      <PageHeader title="操作记录" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Download} onClick={exportLogs}>导出记录</Button></>} />
       <Surface>
         <div className="log-filters">
           <label><Search size={16} /><input placeholder="搜索主体、对象或 traceId" value={search} onChange={(event) => setSearch(event.target.value)} /></label>

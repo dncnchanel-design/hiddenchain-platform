@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, ChevronDown, Database, FileCheck2, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Database, FileCheck2, RefreshCw, XCircle } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, StatusTag, Surface } from "./ui";
@@ -21,6 +21,24 @@ const targetLabels: Record<string, string> = {
   OIL_GAS_SUPPLY: "油气供应",
 };
 
+const nodeLabels: Record<string, string> = {
+  ELECTRICITY_NODE: "电力节点",
+  COAL_NODE: "煤炭节点",
+  OIL_GAS_NODE: "油气节点",
+};
+
+const groupingLabels: Record<string, string> = {
+  region: "区域",
+  period: "周期",
+  organization: "组织",
+};
+
+const balanceLabels: Record<string, string> = {
+  SURPLUS: "有余量",
+  GAP: "存在缺口",
+  BALANCED: "平衡",
+};
+
 const policyActionLabels: Record<string, string> = {
   AGGREGATE: "汇总提供",
   ALLOW: "开放提供",
@@ -32,6 +50,16 @@ const policyActionLabels: Record<string, string> = {
 function targetLabel(value: unknown) {
   const code = String(value || "");
   return targetLabels[code] || code || "数据目标";
+}
+
+function nodeLabel(value: unknown) {
+  const code = String(value || "");
+  return nodeLabels[code] || targetLabels[code] || code || "数据节点";
+}
+
+function groupingLabel(value: unknown) {
+  const values = Array.isArray(value) ? value : String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  return values.map((item) => groupingLabels[String(item)] || String(item)).join("、");
 }
 
 function boolValue(value: unknown) {
@@ -46,7 +74,8 @@ function CheckItem({ label, value }: { label: string; value: unknown }) {
 function EvidenceValue({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === "") return <span>-</span>;
   if (typeof value === "object") return <CodeValue>{JSON.stringify(value)}</CodeValue>;
-  return <span>{String(value)}</span>;
+  const text = String(value);
+  return <span>{balanceLabels[text] || targetLabels[text] || text}</span>;
 }
 
 export function TrustedExecutionReviewPanel() {
@@ -82,7 +111,7 @@ export function TrustedExecutionReviewPanel() {
         opinion: "已核对来源汇总、平衡公式、结果哈希与执行计划，确认计算结果。",
         accept: true,
       });
-      setMessage("计算结果已确认，审查 DID 签名和链上复核凭证已生成。");
+      setMessage("计算结果已确认。");
       setSelected(null);
       setReviewStatus("CONFIRMED");
     } catch (reason) {
@@ -100,13 +129,12 @@ export function TrustedExecutionReviewPanel() {
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface
         title="计算复核队列"
-        note="自动核验通过后仍需授权审计人员确认；这里仅展示安全聚合结果和来源证明。"
         actions={<><label className="review-filter"><span>查看状态</span><select aria-label="查看复核状态" value={reviewStatus} onChange={(event) => { setSelected(null); setReviewStatus(event.target.value); }}><option value="PENDING">待确认</option><option value="CONFIRMED">已确认</option><option value="REJECTED">已拒绝</option><option value="">全部</option></select></label><Button icon={RefreshCw} onClick={reviews.reload}>刷新</Button></>}
       >
         <DataTable
           keyField="review_id"
           rows={reviews.data}
-          empty={reviewStatus === "PENDING" ? "当前没有待人工确认的可信执行结果" : "当前筛选没有可信执行结果"}
+          empty={reviewStatus === "PENDING" ? "暂无待确认结果" : "暂无结果"}
           columns={[
             { key: "request_id", label: "请求", render: (row) => <CodeValue title={row.request_id}>{shortHash(row.request_id, 10)}</CodeValue> },
             { key: "target_data", label: "数据目标", render: (row) => (Array.isArray(row.target_data) ? row.target_data : []).map(targetLabel).join(" · ") || "受控聚合" },
@@ -134,7 +162,7 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
   return (
     <Surface
       title="计算准确性复核"
-      note={`请求 ${selected.request_id} · 自动状态 ${selected.automatic_status}`}
+      meta={`请求 ${shortHash(selected.request_id, 12)}`}
       actions={<Button onClick={onClose}>收起</Button>}
     >
       <div className="review-summary-bar">
@@ -153,11 +181,11 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
       {series.length > 0 && <ReviewMathStrip series={series} checks={checks} />}
       {series.length > 0 && <ReviewTrend series={series} />}
       <div className="review-evidence-grid">
-        <div className="review-evidence-card"><div className="review-evidence-heading"><Database size={17} /><strong>来源快照</strong><span>{snapshots.length} 个节点</span></div><div className="review-evidence-list">{snapshots.slice(0, 6).map((item, index) => <div key={`${item.node || item.provider || "source"}-${index}`}><span>{item.node || item.provider || item.target_data_type || "数据节点"}</span><strong>{item.target_data_type || item.data_type || "安全聚合"}</strong><small>{item.raw_data_exposed === false ? "原始数据未出域" : "需复核"} · {item.group_by ? `按 ${Array.isArray(item.group_by) ? item.group_by.join("、") : item.group_by} 汇总` : "受控计算"}</small></div>)}</div></div>
-        <div className="review-evidence-card"><div className="review-evidence-heading"><ShieldCheck size={17} /><strong>安全交付</strong><span>{series.length} 条结果</span></div><div className="review-evidence-list">{series.slice(0, 6).map((item, index) => <div key={`series-${index}`}><span>{item.period || item.date || `结果 ${index + 1}`}</span><strong><EvidenceValue value={item.balance_status || item.trend || item.thermal_output_mwh || item.value} /></strong><small>{item.raw_data_exposed === false || result.raw_data_returned === false ? "仅返回聚合/趋势" : "受控结果"}</small></div>)}</div></div>
+        <div className="review-evidence-card"><div className="review-evidence-heading"><Database size={17} /><strong>来源快照</strong><span>{snapshots.length} 个节点</span></div><div className="review-evidence-list">{snapshots.slice(0, 6).map((item, index) => <div key={`${item.node || item.provider || "source"}-${index}`}><span>{nodeLabel(item.node || item.provider || item.target_data_type)}</span><strong>{item.target_data_type || item.data_type ? targetLabel(item.target_data_type || item.data_type) : "聚合数据"}</strong><small>{item.raw_data_exposed === false ? "数据出域：否" : "数据出域：待复核"}{item.group_by ? ` · 汇总维度：${groupingLabel(item.group_by)}` : ""}</small></div>)}</div></div>
+        <div className="review-evidence-card"><div className="review-evidence-heading"><FileCheck2 size={17} /><strong>结果摘要</strong><span>{series.length} 条结果</span></div><div className="review-evidence-list">{series.slice(0, 6).map((item, index) => <div key={`series-${index}`}><span>{item.period || item.date || `结果 ${index + 1}`}</span><strong><EvidenceValue value={item.balance_status || item.trend || item.thermal_output_mwh || item.value} /></strong><small>输出范围：{item.raw_data_exposed === false || result.raw_data_returned === false ? "聚合/趋势" : "待复核"}</small></div>)}</div></div>
       </div>
-      <details className="review-raw-details"><summary>查看安全摘要 <ChevronDown size={15} /></summary><pre className="json-view">{JSON.stringify({ checks: selected.checks, target_data: selected.target_data, source_snapshot: snapshots, series }, null, 2)}</pre></details>
-      {selected.verification_status === "PENDING" && canConfirm && <div className="review-confirm-bar"><div><strong>确认计算结果</strong><span>确认后将写入审查 DID 签名，并生成 REVIEW_CONFIRMED 链上事件。</span></div><Button icon={CheckCircle2} variant="primary" busy={busy === `confirm:${selected.review_id}`} onClick={onConfirm}>确认并留痕</Button></div>}
+      <details className="review-raw-details"><summary>查看复核数据 <ChevronDown size={15} /></summary><pre className="json-view">{JSON.stringify({ checks: selected.checks, target_data: selected.target_data, source_snapshot: snapshots, series }, null, 2)}</pre></details>
+      {selected.verification_status === "PENDING" && canConfirm && <div className="review-confirm-bar"><strong>确认计算结果</strong><Button icon={CheckCircle2} variant="primary" busy={busy === `confirm:${selected.review_id}`} onClick={onConfirm}>确认</Button></div>}
       {selected.verification_status === "PENDING" && !canConfirm && <Notice tone="warning">当前角色可以查看复核材料，但只有监管方或系统管理员可以确认计算结果。</Notice>}
     </Surface>
   );
@@ -166,12 +194,12 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
 function PolicyHitStrip({ hits }: { hits: JsonRecord[] }) {
   return (
     <div className="review-policy-panel">
-      <div className="review-policy-heading"><div><strong>策略命中</strong><span>最终裁决来自确定性规则，不由解释服务决定</span></div><span>{hits.length} 个数据目标</span></div>
+      <div className="review-policy-heading"><strong>策略命中</strong><span>{hits.length} 个数据目标</span></div>
       <div className="review-policy-grid">
         {hits.map((hit, index) => {
           const action = String(hit.action || "PROHIBIT");
-          const grouping = Array.isArray(hit.group_by) ? hit.group_by.join("、") : String(hit.group_by || "");
-          return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabel(hit.target_data_type)}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `按 ${grouping} 汇总` : `规则 ${shortHash(hit.rule_id, 10)}`}</small></article>;
+          const grouping = groupingLabel(hit.group_by);
+          return <article className="review-policy-item" key={`${hit.target_data_type || "target"}-${index}`}><div><strong>{targetLabel(hit.target_data_type)}</strong><StatusTag value={hit.decision} label={hit.decision === "PERMIT" ? "已授权" : "已拦截"} /></div><span>{policyActionLabels[action] || action}</span><small>{grouping ? `汇总维度：${grouping}` : `规则：${shortHash(hit.rule_id, 10)}`}</small></article>;
         })}
       </div>
     </div>
@@ -189,12 +217,12 @@ function ReviewMathStrip({ series, checks }: { series: JsonRecord[]; checks: Jso
   const format = (value: number) => value.toLocaleString("zh-CN", { maximumFractionDigits: 1 });
   return (
     <div className="review-math-panel">
-      <div className="review-math-heading"><div><strong>可复算口径</strong><span>按已授权聚合序列核对，不回读主体明细；多源先汇总，四位小数 HALF_UP</span></div><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
+      <div className="review-math-heading"><strong>复算口径</strong><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
       <div className="review-math-grid">
-        <div><span>核对公式</span><strong>火电出力 − 电网负荷</strong><small>逐区域、逐期间核对平衡差</small></div>
-        <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "-"}</strong><small>安全聚合结果</small></div>
-        <div><span>电网负荷合计</span><strong>{rows.length ? `${format(loadTotal)} MWh` : "-"}</strong><small>安全聚合结果</small></div>
-        <div><span>平衡差合计</span><strong>{rows.length ? `${format(margin)} MWh` : "-"}</strong><small>{rows.length ? (margin >= 0 ? "总体 SURPLUS" : "总体 GAP") : "等待可复算序列"}</small></div>
+        <div><span>核对公式</span><strong>火电出力 - 电网负荷</strong></div>
+        <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "-"}</strong></div>
+        <div><span>电网负荷合计</span><strong>{rows.length ? `${format(loadTotal)} MWh` : "-"}</strong></div>
+        <div><span>平衡差合计</span><strong>{rows.length ? `${format(margin)} MWh` : "-"}</strong><small>{rows.length ? `总体状态：${margin >= 0 ? "有余量" : "存在缺口"}` : "待计算"}</small></div>
       </div>
     </div>
   );
@@ -211,9 +239,9 @@ function ReviewTrend({ series }: { series: JsonRecord[] }) {
   const maxValue = Math.max(1, ...rows.flatMap((row) => [row.thermal, row.load]));
   return (
     <div className="review-trend-panel">
-      <div className="review-trend-heading"><div><strong>聚合趋势视图</strong><span>只展示安全交付结果，不还原主体明细</span></div><div className="review-trend-legend"><i className="trend-thermal" />火电出力<i className="trend-load" />电网负荷</div></div>
+      <div className="review-trend-heading"><strong>聚合趋势</strong><div className="review-trend-legend"><i className="trend-thermal" />火电出力<i className="trend-load" />电网负荷</div></div>
       <div className="review-trend-rows">
-        {rows.map((row, index) => <div className="review-trend-row" key={`${row.period}-${row.region}-${index}`}><span>{row.region ? `${row.period} · ${row.region}` : row.period}</span><div className="review-trend-bars"><div><i className="trend-thermal" style={{ width: `${Math.max(2, row.thermal / maxValue * 100)}%` }} /></div><div><i className="trend-load" style={{ width: `${Math.max(2, row.load / maxValue * 100)}%` }} /></div></div><strong className={row.status === "GAP" ? "trend-gap" : "trend-surplus"}>{row.status}</strong></div>)}
+        {rows.map((row, index) => <div className="review-trend-row" key={`${row.period}-${row.region}-${index}`}><span>{row.region ? `${row.period} · ${row.region}` : row.period}</span><div className="review-trend-bars"><div><i className="trend-thermal" style={{ width: `${Math.max(2, row.thermal / maxValue * 100)}%` }} /></div><div><i className="trend-load" style={{ width: `${Math.max(2, row.load / maxValue * 100)}%` }} /></div></div><strong className={row.status === "GAP" ? "trend-gap" : "trend-surplus"}>{balanceLabels[row.status] || row.status}</strong></div>)}
       </div>
     </div>
   );

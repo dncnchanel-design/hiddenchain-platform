@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, KeyRound, Play, RefreshCw, ShieldCheck, Workflow, Wrench } from "lucide-react";
+import { ArrowRight, CheckCircle2, KeyRound, Play, RefreshCw, Workflow, Wrench } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -84,23 +84,20 @@ export function AgentsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全运营" title="能力编排" description="按任务启用受控能力模块；解释服务只提供辅助信息，最终结果仍由确定性规则与审计链负责。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
-      <div className="agent-boundary"><ShieldCheck size={20} /><div><strong>安全边界</strong><span>只读取授权摘要，不接触业务原始数据；每次执行都保留输入、输出和签名痕迹。</span></div></div>
-      <Surface title="服务状态" note="能力模块可以使用本地确定性逻辑，也可以调用已配置的解释服务。">
+      <PageHeader title="能力编排" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <Surface title="服务状态">
         <div className="llm-status-panel">
           <StatusTag value={data.llmStatus.live_verified ? "SUCCESS" : data.llmStatus.configured ? "PENDING" : "FAILED"} label={data.llmStatus.live_verified ? "最近验证成功" : data.llmStatus.configured ? "已配置待核验" : "解释服务未配置"} />
-          <strong>{data.llmStatus.live_verified ? "受控解释服务 · 最近一次调用成功" : data.llmStatus.configured ? "受控解释服务 · 已配置，尚未成功核验" : "受控解释服务 · 未配置"}</strong>
           <span>可用能力：{data.llmStatus.supported_agent_count} 项</span>
-          <span>{data.llmStatus.live_verified ? "仅代表已有真实回执；当前调用仍需以本次凭证为准" : data.llmStatus.configured ? "当前调用失败时不会伪装为成功" : "配置后才可进行真实解释调用"}</span>
           {data.llmStatus.last_success && <CodeValue title={data.llmStatus.last_success.request_id}>最近回执 {shortHash(data.llmStatus.last_success.request_id, 12)} · {data.llmStatus.last_success.duration_ms}ms</CodeValue>}
         </div>
         <div className="agent-run-toolbar">
-          <label><span>任务选择</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+          <label className="field"><span>任务选择</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
           <Button icon={Workflow} variant="primary" busy={batchRunning} disabled={!taskId || Boolean(runningCode)} onClick={invokeAll}>运行全部模块</Button>
         </div>
         {actionError && <Notice tone="warning">{actionError}</Notice>}
       </Surface>
-      <Surface title="执行链路" note="模块按顺序留下可核验事件，运行结束后回到任务回执。">
+      <Surface title="执行链路">
         <div className="agent-workflow">
           {data.definitions.map((agent, index) => <div className="agent-node" key={agent.code}><div><Workflow size={20} /><span>{index + 1}</span></div><strong>{displayCapabilityName(agent.name)}</strong><small>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</small>{index < data.definitions.length - 1 && <ArrowRight size={18} />}</div>)}
         </div>
@@ -112,10 +109,9 @@ export function AgentsPage() {
             <article className={`agent-card ${result?.success === false ? "agent-card-failed" : result ? "agent-card-verified" : ""}`} key={agent.code}>
               <div className="agent-card-header"><div><Workflow size={20} /><strong>{displayCapabilityName(agent.name)}</strong></div><StatusTag value={result?.success === false ? "FAILED" : result ? "SUCCESS" : "VALID"} label={result?.success === false ? "执行失败" : result ? "已核验" : "DID 有效"} /></div>
               <CodeValue title={agent.did}>{shortHash(agent.did, 16)}</CodeValue>
-              <div className="agent-mandate"><span>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</span>{agent.business_mandate}</div>
-              <dl><dt>输入</dt><dd>{agent.input}</dd><dt>输出</dt><dd>{agent.output}</dd></dl>
+              <dl><dt>场景</dt><dd>{SCENARIO_LABELS[agent.scenario_code] || agent.scenario_code}</dd><dt>输入</dt><dd>{agent.input}</dd><dt>输出</dt><dd>{agent.output}</dd></dl>
               <div className="tool-list"><Wrench size={15} />{agent.tools.map((tool: string) => <span key={tool}>{TOOL_LABELS[tool] || tool}</span>)}</div>
-              <label className="agent-instruction-label"><span>执行备注（可选）</span><textarea className="agent-instruction" rows={3} maxLength={500} value={instructions[agent.code] || ""} onChange={(event) => setInstructions((current) => ({ ...current, [agent.code]: event.target.value }))} /></label>
+              <label className="agent-instruction-label"><span>执行指令</span><textarea className="agent-instruction" rows={3} maxLength={500} value={instructions[agent.code] || ""} onChange={(event) => setInstructions((current) => ({ ...current, [agent.code]: event.target.value }))} /></label>
               <Button icon={Play} variant="primary" busy={runningCode === agent.code} disabled={!taskId || batchRunning || Boolean(runningCode && runningCode !== agent.code)} onClick={() => invokeOne(agent)}>运行</Button>
               {result?.success === false && <div className="agent-call-error">{result.error}</div>}
               {result && result.success !== false && <div className="agent-call-result">
@@ -129,7 +125,7 @@ export function AgentsPage() {
           );
         })}
       </div>
-      <Surface title="能力事件" note="按任务筛选每个模块的输入哈希、输出哈希和签名状态。">
+      <Surface title="能力事件">
         <div className="filter-bar compact"><label><span>任务筛选</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id}</option>)}</select></label></div>
         <DataTable
           keyField="event_id"

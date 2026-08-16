@@ -1,7 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   Building2,
@@ -104,7 +103,6 @@ export function AppShell() {
         <div className="space-context">
           <div><Building2 size={15} />当前组织</div>
           <strong>{String(session.org.org_name || "当前组织")}</strong>
-          <span>当前工作空间 · 默认业务空间</span>
         </div>
         <nav className="main-nav">
           {navGroups.map((group) => {
@@ -133,7 +131,7 @@ export function AppShell() {
             <div><span>隐链明算 / {isAdmin ? "平台管理" : "业务工作台"}</span><strong>{title}</strong></div>
           </div>
           <div className="topbar-signals">
-            <div className="signal"><Activity size={16} /><span>系统状态正常</span></div>
+            <span className="environment-tag">演示环境</span>
             <div className="signal signal-muted"><KeyRound size={16} /><span>{ROLE_LABELS[session.user.role_code]}</span></div>
           </div>
           <div className="account">
@@ -142,7 +140,7 @@ export function AppShell() {
             <ChevronDown size={15} />
           </div>
         </header>
-        <main key={location.pathname} className="page-content page-enter"><Suspense fallback={<div className="route-loading"><LoadingState label="正在打开工作台" /></div>}><Outlet /></Suspense></main>
+        <main key={location.pathname} className="page-content page-enter"><Suspense fallback={<div className="route-loading"><LoadingState /></div>}><Outlet /></Suspense></main>
       </div>
     </div>
   );

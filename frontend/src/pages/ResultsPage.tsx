@@ -4,7 +4,7 @@ import { api, downloadBlob, formatDate, formatMoney, post, shortHash } from "../
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { FIELD_SCOPE_LABELS, RESULT_SCOPE_LABELS } from "../types";
+import { RESULT_SCOPE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 export function ResultsPage() {
@@ -27,7 +27,7 @@ export function ResultsPage() {
     setMessage("");
     try {
       await post(`/results/${row.result_id}/confirm`, { opinion: "同意场景结果" });
-      setMessage("本方已对场景结果哈希完成 DID 签名确认。");
+      setMessage("结果已签名确认。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "确认失败");
@@ -46,11 +46,11 @@ export function ResultsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="计算与验证" title="结果确认" description="查看本方最小结果、完成确认并下载计算回执。电量与金额仅作为能源场景验证输出。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader title="结果确认" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
-        <div className="metric"><span>结果数量</span><strong>{totals.rows}</strong><small>本方可见</small></div>
-        <div className="metric metric-green"><span>已确认</span><strong>{totals.confirmed}</strong><small>签名有效</small></div>
-        <div className="metric"><span>场景金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>验证输出参考</small></div>
+        <div className="metric"><span>结果数量</span><strong>{totals.rows}</strong></div>
+        <div className="metric metric-green"><span>已确认</span><strong>{totals.confirmed}</strong></div>
+        <div className="metric"><span>场景金额合计</span><strong>{formatMoney(totals.amount)}</strong></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface title="结果与回执">
@@ -76,7 +76,6 @@ export function ResultsPage() {
           <div><CheckCircle2 size={22} /><span>多方确认</span><StatusTag value={selected.confirm_status} /></div>
           <div><FileSignature size={22} /><span>披露范围</span><strong>{RESULT_SCOPE_LABELS[selected.result_scope] || selected.result_scope}</strong></div>
         </div>
-          <Notice tone="success">凭证只包含结果和核验信息，不包含业务明细。</Notice>
       </Surface>}
     </>
   );

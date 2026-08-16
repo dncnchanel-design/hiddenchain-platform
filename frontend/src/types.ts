@@ -76,6 +76,7 @@ export const STAGE_LABELS: Record<string, string> = {
   PRE_COMPUTE: "算前授权",
   IN_COMPUTE: "算中回执",
   POST_COMPUTE: "算后结果",
+  TRUST_EXECUTION: "可信执行",
 };
 
 export const EVIDENCE_TYPE_LABELS: Record<string, string> = {
@@ -83,6 +84,8 @@ export const EVIDENCE_TYPE_LABELS: Record<string, string> = {
   COMPUTE_RECEIPT: "计算回执",
   SETTLEMENT_RESULT: "结果回执",
   AUDIT_REPORT: "审计报告",
+  TRUST_EXECUTION: "执行回执",
+  TRUSTED_EXECUTION: "执行回执",
 };
 
 export const MESSAGE_TYPE_LABELS: Record<string, string> = {
@@ -188,7 +191,7 @@ export const ACTION_LABELS: Record<string, string> = {
   RUN_TRUSTED_SETTLEMENT_WORKFLOW: "执行可信验证闭环",
   GENERATE_AUDIT_REPORT: "生成审计报告",
   AGENT_AUDIT_QUERY: "发起证据检索",
-  INJECT_DEMO_ANOMALY: "注入演示风险事件",
+  INJECT_DEMO_ANOMALY: "新增风险事件",
   RESOLVE_ANOMALY: "处理风险事件",
   UPLOAD_DATA_REFERENCE: "登记数据引用",
   SIGN_DATA_COMMITMENT: "签署数据承诺",
