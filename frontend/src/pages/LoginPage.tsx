@@ -47,7 +47,13 @@ export function LoginPage() {
 
   return (
     <div className="login-screen">
-      <section className="login-identity" aria-label="产品信息">
+      <section
+        className="login-identity"
+        aria-label="产品信息"
+        draggable={false}
+        onCopy={(event) => event.preventDefault()}
+        onDragStart={(event) => event.preventDefault()}
+      >
         <div className="login-visual" aria-hidden="true">
           <div className="login-visual-orbit orbit-one" />
           <div className="login-visual-orbit orbit-two" />

@@ -168,6 +168,8 @@ b {
   overflow: hidden;
   color: #fff;
   background: var(--brand-900);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .login-visual {
