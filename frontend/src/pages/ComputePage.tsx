@@ -38,9 +38,9 @@ export function ComputePage() {
 
   return (
     <>
-      <PageHeader eyebrow="可信数据调用" title="隐私计算回执" description="在授权域内完成计算，只返回必要结果、隐私保证和可核验回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
+      <PageHeader eyebrow="计算与验证" title="隐私计算" description="在授权域内完成计算，只返回必要结果、隐私保证和可核验回执。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
       <div className="segmented" role="tablist">
-        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>可信调用计算</button>
+        <button className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>调用计算</button>
         {analysisAllowed && <button className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用电分析</button>}
       </div>
       <div className="privacy-boundaries">
@@ -61,7 +61,7 @@ export function ComputePage() {
           ))}
         </div>
       </Surface>
-      <Surface title={tab === "SETTLEMENT" ? "可信调用计算任务" : "用电分析任务"}>
+      <Surface title={tab === "SETTLEMENT" ? "调用计算任务" : "用电分析任务"}>
         <DataTable
           keyField={tab === "SETTLEMENT" ? "job_id" : "analysis_id"}
           rows={currentRows}
