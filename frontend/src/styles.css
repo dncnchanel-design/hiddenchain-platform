@@ -1,5 +1,31 @@
 :root {
-  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 24px;
+  --line-height-tight: 1.3;
+  --line-height-body: 1.5;
+  --line-height-relaxed: 1.7;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --z-sidebar: 30;
+  --z-topbar: 20;
+  --z-drawer: 40;
+  --z-modal: 80;
+  --z-toast: 100;
+  --motion-fast: 140ms ease;
+  --motion-normal: 180ms ease;
+  font-family: var(--font-body);
   color: #172033;
   background: #f4f7fa;
   font-synthesis: none;
@@ -28,7 +54,7 @@
   --radius-control: 4px;
   --radius-surface: 6px;
   --radius-overlay: 8px;
-  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --mono: var(--font-mono);
 }
 
 * {
@@ -441,7 +467,7 @@ b {
 
 .sidebar {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-sidebar);
   inset: 0 auto 0 0;
   display: flex;
   width: 232px;
@@ -608,7 +634,7 @@ b {
 
 .topbar {
   position: sticky;
-  z-index: 20;
+  z-index: var(--z-topbar);
   top: 0;
   display: flex;
   min-height: 64px;
@@ -839,7 +865,7 @@ b {
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 
 .button-primary {
@@ -1283,7 +1309,7 @@ table tbody tr:hover {
 
 .modal-backdrop {
   position: fixed;
-  z-index: 80;
+  z-index: var(--z-modal);
   inset: 0;
   display: grid;
   padding: 24px;
@@ -2428,7 +2454,7 @@ table tbody tr:hover {
   .login-form-foot { justify-content: flex-start; }
   .sidebar { width: 260px; transform: translateX(-102%); transition: transform 160ms ease; }
   .sidebar.open { transform: translateX(0); }
-  .drawer-backdrop { position: fixed; z-index: 25; inset: 0; display: block; visibility: hidden; background: rgba(11, 37, 69, 0.45); opacity: 0; transition: opacity 160ms ease, visibility 160ms ease; }
+  .drawer-backdrop { position: fixed; z-index: var(--z-drawer); inset: 0; display: block; visibility: hidden; background: rgba(11, 37, 69, 0.45); opacity: 0; transition: opacity var(--motion-normal), visibility var(--motion-normal); }
   .drawer-backdrop.show { visibility: visible; opacity: 1; }
   .app-main { width: 100%; margin-left: 0; }
   .topbar { min-height: 60px; padding: 0 16px; }
