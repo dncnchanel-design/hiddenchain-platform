@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Blocks, Calculator, FileSearch, MessageSquareText, RefreshCw, Send, ShieldCheck, Workflow } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
-import { Button, CodeValue, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, CodeValue, EmptyState, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS } from "../types";
 import type { JsonRecord } from "../types";
@@ -56,7 +56,7 @@ export function AuditPage() {
       <div className="audit-layout">
         <Surface title="事件时间线" note={`${timeline.data?.events?.length || 0} 条记录`}>
           {timeline.loading ? <LoadingState /> : timeline.error ? <ErrorState message={timeline.error} retry={timeline.reload} /> : (
-            <div className="audit-timeline">
+            (timeline.data?.events || []).length ? <div className="audit-timeline">
               {(timeline.data?.events || []).map((event: JsonRecord) => {
                 const Icon = kindIcons[event.kind] || FileSearch;
                 const title = String(event.title || "").split(" · ");
@@ -67,7 +67,7 @@ export function AuditPage() {
                     : event.title;
                 return <div key={event.reference}><div className={`timeline-icon kind-${event.kind.toLowerCase()}`}><Icon size={17} /></div><div><span>{formatDate(event.time)}</span><strong>{readableTitle}</strong><small className="mono-text">{shortHash(event.reference, 12)}</small></div><StatusTag value={event.status} /></div>;
               })}
-            </div>
+            </div> : <EmptyState title="当前任务暂无可核验事件" />
           )}
         </Surface>
         <Surface title="证据检索（可选）" note="只查询已授权的摘要和凭证，不直接读取能源主体原始数据。">
