@@ -61,7 +61,7 @@ export function EvidencePage() {
 
   return (
     <>
-      <PageHeader eyebrow="可信凭证" title="凭证核验" description="核对授权、计算和结果凭证是否一致。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
+      <PageHeader eyebrow="审计与凭证" title="审计凭证" description="核对授权、计算和结果凭证是否一致。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length || verifyingAll} onClick={verifyAll}>核验全部</Button></>} />
       <div className="filter-bar">
         <label><span>任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.task_name}</option>)}</select></label>
       </div>
@@ -71,7 +71,7 @@ export function EvidencePage() {
         ))}
       </div>
       {message && <Notice tone={message.includes("失败") || message.includes("无权") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="凭证清单">
+      <Surface title="审计凭证清单">
         <DataTable
           keyField="evidence_id"
           rows={filtered}

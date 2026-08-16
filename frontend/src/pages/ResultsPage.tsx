@@ -46,14 +46,14 @@ export function ResultsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="计算与回执" title="结果回执" description="查看本方最小结果、确认状态和可下载凭证。电量与金额仅作为能源场景验证输出。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader eyebrow="计算与验证" title="结果确认" description="查看本方最小结果、完成确认并下载计算回执。电量与金额仅作为能源场景验证输出。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
         <div className="metric"><span>结果数量</span><strong>{totals.rows}</strong><small>本方可见</small></div>
         <div className="metric metric-green"><span>已确认</span><strong>{totals.confirmed}</strong><small>签名有效</small></div>
         <div className="metric"><span>场景金额合计</span><strong>{formatMoney(totals.amount)}</strong><small>验证输出参考</small></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="结果清单">
+      <Surface title="结果与回执">
         <DataTable
           keyField="result_id"
           rows={data.results}

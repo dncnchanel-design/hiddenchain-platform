@@ -50,7 +50,7 @@ export function SettlementPage() {
     try {
       const result = await post<JsonRecord>(`/settlement/tasks/${selected.task_id}/run`, { compute_mode: "MPC_MOCK", algorithm_code: "ADAPTIVE_MARKET_SETTLEMENT_V2" });
       const conclusion = result.report?.conclusion === "PASS" ? "通过" : result.report?.conclusion === "REVIEW_REQUIRED" ? "需复核" : result.report?.conclusion || "已生成";
-      setMessage(`验证已完成，生成 ${result.evidence.length} 项可信凭证，审计结论${conclusion}。`);
+      setMessage(`验证已完成，生成 ${result.evidence.length} 项审计凭证，审计结论${conclusion}。`);
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "执行失败");
@@ -59,12 +59,12 @@ export function SettlementPage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在加载可信调用验证" />;
-  if (error || !data) return <ErrorState message={error || "可信调用验证加载失败"} retry={reload} />;
+  if (loading) return <LoadingState label="正在加载调用验证" />;
+  if (error || !data) return <ErrorState message={error || "调用验证加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader eyebrow="可信数据调用" title="可信调用验证" description="导入一份场景文件，完成可信采集、安全传输、可控使用、隐私计算和可溯审计。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canImport && <Button icon={FileJson} variant="primary" onClick={() => setShowImport(true)}>导入并自动验证</Button>}{canCreate && <Button icon={Plus} onClick={() => setShowForm(true)}>手动创建任务</Button>}</>} />
+      <PageHeader eyebrow="计算与验证" title="调用验证" description="导入场景文件，完成来源校验、授权检查、隐私计算和审计留痕。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canImport && <Button icon={FileJson} variant="primary" onClick={() => setShowImport(true)}>导入并自动验证</Button>}{canCreate && <Button icon={Plus} onClick={() => setShowForm(true)}>手动创建任务</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
         <Surface title="验证任务" note={`${data.tasks.length} 个任务`} className="master-panel">
@@ -133,7 +133,7 @@ export function SettlementPage() {
         ) : <Surface><div className="empty-state">请选择场景验证任务</div></Surface>}
       </div>
       {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async (created) => { setShowForm(false); setMessage("任务已创建，可继续开始验证。"); await reload(); if (created?.task_id) setSelectedId(created.task_id); }} />}
-      {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入并完成可信调用验证，生成 ${result.evidence?.length || 0} 项可核验证据。`); await reload(); }} />}
+      {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入并完成调用验证，生成 ${result.evidence?.length || 0} 项审计凭证。`); await reload(); }} />}
     </>
   );
 }
@@ -237,7 +237,7 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   }
 
   return (
-    <Modal title="新建可信调用任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>创建任务</Button></>}>
+    <Modal title="新建调用验证任务" onClose={onClose} footer={<><Button onClick={onClose}>取消</Button><Button icon={ShieldCheck} variant="primary" busy={busy} disabled={!formReady} onClick={submit}>创建任务</Button></>}>
       <div className="form-grid two">
         <Field label="任务名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field>
         <Field label="验证批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} /></Field>
