@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { CalendarDays, CheckCircle2, ChevronRight, Circle, FileJson, Play, Plus, RefreshCw, ShieldCheck, Upload, Users, Workflow } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, FileJson, Play, Plus, RefreshCw, ShieldCheck, Upload, Users, Workflow } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { api, formatDate, post, shortHash } from "../api";
+import { api, post, shortHash } from "../api";
 import { useAuth } from "../auth";
-import { Button, CodeValue, DataTable, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, CodeValue, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { ROLE_IN_TASK_LABELS } from "../types";
 import type { JsonRecord } from "../types";
@@ -59,15 +59,15 @@ export function SettlementPage() {
     }
   }
 
-  if (loading) return <LoadingState label="正在加载调用验证" />;
+  if (loading) return <LoadingState label="正在加载验证任务" />;
   if (error || !data) return <ErrorState message={error || "调用验证加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader eyebrow="计算与验证" title="调用验证" description="导入场景文件，完成来源校验、授权检查、隐私计算和审计留痕。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canImport && <Button icon={FileJson} variant="primary" onClick={() => setShowImport(true)}>导入并自动验证</Button>}{canCreate && <Button icon={Plus} onClick={() => setShowForm(true)}>手动创建任务</Button>}</>} />
+      <PageHeader title="调用验证" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canImport && <Button icon={FileJson} variant="primary" onClick={() => setShowImport(true)}>导入并自动验证</Button>}{canCreate && <Button icon={Plus} onClick={() => setShowForm(true)}>手动创建任务</Button>}</>} />
       {message && <Notice tone={message.includes("失败") || message.includes("缺少") ? "warning" : "success"}>{message}</Notice>}
       <div className="master-detail">
-        <Surface title="验证任务" note={`${data.tasks.length} 个任务`} className="master-panel">
+        <Surface title="验证任务" meta={`${data.tasks.length} 个`} className="master-panel">
           <div className="task-list">
             {data.tasks.map((task) => (
               <button key={task.task_id} className={task.task_id === selectedId ? "active" : ""} onClick={() => setSelectedId(task.task_id)}>
@@ -82,7 +82,7 @@ export function SettlementPage() {
           <div className="detail-stack">
               <Surface
               title={selected.task_name}
-              note={`${selected.trade_batch_no} · ${selected.period_start} 至 ${selected.period_end}`}
+              meta={`${selected.trade_batch_no} · ${selected.period_start} 至 ${selected.period_end}`}
               actions={canRun && selected.status !== "AUDITED" ? <Button icon={Play} variant="primary" busy={running} onClick={runWorkflow}>开始验证</Button> : <StatusTag value={selected.status} />}
             >
               <div className="capsule-banner">
@@ -132,8 +132,8 @@ export function SettlementPage() {
           </div>
         ) : <Surface><div className="empty-state">请选择场景验证任务</div></Surface>}
       </div>
-      {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async (created) => { setShowForm(false); setMessage("任务已创建，可继续开始验证。"); await reload(); if (created?.task_id) setSelectedId(created.task_id); }} />}
-      {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入并完成调用验证，生成 ${result.evidence?.length || 0} 项审计凭证。`); await reload(); }} />}
+      {showForm && <TaskForm rules={data.rules} orgs={data.orgs} onClose={() => setShowForm(false)} onCreated={async (created) => { setShowForm(false); setMessage("任务已创建。"); await reload(); if (created?.task_id) setSelectedId(created.task_id); }} />}
+      {showImport && <ImportSettlementModal onClose={() => setShowImport(false)} onCreated={async (result) => { setShowImport(false); setMessage(`文件已导入，生成 ${result.evidence?.length || 0} 项审计凭证。`); await reload(); }} />}
     </>
   );
 }
@@ -193,10 +193,10 @@ function ImportSettlementModal({ onClose, onCreated }: { onClose: () => void; on
         <input type="file" accept="application/json,.json" onChange={selectFile} />
         <Upload size={24} />
         <strong>{file ? file.name : "选择 JSON 文件"}</strong>
-        <span>支持真实场景或虚拟仿真 JSON，导入后自动完成来源校验、数据登记、签名、隐私计算和审计回执。</span>
+        <span>仅支持 JSON 文件</span>
       </label>
       {fixture && <div className="import-preview"><div><span>数据批次</span><strong>{fixture.batch.trade_batch_no}</strong></div><div><span>数据资产</span><strong>{fixture.data_assets.length} 类</strong></div><div><span>参与主体</span><strong>{fixture.business_validation_request.participants?.length || 0} 方</strong></div></div>}
-      {result && <Notice tone="success">文件已导入，可信调用验证已完成。生成 {result.evidence?.length || 0} 项可核验证据。</Notice>}
+      {result && <Notice tone="success">验证已完成，生成 {result.evidence?.length || 0} 项审计凭证。</Notice>}
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );
@@ -206,8 +206,8 @@ function TaskForm({ rules, orgs, onClose, onCreated }: { rules: JsonRecord[]; or
   const activeRules = rules.filter((item) => item.status === "ACTIVE");
   const generator = orgs.find((item) => item.org_type === "GENERATOR");
   const retailer = orgs.find((item) => item.org_type === "RETAILER");
-  const [name, setName] = useState("2026年7月可信调用验证");
-  const [batch, setBatch] = useState("TB-2026-07-DEMO");
+  const [name, setName] = useState("2026年7月调用验证");
+  const [batch, setBatch] = useState("TB-2026-07-001");
   const [ruleId, setRuleId] = useState(activeRules[0]?.rule_id || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

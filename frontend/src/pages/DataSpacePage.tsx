@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Database, Fingerprint, Network, RefreshCw, ScrollText, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Database, RefreshCw, XCircle } from "lucide-react";
 import { api, shortHash } from "../api";
-import { Button, CodeValue, DataTable, ErrorState, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, CodeValue, DataTable, ErrorState, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { ALGORITHM_LABELS, UNIFIED_REQUIREMENT_LABELS } from "../types";
+import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
 
 const assetNames: Record<string, string> = {
@@ -15,25 +15,19 @@ const assetNames: Record<string, string> = {
   GRID_CONSTRAINT: "调度安全边界",
 };
 
-const capabilityLabels: Record<string, string> = {
-  CATALOG_DISCOVERY: "目录发现",
-  IDENTITY_VERIFICATION: "身份互认",
-  CONTRACT_NEGOTIATION: "合同协商",
-  USAGE_CONTROL: "使用控制",
-  AGGREGATE_ONLY_OUTPUT: "聚合输出",
-  RECEIPT_RECORDING: "回执存证",
+const purposeNames: Record<string, string> = {
+  POWER_SETTLEMENT: "电力结算",
+  GRID_SECURITY_CHECK: "电网安全检查",
+  PRIVACY_LOAD_ANALYSIS: "用电隐私分析",
 };
 
 export function DataSpacePage() {
-  const [batch, setBatch] = useState("TB-2026-07-DEMO");
-  const [batchInput, setBatchInput] = useState("TB-2026-07-DEMO");
+  const [batch, setBatch] = useState("TB-2026-07-001");
+  const [batchInput, setBatchInput] = useState("TB-2026-07-001");
   const loader = () => Promise.all([
     api<JsonRecord>(`/data/catalog?trade_batch_no=${encodeURIComponent(batch)}`),
-    api<JsonRecord>(`/data/catalog/package?trade_batch_no=${encodeURIComponent(batch)}`),
-    api<JsonRecord>(`/data/catalog/dataspace?trade_batch_no=${encodeURIComponent(batch)}`),
-    api<JsonRecord>("/data-space/protocol"),
-    api<JsonRecord[]>(`/data/agreements?task_id=task-ready-demo`),
-  ]).then(([catalog, packageDescriptor, dataspaceProtocol, protocol, agreements]) => ({ catalog, packageDescriptor, dataspaceProtocol, protocol, agreements }));
+    api<JsonRecord[]>("/data/agreements"),
+  ]).then(([catalog, agreements]) => ({ catalog, agreements }));
   const { data, loading, error, reload } = useRemote(loader, [batch]);
   const entries = data?.catalog.entries || [];
   const agreements = data?.agreements || [];
@@ -44,57 +38,25 @@ export function DataSpacePage() {
     else setBatch(batchInput);
   }
 
-  if (loading) return <LoadingState label="正在发现数据产品与连接器协议" />;
-  if (error || !data) return <ErrorState message={error || "数据空间加载失败"} retry={reload} />;
+  if (loading) return <LoadingState label="正在加载数据目录" />;
+  if (error || !data) return <ErrorState message={error || "数据目录加载失败"} retry={reload} />;
 
   return (
     <>
       <PageHeader
-        eyebrow="数据与授权"
         title="数据目录"
-        description="查找可用数据，查看调用范围和授权状态。"
         actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>}
       />
-      <div className="boundary-strip">
-        <Network size={18} />
-        <div><strong>数据调用服务正常</strong><span>原始数据留在提供方，调用方只获得授权范围内的结果。</span></div>
-        <StatusTag value="ACTIVE" label="可用" />
-      </div>
       <div className="inline-actions" style={{ marginBottom: 16 }}>
         <label className="field"><span>批次编号</span><input value={batchInput} onChange={(event) => setBatchInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void applyBatch(); } }} /></label>
         <Button icon={Database} onClick={applyBatch}>查询</Button>
       </div>
-      <div className="metrics-grid five">
+      <div className="metrics-grid three">
         <Metric label="可调用数据产品" value={entries.length} meta={`${assetCount} 类能源资产`} />
-        <Metric label="调用能力" value={data.protocol.capabilities.length} meta="目录至回执" />
-        <Metric label="已授权调用" value={data.protocol.negotiated_agreements} meta="跨主体授权" tone="green" />
-        <Metric label="原始数据传输" value="0" meta="安全边界" tone="green" />
-        <Metric label="标准目录描述" value={data.packageDescriptor.profile === "data-package" ? "v1" : "—"} meta={`${data.packageDescriptor.resource_count || 0} 项资源`} tone="green" />
+        <Metric label="已授权调用" value={agreements.length} tone="green" />
+        <Metric label="原始数据传输" value="0" tone="green" />
       </div>
-      <Surface title="Dataspace Protocol 目录" note="协议目录只发布元数据、用途策略和受控连接器入口">
-        <div className="detail-grid">
-          <div><span>协议版本</span><strong>{data.dataspaceProtocol.protocol} · {data.dataspaceProtocol.version}</strong></div>
-          <div><span>目录数据集</span><strong>{data.dataspaceProtocol.dataset_count} 项</strong></div>
-          <div><span>本地校验</span><strong><StatusTag value={data.dataspaceProtocol.schema_validation?.valid ? "PASSED" : "FAILED"} label={data.dataspaceProtocol.schema_validation?.valid ? "通过" : "失败"} /></strong></div>
-          <div><span>目录指纹</span><strong><CodeValue>{shortHash(data.dataspaceProtocol.descriptor_hash, 12)}</CodeValue></strong></div>
-          <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不出域</strong></div>
-        </div>
-        <Notice>目录与 ODRL 用途描述用于跨主体发现；真实数据访问仍须经过 OPA 授权和受控计算。</Notice>
-      </Surface>
-      <div className="content-grid two-equal">
-        <Surface title="调用能力">
-          <div className="acceptance-list">
-            {data.protocol.capabilities.map((code: string) => <div key={code}><CheckCircle2 size={18} /><span>{capabilityLabels[code] || code}</span><StatusTag value="PASSED" label="已接入" /></div>)}
-          </div>
-        </Surface>
-        <Surface title="调用条件">
-          <div className="acceptance-list">
-            {data.protocol.three_unified.map((code: string) => <div key={code}><ShieldCheck size={18} /><span>{UNIFIED_REQUIREMENT_LABELS[code] || code}</span><StatusTag value="READY" label="已统一" /></div>)}
-          </div>
-          <Notice>满足以上条件后，数据才可进入授权计算。</Notice>
-        </Surface>
-      </div>
-      <Surface title="可用数据产品" note="目录只公开元数据、质量和用途，不公开原始明细">
+      <Surface title="可用数据产品" meta={`${entries.length} 项`}>
         <DataTable
           keyField="data_product_id"
           rows={entries}
@@ -103,11 +65,8 @@ export function DataSpacePage() {
             { key: "label", label: "数据产品" },
             { key: "asset_type", label: "资产类型", render: (row) => assetNames[row.asset_type] || row.asset_type },
             { key: "owner_org_name", label: "提供方" },
-            { key: "semantic_ref", label: "数据说明", render: (row) => <CodeValue>{row.semantic_ref}</CodeValue> },
-            { key: "schema_version", label: "版本" },
             { key: "unit", label: "单位" },
             { key: "sensitivity_level", label: "敏感等级", render: (row) => <StatusTag value={row.sensitivity_level} /> },
-            { key: "transport", label: "来源与传输", render: (row) => `${row.transport?.protocol || "HTTPS"} · ${row.transport?.encryption || "TLS1.3"}` },
             { key: "usage", label: "输出约束", render: (row) => row.usage?.raw_data_export === false ? "仅聚合输出" : "需复核" },
           ]}
         />
@@ -116,12 +75,12 @@ export function DataSpacePage() {
         <DataTable
           keyField="agreement_id"
           rows={agreements}
-          empty="尚未产生调用协议，请运行一笔场景验证任务"
+          empty="暂无调用协议"
           columns={[
             { key: "agreement_id", label: "协议 ID", render: (row) => <CodeValue title={row.agreement_id}>{shortHash(row.agreement_id, 10)}</CodeValue> },
             { key: "provider_org_id", label: "提供方", render: (row) => shortHash(row.provider_org_id, 12) },
             { key: "consumer_org_id", label: "使用方", render: (row) => shortHash(row.consumer_org_id, 12) },
-            { key: "requested_purpose", label: "用途" },
+            { key: "requested_purpose", label: "用途", render: (row) => purposeNames[row.requested_purpose] || SCENARIO_LABELS[row.requested_purpose] || row.requested_purpose },
             { key: "algorithm_code", label: "计算方式", render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code },
             { key: "state", label: "状态", render: (row) => <StatusTag value={row.state} /> },
             { key: "use_count", label: "使用次数", render: (row) => `${row.use_count}/${row.max_uses}` },
@@ -129,28 +88,6 @@ export function DataSpacePage() {
           ]}
         />
       </Surface>
-      <div className="content-grid two-equal">
-        <Surface title="接入与安全边界">
-          <div className="detail-grid">
-            <div><span>目录地址</span><strong>catalog://hiddenchain/energy-v1</strong></div>
-            <div><span>身份校验</span><strong><Fingerprint size={15} /> 已启用</strong></div>
-            <div><span>接入协议</span><strong>HTTPS · MQTT · WebSocket</strong></div>
-            <div><span>覆盖链路</span><strong>终端 · 边缘 · 云 · 业务</strong></div>
-            <div><span>原始数据</span><strong><ShieldCheck size={15} /> 不出域</strong></div>
-          </div>
-        </Surface>
-        <Surface title="调用回执">
-          <div className="detail-grid">
-            <div><span>策略执行</span><strong>{data.protocol.mvp_adapters?.policy?.remote_configured ? "OPA REST PDP" : "OPA 兼容本地 PDP"}</strong></div>
-            <div><span>电网安全校核</span><strong>{data.protocol.mvp_adapters?.grid?.installed ? "pandapower 三母线模型" : "待安装 pandapower"}</strong></div>
-            <div><span>新能源资源模型</span><strong>{data.protocol.mvp_adapters?.solar_resource?.installed ? "pvlib 太阳辐照度" : "待安装 pvlib"}</strong></div>
-            <div><span>目录元数据分析</span><strong>{data.protocol.mvp_adapters?.metadata_analytics?.installed ? `DuckDB ${data.protocol.mvp_adapters.metadata_analytics.version} · 固定只读聚合` : "待安装 DuckDB"}</strong></div>
-            <div><span>数据合同</span><strong>{data.protocol.mvp_adapters?.data_contract?.version ? `ODCS ${data.protocol.mvp_adapters.data_contract.version} · 本地 profile` : "待接入 ODCS"}</strong></div>
-            <div><span>输出形式</span><strong>仅聚合结果</strong></div>
-            <div><span>回执记录</span><strong><ScrollText size={15} /> 可随时核验</strong></div>
-          </div>
-        </Surface>
-      </div>
     </>
   );
 }

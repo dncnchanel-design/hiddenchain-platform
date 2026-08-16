@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, FileCode2, Gavel, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, FileCode2, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, formatDate, post, shortHash } from "../api";
 import { useAuth } from "../auth";
 import { Button, CodeValue, DataTable, ErrorState, Field, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -34,10 +34,7 @@ export function RulesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="数据与授权" title="使用规则" description="查看数据用途、输出范围和启用状态。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则</Button>}</>} />
-      <div className="boundary-strip">
-        <Gavel size={18} /><div><strong>规则启用需确认</strong><span>启用前请核对用途、参数和输出范围。</span></div><StatusTag value="ACTIVE" label="已启用" />
-      </div>
+      <PageHeader title="使用规则" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" onClick={() => setShowForm(true)}>新建规则</Button>}</>} />
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface title="规则列表">
         <DataTable
@@ -79,7 +76,7 @@ function RuleDetail({ rule, onClose }: { rule: JsonRecord; onClose: () => void }
 }
 
 function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [form, setForm] = useState({ name: "山东能源场景可信验证规则", price: "425", threshold: "100", penalty: "150", fee: "3.2" });
+  const [form, setForm] = useState({ name: "山东能源场景验证规则", price: "425", threshold: "100", penalty: "150", fee: "3.2" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const formReady = form.name.trim().length >= 2
@@ -95,7 +92,6 @@ function RuleForm({ onClose, onCreated }: { onClose: () => void; onCreated: () =
     try {
       await post("/rules", {
         rule_name: form.name,
-        description: "用于能源场景验证的确定性规则与用途控制包",
         contract_price: Number(form.price),
         deviation_threshold_mwh: Number(form.threshold),
         deviation_penalty_rate: Number(form.penalty),

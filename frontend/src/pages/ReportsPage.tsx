@@ -28,7 +28,7 @@ export function ReportsPage() {
     setMessage("");
     try {
       await post("/audit/reports", { task_id: id, template_code: "REGULATORY_AUDIT_V1" });
-      setMessage("可信审计报告已生成，报告哈希与证据引用已固化。");
+      setMessage("审计报告已生成。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "生成失败");
@@ -47,12 +47,12 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全与管理" title="审计报告" description="查看和导出已完成任务的审计报告。" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader title="审计报告" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
       {canGenerate && <Surface title="生成审计报告">
         <div className="report-generator"><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">选择已审计任务</option>{audited.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select><Button icon={FilePlus2} variant="primary" busy={busy} disabled={!taskId && !audited.length} onClick={generate}>生成报告</Button></div>
       </Surface>}
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="报告列表" note={`${data.reports.length} 份`}>
+      <Surface title="报告列表" meta={`${data.reports.length} 份`}>
         <DataTable
           keyField="report_id"
           rows={data.reports}

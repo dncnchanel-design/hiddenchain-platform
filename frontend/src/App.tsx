@@ -27,7 +27,7 @@ const {
 
 function ProtectedShell() {
   const { session, loading } = useAuth();
-  if (loading) return <div className="boot-screen"><LoadingState label="正在验证主体身份与能力凭证" /></div>;
+  if (loading) return <div className="boot-screen"><LoadingState label="正在验证身份" /></div>;
   if (!session) return <Navigate to="/login" replace />;
   return <AppShell />;
 }
@@ -35,7 +35,7 @@ function ProtectedShell() {
 function LoginGate() {
   const { session, loading } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
-  return session ? <Navigate to="/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState label="正在打开登录页" /></div>}><LoginPage /></Suspense>;
+  return session ? <Navigate to="/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
 }
 
 function Allowed({ code, children }: { code: string; children: React.ReactNode }) {

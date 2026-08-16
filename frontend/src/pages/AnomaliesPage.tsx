@@ -24,7 +24,7 @@ export function AnomaliesPage() {
     setBusy(eventId);
     try {
       await post(`/anomalies/${eventId}/resolve`, { resolution: "已完成证据复核与责任主体确认，事件关闭。" });
-      setMessage("异常已处置，处置意见已写入全过程审计日志。");
+      setMessage("风险事件已处置。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "处置失败");
@@ -38,11 +38,11 @@ export function AnomaliesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="安全运营" title="风险处置" description="查看异常、记录处理意见并完成闭环。" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>新增风险</Button></>} />
+      <PageHeader title="风险处置" actions={<><Button icon={RefreshCw} onClick={reload}>刷新</Button><Button icon={Plus} variant="primary" onClick={() => setShowInject(true)}>新增风险</Button></>} />
       <div className="metrics-grid three">
-        <div className="metric metric-red"><span>开放事件</span><strong>{data.events.filter((item) => item.status === "OPEN").length}</strong><small>需要复核</small></div>
-        <div className="metric metric-amber"><span>高风险</span><strong>{data.events.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length}</strong><small>优先处置</small></div>
-        <div className="metric metric-green"><span>已闭环</span><strong>{data.events.filter((item) => item.status === "RESOLVED").length}</strong><small>意见已留痕</small></div>
+        <div className="metric metric-red"><span>开放事件</span><strong>{data.events.filter((item) => item.status === "OPEN").length}</strong></div>
+        <div className="metric metric-amber"><span>高风险</span><strong>{data.events.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length}</strong></div>
+        <div className="metric metric-green"><span>已闭环</span><strong>{data.events.filter((item) => item.status === "RESOLVED").length}</strong></div>
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface title="风险事件清单">
@@ -92,7 +92,7 @@ function InjectModal({ tasks, onClose, onCreated }: { tasks: JsonRecord[]; onClo
         <Field label="事件类型"><select value={eventType} onChange={(event) => { setEventType(event.target.value); setMutate(false); }}>{Object.entries(eventLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       </div>
       {eventType === "HASH_MISMATCH" && <label className="check-row"><input type="checkbox" checked={mutate} onChange={(event) => setMutate(event.target.checked)} /><span>同时修改一项凭证内容，触发一致性复核</span></label>}
-      <Notice tone="warning">提交后将进入风险清单并留下操作记录。</Notice>
+      <Notice tone="warning">提交后将新增风险事件。</Notice>
       {error && <Notice tone="warning">{error}</Notice>}
     </Modal>
   );
