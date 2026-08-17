@@ -325,26 +325,6 @@ b {
   color: var(--brand-700);
 }
 
-.demo-account-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 156px;
-  align-items: center;
-  gap: 14px;
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.demo-account-picker span {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.demo-account-picker select {
-  min-width: 0;
-}
-
 /* Protected application frame */
 .app-shell {
   min-height: 100vh;
@@ -1066,8 +1046,7 @@ table tbody tr:hover {
 .log-filters input,
 .log-filters select,
 .agent-query textarea,
-.report-generator select,
-.demo-account-picker select {
+.report-generator select {
   width: 100%;
   min-height: 36px;
   padding: 7px 9px;
@@ -1098,8 +1077,7 @@ table tbody tr:hover {
 .log-filters input:focus,
 .log-filters select:focus,
 .agent-query textarea:focus,
-.report-generator select:focus,
-.demo-account-picker select:focus {
+.report-generator select:focus {
   border-color: var(--brand-700);
   box-shadow: 0 0 0 3px rgba(23, 105, 170, 0.1);
 }
@@ -2109,8 +2087,6 @@ table tbody tr:hover {
 
 @media (max-width: 480px) {
   .login-form-heading { margin-bottom: 22px; }
-  .demo-account-picker { grid-template-columns: 1fr; }
-  .demo-account-picker select { min-height: 40px; }
   .review-summary-bar,
   .review-check-grid,
   .review-policy-grid,
