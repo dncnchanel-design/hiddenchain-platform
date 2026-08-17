@@ -7,6 +7,7 @@ const { chromium } = require("playwright");
 
 const baseUrl = process.env.UI_BASE_URL || "http://127.0.0.1:5173";
 const browserExecutable = process.env.BROWSER_EXECUTABLE;
+const allowTestCopy = /^(1|true|yes)$/i.test(process.env.UI_ALLOW_TEST_COPY || "");
 const outputDir = resolve(process.env.UI_QA_OUTPUT || "runtime/visual-regression");
 const viewports = [
   { width: 1366, height: 768, code: "1366x768" },
@@ -18,22 +19,25 @@ const credentials = {
   generator: ["generator", "generator123"],
   admin: ["admin", "admin123"],
 };
-const exchangeRoutes = [
+function exchangeRoutes(taskId) {
+  const query = `task_id=${encodeURIComponent(taskId)}`;
+  return [
   "/workbench",
-  "/data-space?task_id=task-history-t01",
+  `/data-space?${query}`,
   "/data/generation",
   "/data/retail",
-  "/rules?task_id=task-history-t01",
-  "/compute?task_id=task-history-t01",
+  `/rules?${query}`,
+  `/compute?${query}`,
   "/settlements",
   "/settlements/new",
-  "/settlements/task-history-t01",
-  "/results?task_id=task-history-t01",
-  "/evidence?task_id=task-history-t01",
-  "/audit?task_id=task-history-t01",
-  "/reports?task_id=task-history-t01",
-  "/anomalies?task_id=task-history-t01",
-];
+  `/settlements/${encodeURIComponent(taskId)}`,
+  `/results?${query}`,
+  `/evidence?${query}`,
+  `/audit?${query}`,
+  `/reports?${query}`,
+  `/anomalies?${query}`,
+  ];
+}
 const adminRoutes = ["/overview", "/system", "/agents", "/metrics", "/logs"];
 const bannedVisibleCopy = /演示|模拟|\bmock\b|\bmvp\b|占位/i;
 
@@ -70,6 +74,20 @@ async function login(viewport, role) {
   return { context, page };
 }
 
+async function resolveTaskId(page) {
+  return page.evaluate(async () => {
+    const token = sessionStorage.getItem("hiddenchain_token");
+    const response = await fetch("/api/settlement/tasks", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`Unable to load settlement tasks (${response.status})`);
+    const tasks = await response.json();
+    const preferred = tasks.find((item) => item.status !== "AUDITED") || tasks[0];
+    if (!preferred?.task_id) throw new Error("No settlement task is available for UI regression");
+    return preferred.task_id;
+  });
+}
+
 async function inspect(page, path, viewport, role, screenshot = true) {
   const consoleErrors = [];
   const handler = (message) => {
@@ -87,7 +105,7 @@ async function inspect(page, path, viewport, role, screenshot = true) {
     h1: document.querySelector("h1")?.textContent?.trim() || "",
   }));
   const overflow = metrics.bodyScrollWidth > metrics.innerWidth + 1;
-  const banned = metrics.bodyText.match(bannedVisibleCopy)?.[0] || "";
+  const banned = allowTestCopy ? "" : metrics.bodyText.match(bannedVisibleCopy)?.[0] || "";
   const filename = `${viewport.code}-${role}-${fileCode(path)}.png`;
   if (screenshot) {
     await page.screenshot({ path: resolve(outputDir, filename), fullPage: false, animations: "disabled" });
@@ -107,6 +125,28 @@ async function inspect(page, path, viewport, role, screenshot = true) {
   });
 }
 
+async function inspectSettlementMenu(page, viewport) {
+  await page.goto(`${baseUrl}/workbench`);
+  await settle(page);
+  const trigger = page.locator(".primary-navigation-trigger").filter({ hasText: "结算管理" }).first();
+  await trigger.hover();
+  await page.locator(".primary-navigation-menu").first().waitFor({ state: "visible", timeout: 5_000 });
+  const filename = `${viewport.code}-exchange-settlement-menu.png`;
+  await page.screenshot({ path: resolve(outputDir, filename), fullPage: false, animations: "disabled" });
+  results.push({ viewport: viewport.code, role: "exchange", specialState: "settlement-menu", screenshot: filename });
+}
+
+async function inspectTrustedChain(page, viewport, taskId) {
+  await page.goto(`${baseUrl}/settlements/${encodeURIComponent(taskId)}`);
+  await settle(page);
+  const chain = page.locator(".trusted-chain");
+  await chain.waitFor({ state: "visible", timeout: 8_000 });
+  await chain.evaluate((element) => window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 148 }));
+  const filename = `${viewport.code}-exchange-trusted-chain.png`;
+  await page.screenshot({ path: resolve(outputDir, filename), fullPage: false, animations: "disabled" });
+  results.push({ viewport: viewport.code, role: "exchange", specialState: "trusted-chain", screenshot: filename });
+}
+
 try {
   for (const viewport of viewports) {
     const anonymous = await browser.newContext({ viewport });
@@ -115,7 +155,10 @@ try {
     await anonymous.close();
 
     const exchange = await login(viewport, "exchange");
-    for (const path of exchangeRoutes) await inspect(exchange.page, path, viewport, "exchange");
+    const taskId = await resolveTaskId(exchange.page);
+    for (const path of exchangeRoutes(taskId)) await inspect(exchange.page, path, viewport, "exchange");
+    await inspectSettlementMenu(exchange.page, viewport);
+    await inspectTrustedChain(exchange.page, viewport, taskId);
     await exchange.page.goto(`${baseUrl}/system`);
     await settle(exchange.page);
     results.push({ viewport: viewport.code, role: "exchange", permissionCheck: "/system", finalPath: new URL(exchange.page.url()).pathname });
@@ -129,7 +172,7 @@ try {
     await admin.context.close();
 
     const generator = await login(viewport, "generator");
-    await inspect(generator.page, "/results?task_id=task-history-t01", viewport, "generator");
+    await inspect(generator.page, `/results?task_id=${encodeURIComponent(taskId)}`, viewport, "generator");
     await generator.page.goto(`${baseUrl}/rules`);
     await settle(generator.page);
     results.push({ viewport: viewport.code, role: "generator", permissionCheck: "/rules", finalPath: new URL(generator.page.url()).pathname });
@@ -141,6 +184,7 @@ try {
 
 const pageResults = results.filter((item) => item.path);
 const permissionResults = results.filter((item) => item.permissionCheck);
+const specialStateResults = results.filter((item) => item.specialState);
 const failures = [
   ...pageResults.filter((item) => item.overflow || item.bannedVisibleCopy || item.consoleErrors.length || item.finalUrl.includes("/403")),
   ...permissionResults.filter((item) => item.finalPath !== "/403"),
@@ -148,9 +192,11 @@ const failures = [
 const report = {
   generatedAt: new Date().toISOString(),
   baseUrl,
+  fixtureCopyAllowed: allowTestCopy,
   viewports: viewports.map((item) => item.code),
   pageCount: pageResults.length,
   permissionCheckCount: permissionResults.length,
+  specialStateCount: specialStateResults.length,
   failureCount: failures.length,
   failures,
   results,

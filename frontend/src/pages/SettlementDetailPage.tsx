@@ -106,7 +106,7 @@ export function SettlementDetailPage() {
 
       <Surface title="可信执行链" meta="按任务事实生成">
         <ol className="trusted-chain">
-          {chain.map((item, index) => <li key={item.code} className={`chain-${item.state}`}><span className="chain-index">{index + 1}</span><Link to={item.path}><strong>{item.title}</strong><small>{item.detail}</small><span className="chain-metadata"><span>执行主体：{item.owner}</span><span>完成时间：{item.completedAt ? <DateTimeText value={item.completedAt} /> : "未记录"}</span><span>关联证据：{item.evidenceCount} 项</span><span>异常：{item.abnormal ? "是" : "未关联"}</span></span></Link><StatusTag value={item.state === "complete" ? "PASSED" : item.state === "blocked" ? "OPEN" : item.state === "current" ? "RUNNING" : "PENDING"} label={{ complete: "已完成", current: "当前", blocked: "受阻", pending: "待处理" }[item.state]} /></li>)}
+          {chain.map((item, index) => <li key={item.code} className={`chain-${item.state}`}><span className="chain-index">{index + 1}</span><Link to={item.path}><strong>{item.title}</strong><small>{item.detail}</small><span className="chain-metadata"><span>执行主体：{item.owner}</span><span>完成时间：{item.completedAt ? <DateTimeText value={item.completedAt} /> : "未记录"}</span><span>关联证据：{item.evidenceCount} 项</span><span>异常：{item.abnormal ? "是" : "未关联"}</span></span></Link><StatusTag value={item.state === "complete" ? "PASSED" : item.state === "blocked" ? "BLOCKED" : item.state === "current" ? "CURRENT" : "PENDING"} label={{ complete: "已完成", current: "当前", blocked: "受阻", pending: "待处理" }[item.state]} /></li>)}
         </ol>
       </Surface>
 

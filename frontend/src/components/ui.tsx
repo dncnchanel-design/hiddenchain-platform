@@ -47,6 +47,18 @@ export function PageHeader({
   );
 }
 
+export function SectionHeader({ title, description, icon: Icon }: { title: string; description?: string; icon?: ElementType }) {
+  return (
+    <div className="section-title">
+      {Icon && <Icon size={19} aria-hidden="true" />}
+      <div>
+        <h2>{title}</h2>
+        {description && <p>{description}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function Surface({
   title,
   meta,
@@ -127,12 +139,19 @@ export function Button({
 }
 
 const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW", "RECORDED", "NOT_REQUIRED"]);
-const warning = new Set(["DRAFT", "PENDING", "RUNNING", "MEDIUM", "REVIEW_REQUIRED", "UNCONFIRMED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED", "UNVERIFIED", "NOT_PROVIDED", "NOT_CONFIGURED"]);
+const information = new Set(["RUNNING", "PROCESSING", "IN_PROGRESS"]);
+const currentSelection = new Set(["CURRENT"]);
+const warning = new Set(["DRAFT", "PENDING", "BLOCKED", "MEDIUM", "REVIEW_REQUIRED", "UNCONFIRMED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED", "UNVERIFIED", "NOT_PROVIDED", "NOT_CONFIGURED"]);
 const negative = new Set(["FAILED", "EXCEPTION", "DENY", "HIGH", "OPEN", "INVALID", "REVOKED", "REJECTED"]);
 
 export function StatusTag({ value, label }: { value?: string | null; label?: string }) {
   const normalized = String(value || "UNKNOWN").toUpperCase();
-  const tone = positive.has(normalized) ? "success" : warning.has(normalized) ? "warning" : negative.has(normalized) ? "danger" : "neutral";
+  const tone = positive.has(normalized) ? "success"
+    : information.has(normalized) ? "info"
+      : currentSelection.has(normalized) ? "brand"
+        : warning.has(normalized) ? "warning"
+          : negative.has(normalized) ? "danger"
+            : "neutral";
   return <span className={`status-tag status-${tone}`}>{label || STATUS_LABELS[normalized] || value || "未知"}</span>;
 }
 

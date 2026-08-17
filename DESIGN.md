@@ -3,11 +3,26 @@ name: 隐链明算
 description: 面向电力交易可信执行的高密度结算台账界面
 colors:
   system-charcoal: "#26363d"
-  ledger-green: "#327556"
-  ledger-green-deep: "#30474c"
-  ledger-green-light: "#448a68"
-  ledger-green-soft: "#dcebe3"
-  ledger-green-wash: "#eff6f2"
+  grid-green-950: "#003e35"
+  grid-green-900: "#004d41"
+  grid-green-800: "#005f50"
+  grid-green-700: "#00705d"
+  grid-green-600: "#007d68"
+  grid-green-500: "#149376"
+  grid-green-400: "#3da88d"
+  grid-green-300: "#79c4b2"
+  grid-green-200: "#b7e0d5"
+  grid-green-100: "#ddf1ec"
+  grid-green-50: "#f1f8f6"
+  brand-primary: "#007d68"
+  brand-primary-hover: "#00705d"
+  brand-primary-active: "#005f50"
+  brand-primary-text: "#007d68"
+  brand-primary-border: "#149376"
+  brand-primary-border-subtle: "#b7e0d5"
+  brand-primary-bg: "#f1f8f6"
+  brand-primary-bg-hover: "#ddf1ec"
+  brand-focus-ring: "#007d68"
   canvas: "#f2f4f5"
   surface: "#ffffff"
   ink: "#202b30"
@@ -90,14 +105,14 @@ components:
     height: "34px"
     padding: "0 20px"
   button-primary:
-    backgroundColor: "{colors.ledger-green}"
+    backgroundColor: "{colors.brand-primary}"
     textColor: "{colors.surface}"
     typography: "{typography.control}"
     rounded: "{rounded.tight}"
     padding: "7px 13px"
     height: "36px"
   button-primary-hover:
-    backgroundColor: "{colors.ledger-green-deep}"
+    backgroundColor: "{colors.brand-primary-hover}"
     textColor: "{colors.surface}"
   button-secondary:
     backgroundColor: "{colors.surface}"
@@ -133,37 +148,38 @@ components:
 
 这是一个严肃、稳定、受监管且高信息密度的 Operate 界面。它把大型电网企业传统生产内网的栏目秩序现代化：先确认机构、角色和运行环境，再进入业务域处理任务，最后沿数据、规则、计算、确认与证据链完成核验和追溯。可信度来自事实密度、精确对齐、清晰权限和可定位记录，而不是技术表演。
 
-整体采用深灰蓝系统栏、白色横向业务栏目、冷灰工作面、克制电网绿、1px 结构线和小圆角。系统拒绝通用 SaaS/AI 后台、紫色或蓝紫科技感、玻璃质感、营销 Hero、横幅式欢迎区、超大数据展示，以及对旧式门户的表面仿古。
+整体采用深灰蓝系统栏、白色横向业务栏目、冷灰工作面、电网青绿色品牌识别、1px 结构线和小圆角。系统拒绝通用 SaaS/AI 后台、紫色或蓝紫科技感、玻璃质感、营销 Hero、横幅式欢迎区、超大数据展示，以及对旧式门户的表面仿古。
 
 **Key Characteristics:**
 
 - 48px 深色系统栏、42px 白色一级导航、34px 面包屑栏构成稳定的 124px 顶部上下文。
-- 电网绿只承担当前项、主操作、链接、焦点和少量结构提示；大面积内容保持中性。
+- 电网青绿色只承担当前项、主操作、链接、焦点和少量结构提示；大面积内容保持中性。
 - 4px 间距节奏、1px 边框、2–4px 圆角和紧凑表格共同服务高频检索与复核。
 - 编号、时间、状态、证据引用、Trace ID 和事实边界始终可定位、可复制或可核验。
 - 使用离线系统字体与本地图标，不依赖外部字体、CDN 或装饰素材。
 
 ## Colors
 
-颜色体系是“深灰蓝系统上下文 + 冷灰生产工作面 + 克制电网绿 + 明确语义色”。前置 YAML 是规范值，实现来源是 `frontend/src/styles.css` 中的实际颜色。
+颜色体系是“深灰蓝系统上下文 + 冷灰生产工作面 + 克制电网青绿 + 明确语义色”。前置 YAML 是默认规范值，实现由 `ProductBrandConfig.brandTheme.primary` 经统一色阶算法注入 `frontend/src/styles.css` 中的语义 Token。默认色仅是电力行业绿色视觉起点，不声明为任何客户的官方品牌色。
 
 ### Primary
 
-- **电网台账绿**（`ledger-green`）：一级栏目当前态、主按钮、链接、焦点、可信链当前节点和标题细线；悬停使用 `ledger-green-deep`。
-- **浅绿结构层**（`ledger-green-soft` / `ledger-green-wash`）：轻选中、信息底、当前菜单和局部图标底；不得扩展成大面积彩色卡片。
+- **完整原始色阶**（`grid-green-50` 至 `grid-green-950`）：500 是默认品牌视觉基准；白字主按钮根据对比度使用 600 或更深色阶。
+- **品牌语义层**（`brand-primary*`）：一级栏目当前态、主按钮、链接、焦点、可信链当前节点和标题细线只能读取语义 Token，不直接读取原始色阶。
+- **浅绿结构层**（`brand-primary-bg` / `brand-primary-bg-hover`）：轻选中、菜单悬停、当前步骤与局部结构提示；不得扩展成大面积彩色卡片。
 
 ### Neutral
 
-- **系统深炭灰**（`system-charcoal`）：仅用于顶部系统身份与运行上下文，不覆盖业务内容区。
+- **系统深炭灰**（`system-charcoal`）：独立于品牌主题，仅用于顶部系统身份与运行上下文，不覆盖业务内容区。
 - **冷灰画布与白色面板**（`canvas` / `surface`）：工作面和承载事实的面板。
 - **文字层级**（`ink` / `text-secondary` / `text-muted` / `text-disabled`）：依次表达标题与关键事实、常规数据、元信息和不可用内容。
 - **结构线**（`line` / `line-soft`）：面板外框、表头、行分隔和栏目边界；主要层级由明度与线条建立。
 
 ### Semantic
 
-- 成功、警告、危险分别使用对应的基础色与 soft 背景；未知、未核验或普通状态保持中性，不能用成功色推断结论。
+- 成功、处理中、提醒、危险分别使用绿、蓝、橙、红的独立语义体系；未知、未核验或普通状态保持中性，不能用品牌色推断业务结论。
 
-**The Restrained Accent Rule.** 电网绿只标记行动与当前位置，不把整页染成品牌色。
+**The Restrained Accent Rule.** 电网青绿只标记行动与当前位置，不把整页染成品牌色。
 
 **The Double-Encoding Rule.** 状态颜色必须同时配合文字、图标或形状；颜色不能单独承担含义。
 

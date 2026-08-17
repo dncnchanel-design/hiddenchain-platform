@@ -83,6 +83,8 @@ class Settings:
     logo: str = os.getenv("PRODUCT_LOGO", "")
     logo_compact: str = os.getenv("PRODUCT_LOGO_COMPACT", "")
     favicon: str = os.getenv("PRODUCT_FAVICON", "")
+    brand_theme_id: str = os.getenv("BRAND_THEME_ID", "power-grid-green")
+    brand_primary: str = os.getenv("BRAND_PRIMARY", "#149376")
     customer_name: str = os.getenv("CUSTOMER_NAME", "")
     operator_name: str = os.getenv("OPERATOR_NAME", "")
     builder_name: str = os.getenv("BUILDER_NAME", "")
@@ -172,6 +174,10 @@ def public_branding(settings_value: Settings = settings) -> dict[str, object]:
         "logo": settings_value.logo,
         "logoCompact": settings_value.logo_compact,
         "favicon": settings_value.favicon,
+        "brandTheme": {
+            "themeId": settings_value.brand_theme_id,
+            "primary": settings_value.brand_primary,
+        },
         "customerName": settings_value.customer_name,
         "operatorName": settings_value.operator_name,
         "builderName": settings_value.builder_name,

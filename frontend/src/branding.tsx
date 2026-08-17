@@ -1,8 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { api } from "./api";
+import {
+  createBrandThemeVariables,
+  DEFAULT_BRAND_THEME,
+  normalizeBrandTheme,
+  type BrandThemeConfig,
+} from "./brand-theme";
 
-export interface ProductConfig {
+export interface ProductBrandConfig {
   productName: string;
   productShortName: string;
   productSubtitle: string;
@@ -18,6 +24,7 @@ export interface ProductConfig {
   supportContact: string;
   environmentName: string;
   loginNotice: string;
+  brandTheme: BrandThemeConfig;
   environment: "development" | "test" | "production";
   features: {
     fixtureImport: boolean;
@@ -26,7 +33,14 @@ export interface ProductConfig {
   };
 }
 
-export const DEFAULT_PRODUCT_CONFIG: ProductConfig = {
+export type ProductConfig = ProductBrandConfig;
+
+export type ProductBrandConfigInput = Omit<Partial<ProductBrandConfig>, "brandTheme" | "features"> & {
+  brandTheme?: Partial<BrandThemeConfig>;
+  features?: Partial<ProductBrandConfig["features"]>;
+};
+
+export const DEFAULT_PRODUCT_CONFIG: ProductBrandConfig = {
   productName: "隐链明算",
   productShortName: "隐链明算",
   productSubtitle: "电力交易可信执行平台",
@@ -42,6 +56,7 @@ export const DEFAULT_PRODUCT_CONFIG: ProductConfig = {
   supportContact: "",
   environmentName: "",
   loginNotice: "",
+  brandTheme: DEFAULT_BRAND_THEME,
   environment: "production",
   features: {
     fixtureImport: false,
@@ -50,10 +65,11 @@ export const DEFAULT_PRODUCT_CONFIG: ProductConfig = {
   },
 };
 
-export function mergeProductConfig(value?: Partial<ProductConfig> | null): ProductConfig {
+export function mergeProductConfig(value?: ProductBrandConfigInput | null): ProductBrandConfig {
   return {
     ...DEFAULT_PRODUCT_CONFIG,
     ...value,
+    brandTheme: normalizeBrandTheme(value?.brandTheme),
     features: { ...DEFAULT_PRODUCT_CONFIG.features, ...(value?.features || {}) },
   };
 }
@@ -76,6 +92,11 @@ export function productFooterItems(config: ProductConfig, version: string): stri
 
 function applyDocumentBranding(config: ProductConfig) {
   document.title = productDocumentTitle(config);
+  const root = document.documentElement;
+  root.dataset.brandTheme = config.brandTheme.themeId;
+  for (const [name, value] of Object.entries(createBrandThemeVariables(config.brandTheme))) {
+    root.style.setProperty(name, value);
+  }
   if (!config.favicon) return;
   let favicon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
   if (!favicon) {
@@ -91,16 +112,18 @@ const ProductConfigContext = createContext<ProductConfig>(DEFAULT_PRODUCT_CONFIG
 export function ProductConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState(DEFAULT_PRODUCT_CONFIG);
 
+  useLayoutEffect(() => {
+    applyDocumentBranding(config);
+  }, [config]);
+
   useEffect(() => {
     let active = true;
-    api<Partial<ProductConfig>>("/public/config", { cacheTtlMs: 60_000, retry: 0 })
+    api<ProductBrandConfigInput>("/public/config", { cacheTtlMs: 60_000, retry: 0 })
       .then((value) => {
         if (!active) return;
-        const next = mergeProductConfig(value);
-        setConfig(next);
-        applyDocumentBranding(next);
+        setConfig(mergeProductConfig(value));
       })
-      .catch(() => applyDocumentBranding(DEFAULT_PRODUCT_CONFIG));
+      .catch(() => undefined);
     return () => { active = false; };
   }, []);
 

@@ -15,6 +15,10 @@ services:
         value: test
       - key: ENVIRONMENT_NAME
         value: 公开测试环境
+      - key: BRAND_THEME_ID
+        value: power-grid-green
+      - key: BRAND_PRIMARY
+        value: "#149376"
       - key: TEST_FIXTURE_SEED
         value: "true"
       - key: TEST_COMPUTE_DELAY_MS

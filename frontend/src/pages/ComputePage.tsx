@@ -180,7 +180,7 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
         <div><span>响应潜力</span><strong>{result.demand_response_potential_mw ?? "—"} {result.demand_response_potential_mw === undefined ? "" : "MW"}</strong></div>
       </div>
       <div className="strategy-receipt"><Route size={18} /><div><span>执行策略</span><strong>{strategyName(strategy.primary)}</strong></div><IdText value={strategy.plan_hash} /></div>
-      {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="#d7e3ef" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "#63778e" }} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="#0b5cab" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
+      {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><YAxis tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="var(--chart-series-brand)" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
       {result.privacy_controls && <div className="detail-grid privacy-receipt-grid">
         <div><span>隐私引擎</span><strong>{result.privacy_controls.engine || "—"}</strong></div>
         <div><span>噪声机制</span><strong>{result.privacy_controls.mechanism || "—"}</strong></div>

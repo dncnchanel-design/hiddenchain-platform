@@ -59,6 +59,8 @@ def test_public_branding_contains_white_label_fields_and_safe_feature_flags() ->
             customer_name="示例客户",
             operator_name="示例运营方",
             logo="/branding/logo.svg",
+            brand_theme_id="neutral-blue",
+            brand_primary="#1769AA",
         )
     )
     assert payload["productName"] == "客户结算平台"
@@ -66,6 +68,10 @@ def test_public_branding_contains_white_label_fields_and_safe_feature_flags() ->
     assert payload["customerName"] == "示例客户"
     assert payload["operatorName"] == "示例运营方"
     assert payload["logo"] == "/branding/logo.svg"
+    assert payload["brandTheme"] == {
+        "themeId": "neutral-blue",
+        "primary": "#1769AA",
+    }
     assert payload["environment"] == "production"
     assert payload["features"] == {
         "fixtureImport": False,

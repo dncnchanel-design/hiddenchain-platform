@@ -14,12 +14,14 @@ describe("white-label product config", () => {
       copyrightYear: "2026",
       supportName: "北辰服务台",
       supportContact: "support@example.com",
+      brandTheme: { themeId: "neutral-blue", primary: "#1769aa" },
       features: { ...DEFAULT_PRODUCT_CONFIG.features, fixtureImport: true },
     });
 
     expect(config.productName).toBe("北辰电力结算平台");
     expect(config.productShortName).toBe("北辰结算");
     expect(config.logo).toBe("https://assets.example.com/beichen.svg");
+    expect(config.brandTheme).toEqual({ themeId: "neutral-blue", primary: "#1769AA" });
     expect(config.customerName).toBe("北辰电力交易中心");
     expect(config.features.fixtureImport).toBe(true);
     expect(config.features.anomalyInjection).toBe(false);

@@ -10,6 +10,8 @@
 | `PRODUCT_LOGO` | 完整 Logo URL/站内路径 | 空，使用文字标识 |
 | `PRODUCT_LOGO_COMPACT` | 折叠侧栏 Logo | 空 |
 | `PRODUCT_FAVICON` | favicon URL/站内路径 | 空 |
+| `BRAND_THEME_ID` | 部署主题技术标识，不在普通用户界面展示 | power-grid-green |
+| `BRAND_PRIMARY` | 品牌视觉基准色，由前端统一生成完整色阶与语义 Token | #149376 |
 | `CUSTOMER_NAME` | 客户单位 | 空 |
 | `OPERATOR_NAME` | 运营单位 | 空 |
 | `BUILDER_NAME` | 建设单位 | 空 |
@@ -36,6 +38,8 @@ PRODUCT_SUBTITLE=电力交易可信执行平台
 PRODUCT_LOGO=/branding/full-logo.svg
 PRODUCT_LOGO_COMPACT=/branding/mark.svg
 PRODUCT_FAVICON=/branding/favicon.svg
+BRAND_THEME_ID=customer-blue
+BRAND_PRIMARY="#1769AA"
 CUSTOMER_NAME=某电力交易机构
 OPERATOR_NAME=某运营单位
 BUILDER_NAME=某建设单位
@@ -46,4 +50,4 @@ SUPPORT_CONTACT=service@example.com
 LOGIN_NOTICE=仅限授权用户访问
 ```
 
-修改后重启后端即可；前端配置缓存为 60 秒，刷新页面后更新浏览器标题、favicon、登录页和侧栏。
+修改后重启后端即可；前端配置缓存为 60 秒，刷新页面后更新浏览器标题、favicon、品牌主题、登录页和应用壳层。主题属于部署配置能力，生产界面不提供换肤入口。

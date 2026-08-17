@@ -20,7 +20,7 @@ const unitLabels: Record<string, string> = { ms: "毫秒", percent: "%", count: 
 
 function MetricChart({ title, rows, unit }: { title: string; rows: JsonRecord[]; unit: string }) {
   return <Surface title={title} meta={unitLabels[unit] || unit}>
-    {rows.length ? <div className="chart-block"><ResponsiveContainer width="100%" height={230}><BarChart data={rows} margin={{ top: 8, right: 12, bottom: 12, left: 0 }}><CartesianGrid stroke="#e2e8ee" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 10, fill: "#63778e" }} interval={0} /><YAxis tick={{ fontSize: 11, fill: "#63778e" }} /><Tooltip formatter={(value) => [`${formatNumber(value as number, 2)} ${unitLabels[unit] || unit}`, "平均值"]} /><Bar dataKey="value" fill="#1769aa" /></BarChart></ResponsiveContainer></div> : <EmptyState title="暂无该单位的实测记录" />}
+    {rows.length ? <div className="chart-block"><ResponsiveContainer width="100%" height={230}><BarChart data={rows} margin={{ top: 8, right: 12, bottom: 12, left: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--chart-axis)" }} interval={0} /><YAxis tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><Tooltip formatter={(value) => [`${formatNumber(value as number, 2)} ${unitLabels[unit] || unit}`, "平均值"]} /><Bar dataKey="value" fill="var(--chart-series-brand)" /></BarChart></ResponsiveContainer></div> : <EmptyState title="暂无该单位的实测记录" />}
   </Surface>;
 }
 

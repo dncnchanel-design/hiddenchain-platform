@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, Save, UsersRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, post } from "../api";
-import { Button, ErrorState, Field, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, ErrorState, Field, IdText, LoadingState, Notice, PageHeader, SectionHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
 
@@ -108,7 +108,7 @@ export function SettlementCreatePage() {
 
         <Surface className="wizard-panel">
           {step === 0 && <div className="wizard-section">
-            <div className="section-title"><Network size={19} /><div><h2>基本信息</h2><p>明确交易批次与结算周期。</p></div></div>
+            <SectionHeader icon={Network} title="基本信息" description="明确交易批次与结算周期。" />
             <div className="form-grid two">
               <Field label="任务名称"><input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="例如：2026年8月月度电量结算" autoFocus /></Field>
               <Field label="交易批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} placeholder="例如：TB-2026-08-001" /></Field>
@@ -119,7 +119,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {step === 1 && <div className="wizard-section">
-            <div className="section-title"><UsersRound size={19} /><div><h2>参与主体</h2><p>每个任务包含一个发电主体和一个售电主体。</p></div></div>
+            <SectionHeader icon={UsersRound} title="参与主体" description="每个任务包含一个发电主体和一个售电主体。" />
             <div className="form-grid two">
               <Field label="发电企业"><select value={generatorId} onChange={(event) => setGeneratorId(event.target.value)} autoFocus><option value="">请选择</option>{generators.map((item) => <option key={item.org_id} value={item.org_id}>{item.org_name}</option>)}</select></Field>
               <Field label="售电企业"><select value={retailerId} onChange={(event) => setRetailerId(event.target.value)}><option value="">请选择</option>{retailers.map((item) => <option key={item.org_id} value={item.org_id}>{item.org_name}</option>)}</select></Field>
@@ -128,7 +128,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {step === 2 && <div className="wizard-section">
-            <div className="section-title"><Database size={19} /><div><h2>数据准备</h2><p>按参与主体和交易批次核对数据引用。</p></div></div>
+            <SectionHeader icon={Database} title="数据准备" description="按参与主体和交易批次核对数据引用。" />
             <div className="readiness-list">
               <DataReadiness label="发电计量数据" organization={generator?.org_name} entry={generationData} />
               <DataReadiness label="售电履约数据" organization={retailer?.org_name} entry={retailData} />
@@ -137,7 +137,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {step === 3 && <div className="wizard-section">
-            <div className="section-title"><Gavel size={19} /><div><h2>规则与计算</h2><p>选择已启用规则；执行边界将写入单笔回执。</p></div></div>
+            <SectionHeader icon={Gavel} title="规则与计算" description="选择已启用规则；执行边界将写入单笔回执。" />
             <div className="form-grid two">
               <Field label="结算规则版本"><select value={ruleId} onChange={(event) => setRuleId(event.target.value)} autoFocus><option value="">请选择</option>{activeRules.map((item) => <option key={item.rule_id} value={item.rule_id}>{item.rule_version} · {item.rule_name}</option>)}</select></Field>
               <Field label="计算方式"><select value="LOCAL_CONTROLLED" disabled><option value="LOCAL_CONTROLLED">本地受控计算</option></select></Field>
@@ -147,7 +147,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {step === 4 && <div className="wizard-section">
-            <div className="section-title"><Save size={19} /><div><h2>提交复核</h2><p>创建后进入任务详情继续处理。</p></div></div>
+            <SectionHeader icon={Save} title="提交复核" description="创建后进入任务详情继续处理。" />
             <dl className="review-grid">
               <div><dt>任务名称</dt><dd>{taskName || "—"}</dd></div>
               <div><dt>交易批次</dt><dd><IdText value={batch} /></dd></div>
