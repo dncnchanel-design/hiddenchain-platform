@@ -14,11 +14,11 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 
 def ensure_runtime_schema() -> None:
-    """Apply the tiny additive migrations used by the demo deployment.
+    """Apply the small additive migrations used by local and hosted deployments.
 
     The project intentionally keeps deployment lightweight, so a full migration
     framework would be disproportionate here.  These changes are additive and
-    safe for an existing SQLite or PostgreSQL demo database.
+    safe for an existing SQLite or PostgreSQL database.
     """
 
     additions = {

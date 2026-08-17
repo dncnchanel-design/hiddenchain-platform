@@ -12,26 +12,27 @@ if TEST_DB.exists():
     TEST_DB.unlink()
 
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
-os.environ["DEMO_SEED"] = "true"
-os.environ["MOCK_DELAY_MS"] = "0"
+os.environ["APP_ENV"] = "test"
+os.environ["TEST_FIXTURE_SEED"] = "true"
+os.environ["TEST_COMPUTE_DELAY_MS"] = "0"
 os.environ["DEEPSEEK_ENABLED"] = "false"
 
 from app.database import SessionLocal, ensure_runtime_schema, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
-from app.seed import seed_demo  # noqa: E402
+from app.seed import seed_test_fixtures  # noqa: E402
 from app.services.rate_limit import limiter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def reset_demo_database():
+def reset_test_database():
     """Give every test a fresh seeded database so order randomization is valid."""
     limiter.reset()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
     with SessionLocal() as db:
-        seed_demo(db)
+        seed_test_fixtures(db)
     yield
 
 

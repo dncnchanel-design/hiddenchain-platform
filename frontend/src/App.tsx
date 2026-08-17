@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { canAccessRoute, getDefaultPath } from "./access";
+import { canAccessRoute, canCreateSettlement, getDefaultPath } from "./access";
 import { useAuth } from "./auth";
 import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
@@ -23,6 +23,8 @@ const {
   results: ResultsPage,
   rules: RulesPage,
   settlement: SettlementPage,
+  settlementCreate: SettlementCreatePage,
+  settlementDetail: SettlementDetailPage,
   system: SystemPage,
   workbench: WorkbenchPage,
 } = pages;
@@ -50,6 +52,13 @@ function Allowed({ path, children }: { path: string; children: React.ReactNode }
     : <Navigate to={`/403?path=${encodeURIComponent(path)}`} replace state={{ deniedPath: path }} />;
 }
 
+function ExchangeOnly({ children }: { children: React.ReactNode }) {
+  const { session } = useAuth();
+  return session && canCreateSettlement(session)
+    ? children
+    : <Navigate to="/403?path=%2Fsettlements%2Fnew" replace />;
+}
+
 function WorkspaceHome() {
   const { session } = useAuth();
   return session ? <Navigate to={getDefaultPath(session)} replace /> : null;
@@ -75,6 +84,8 @@ export default function App() {
           <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
           <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
           <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />
+          <Route path="/settlements/new" element={<Allowed path="/settlements/new"><ExchangeOnly><SettlementCreatePage /></ExchangeOnly></Allowed>} />
+          <Route path="/settlements/:taskId" element={<Allowed path="/settlements/:taskId"><SettlementDetailPage /></Allowed>} />
           <Route path="/compute" element={<Allowed path="/compute"><ComputePage /></Allowed>} />
           <Route path="/results" element={<Allowed path="/results"><ResultsPage /></Allowed>} />
           <Route path="/evidence" element={<Allowed path="/evidence"><EvidencePage /></Allowed>} />

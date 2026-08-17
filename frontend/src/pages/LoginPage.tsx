@@ -3,6 +3,7 @@ import { Eye, EyeOff, Info, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getDefaultPath } from "../access";
 import { useAuth } from "../auth";
+import { BrandMark, productFooterItems, useProductConfig } from "../branding";
 import { Button, Notice } from "../components/ui";
 
 export function LoginPage() {
@@ -14,9 +15,9 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
-  const environment = import.meta.env.VITE_ENV_LABEL || "演示环境";
+  const product = useProductConfig();
   const version = import.meta.env.VITE_APP_VERSION || "0.1.0";
-  const organization = import.meta.env.VITE_ORGANIZATION_NAME || "";
+  const footerItems = productFooterItems(product, version);
 
   function detectCapsLock(event: KeyboardEvent<HTMLInputElement>) {
     setCapsLock(event.getModifierState("CapsLock"));
@@ -40,10 +41,10 @@ export function LoginPage() {
     <div className="login-screen">
       <header className="login-brandbar">
         <div className="login-brand">
-          <span className="login-product-mark"><ShieldCheck size={21} /></span>
-          <span><strong>隐链明算</strong><small>电力交易可信执行平台</small></span>
+          <span className="login-product-mark"><BrandMark size={21} /></span>
+          <span><strong>{product.productName}</strong><small>{product.productSubtitle}</small></span>
         </div>
-        <div className="login-runtime"><span className="environment-tag">{environment}</span><span>版本 {version}</span></div>
+        <div className="login-runtime">{product.environmentName && <span className="environment-tag">{product.environmentName}</span>}<span>版本 {version}</span></div>
       </header>
 
       <main className="login-main">
@@ -71,14 +72,13 @@ export function LoginPage() {
           {error && <Notice tone="warning">{error}</Notice>}
           <Button type="submit" variant="primary" busy={busy}>登录</Button>
 
+          {product.loginNotice && <Notice>{product.loginNotice}</Notice>}
           <div className="login-security-note"><ShieldCheck size={15} /><span>请使用授权账号登录，离开终端时及时退出系统。</span></div>
         </form>
       </main>
 
       <footer className="login-footer">
-        <span>隐链明算 · 电力交易可信执行平台</span>
-        {organization && <span>{organization}</span>}
-        <span>{environment} · 系统版本 {version}</span>
+        {footerItems.map((item) => <span key={item}>{item}</span>)}
       </footer>
     </div>
   );

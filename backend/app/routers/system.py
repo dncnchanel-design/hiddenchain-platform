@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import public_branding, settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import (
@@ -19,6 +20,7 @@ from ..models import (
     Organization,
     PrivacyAnalysisJob,
     PrivacyComputeJob,
+    SettlementRule,
     SettlementTask,
     User,
 )
@@ -28,6 +30,11 @@ from ..services.workflow import task_summary
 
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/public/config")
+def public_config() -> dict[str, object]:
+    return public_branding(settings)
 
 
 @router.get("/metrics/prometheus", include_in_schema=False)
@@ -56,101 +63,9 @@ def dashboard_summary(
         tasks_query = tasks_query.where(SettlementTask.task_id.in_(task_ids or ["__none__"]))
     recent_tasks = [task_summary(db, item) for item in db.scalars(tasks_query).all()]
     latest_coordination = next(
-        (
-            item["scenario_coordination"]
-            for item in recent_tasks
-            if item.get("scenario_coordination")
-        ),
+        (item["scenario_coordination"] for item in recent_tasks if item.get("scenario_coordination")),
         [],
     )
-    capabilities = [
-        {
-            "code": "IDENTITY",
-            "name": "主体身份可信",
-            "status": "HEALTHY",
-            "metric": db.scalar(select(func.count(DidIdentity.did_id)).where(DidIdentity.credential_status == "VALID")) or 0,
-            "unit": "个有效DID/VC",
-        },
-        {
-            "code": "DATA",
-            "name": "数据流通可信",
-            "status": "HEALTHY",
-            "metric": db.scalar(select(func.count(DataContract.contract_id)).where(DataContract.status == "ACTIVE")) or 0,
-            "unit": "份有效数据合同",
-        },
-        {
-            "code": "RULE",
-            "name": "用途控制可信",
-            "status": "HEALTHY",
-            "metric": db.scalar(select(func.count(SettlementTask.task_id)).where(SettlementTask.status != "DRAFT")) or 0,
-            "unit": "笔受控调用/验证",
-        },
-        {
-            "code": "COMPUTE",
-            "name": "隐私计算可信",
-            "status": "HEALTHY",
-            "metric": db.scalar(select(func.count(PrivacyComputeJob.job_id)).where(PrivacyComputeJob.status == "SUCCESS")) or 0,
-            "unit": "个ComputeReceipt",
-        },
-        {
-            "code": "AUDIT",
-            "name": "回执与证据可信",
-            "status": "HEALTHY",
-            "metric": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0,
-            "unit": "项证据索引",
-        },
-    ]
-    role_todos = {
-        "GENERATOR": ["核对预测与计量承诺", "查看新能源消纳场景结果"],
-        "RETAILER": ["维护可调用数据产品", "运行用电隐私分析"],
-        "EXCHANGE": ["组织数据调用与场景验证", "检查用途策略与隐私计算闸门"],
-        "REGULATOR": ["核验四链证据关系", "处置高风险异常"],
-        "ADMIN": ["维护DID状态", "检查服务与节点健康"],
-    }
-    fallback_scenarios = [
-        {
-            "code": "RENEWABLE_CONSUMPTION",
-            "name": "新能源消纳",
-            "status": "READY",
-            "metric": f"预测资产 {db.scalar(select(func.count(DataUpload.upload_id)).where(DataUpload.asset_type == 'RENEWABLE_FORECAST')) or 0} 份",
-            "input": "气象特征、出力预测、计量承诺",
-            "output": "消纳风险摘要",
-            "next": "市场场景验证",
-        },
-        {
-            "code": "MARKET_TRADING",
-            "name": "电力交易验证",
-            "status": "READY",
-            "metric": f"可信任务 {db.scalar(select(func.count(SettlementTask.task_id))) or 0} 笔",
-            "input": "交易批次、RulePackage、DataPermit",
-            "output": "数据调用与计算计划",
-            "next": "虚拟电厂偏差响应",
-        },
-        {
-            "code": "VPP_OPERATION",
-            "name": "虚拟电厂运营",
-            "status": "READY",
-            "metric": f"资源池 {db.scalar(select(func.count(DataUpload.upload_id)).where(DataUpload.asset_type == 'VPP_RESOURCE')) or 0} 份",
-            "input": "储能与可调负荷承诺",
-            "output": "聚合响应能力",
-            "next": "电网安全校核",
-        },
-        {
-            "code": "GRID_DISPATCH",
-            "name": "电网调度",
-            "status": "READY",
-            "metric": f"安全边界 {db.scalar(select(func.count(DataUpload.upload_id)).where(DataUpload.asset_type == 'GRID_CONSTRAINT')) or 0} 份",
-            "input": "调度边界、剩余交易偏差",
-            "output": "安全闸门结论",
-            "next": "场景结果与审计",
-        },
-    ]
-    scenario_map = {
-        item["code"]: item for item in latest_coordination if item.get("artifact")
-    }
-    scenario_coordination = [
-        {**item, **scenario_map.get(item["code"], {})} for item in fallback_scenarios
-    ]
     valid_dids = db.scalar(
         select(func.count(DidIdentity.did_id)).where(DidIdentity.credential_status == "VALID")
     ) or 0
@@ -166,53 +81,67 @@ def dashboard_summary(
             DataSpaceAgreement.state.in_(["NEGOTIATED", "ACTIVE", "CONSUMED"])
         )
     ) or 0
+    active_rules = db.scalar(
+        select(func.count(SettlementRule.rule_id)).where(SettlementRule.status == "ACTIVE")
+    ) or 0
+    capabilities = [
+        {"code": "IDENTITY", "name": "主体身份记录", "status": "RECORDED" if valid_dids else "NOT_CONFIGURED", "metric": valid_dids, "unit": "个有效凭证"},
+        {"code": "DATA", "name": "数据授权协议", "status": "RECORDED" if active_agreements else "NOT_CONFIGURED", "metric": active_agreements, "unit": "份有效协议"},
+        {"code": "RULE", "name": "结算规则版本", "status": "RECORDED" if active_rules else "NOT_CONFIGURED", "metric": active_rules, "unit": "个启用版本"},
+        {"code": "COMPUTE", "name": "受控计算回执", "status": "RECORDED" if successful_compute_jobs else "NOT_CONFIGURED", "metric": successful_compute_jobs, "unit": "个执行回执"},
+        {"code": "AUDIT", "name": "审计证据记录", "status": "RECORDED" if evidence_count else "NOT_CONFIGURED", "metric": evidence_count, "unit": "项证据索引"},
+    ]
+    encrypted_uploads = sum(
+        bool(item.ingress_json.get("encryption")) and "SIMULATION" not in str(item.ingress_json.get("source_type", "")).upper()
+        for item in upload_records
+    )
     verification_steps = [
         {
             "code": "TRUSTED_ACQUISITION",
-            "name": "可信采集",
-            "description": "来源证明、格式校验与数据承诺",
-            "status": "PASSED" if upload_total and trusted_uploads == upload_total else "READY",
+            "name": "数据登记",
+            "description": "来源信息、格式校验与数据承诺",
+            "status": "RECORDED" if upload_total and trusted_uploads == upload_total else "NOT_CONFIGURED",
             "metric": f"{trusted_uploads}/{upload_total} 份数据已登记" if upload_total else "等待数据登记",
         },
         {
             "code": "SECURE_TRANSPORT",
-            "name": "安全传输",
-            "description": "HTTPS / MQTT / WebSocket 接入边界",
-            "status": "PASSED" if upload_total else "READY",
-            "metric": "加密传输边界已启用",
+            "name": "传输证明",
+            "description": "按每份数据记录的接入与加密信息核对",
+            "status": "RECORDED" if encrypted_uploads else "UNVERIFIED",
+            "metric": f"{encrypted_uploads}/{upload_total} 份提供加密信息" if upload_total else "未提供传输记录",
         },
         {
             "code": "CONTROLLED_USE",
             "name": "可控使用",
             "description": "DID、数据合同与用途策略",
-            "status": "PASSED" if active_agreements else "READY",
+            "status": "RECORDED" if active_agreements else "NOT_CONFIGURED",
             "metric": f"{active_agreements} 份授权协议" if active_agreements else "等待授权调用",
         },
         {
             "code": "PRIVACY_COMPUTE",
-            "name": "隐私计算",
-            "description": "授权域内计算与最小结果输出",
-            "status": "PASSED" if successful_compute_jobs else "READY",
+            "name": "受控计算",
+            "description": "计算方式与结果披露范围以单笔回执为准",
+            "status": "RECORDED" if successful_compute_jobs else "NOT_CONFIGURED",
             "metric": f"{successful_compute_jobs} 个计算回执" if successful_compute_jobs else "等待计算任务",
         },
         {
             "code": "TRACEABLE_AUDIT",
             "name": "可溯审计",
             "description": "算前、算中、算后证据可核验",
-            "status": "PASSED" if evidence_count else "READY",
+            "status": "RECORDED" if evidence_count else "NOT_CONFIGURED",
             "metric": f"{evidence_count} 项可信凭证" if evidence_count else "等待生成凭证",
         },
     ]
-    privacy_job_count = (
+    compute_job_count = (
         (db.scalar(select(func.count(PrivacyComputeJob.job_id))) or 0)
         + (db.scalar(select(func.count(PrivacyAnalysisJob.analysis_id))) or 0)
     )
     agent_event_count = db.scalar(select(func.count(AgentEvent.event_id))) or 0
     four_chain_fusion = [
-        {"code": "DID", "name": "DID身份链", "metric": valid_dids, "unit": "个有效凭证", "artifact": "VC + 能力令牌"},
-        {"code": "PRIVACY", "name": "隐私计算链", "metric": privacy_job_count, "unit": "个计算回执", "artifact": "DataPermit + ComputeReceipt"},
-        {"code": "BLOCKCHAIN", "name": "区块链存证链", "metric": evidence_count, "unit": "项证据索引", "artifact": "证据哈希 + 交易索引"},
-        {"code": "AGENT", "name": "受控能力协作链", "metric": agent_event_count, "unit": "次签名调用", "artifact": "能力 DID + I/O哈希"},
+        {"code": "IDENTITY", "name": "身份记录", "metric": valid_dids, "unit": "个有效凭证", "artifact": "主体凭证与签名"},
+        {"code": "COMPUTE", "name": "计算记录", "metric": compute_job_count, "unit": "个计算回执", "artifact": "授权结果与计算回执"},
+        {"code": "EVIDENCE", "name": "证据台账", "metric": evidence_count, "unit": "项证据索引", "artifact": "证据摘要与顺序索引"},
+        {"code": "PROCESS", "name": "过程记录", "metric": agent_event_count, "unit": "次受控调用", "artifact": "输入输出摘要与追踪编号"},
     ]
     return {
         "kpis": {
@@ -224,14 +153,14 @@ def dashboard_summary(
         },
         "trusted_capabilities": capabilities,
         "recent_tasks": recent_tasks,
-        "role_todos": role_todos.get(user.role_code, []),
-        "scenario_coordination": scenario_coordination,
+        "role_todos": [],
+        "scenario_coordination": latest_coordination,
         "verification_steps": verification_steps,
         "latest_verification": recent_tasks[0] if recent_tasks else None,
         "four_chain_fusion": four_chain_fusion,
-        "data_mode": "MVP_DEMO_DATA",
-        "security_boundary": "业务数据库不保存企业原始明细；Agent只处理DataRef、RulePackage与证据消息。",
-        "evaluation_note": "当前系统为可运行虚拟仿真验证场景，生产接入需替换真实数据网关、隐私计算节点和联盟链适配器。",
+        "data_mode": settings.app_env.upper(),
+        "security_boundary": "业务列表只返回数据引用、摘要与受控结果；原始数据处理边界必须按单笔执行回执核对。",
+        "evaluation_note": "跨主体原始数据不出域、隐私协议和外部存证能力不得由汇总数量推断，必须以部署配置和单笔执行证明为准。",
     }
 
 
@@ -258,7 +187,7 @@ def users(
 
 @router.get("/system/dids")
 def dids(
-    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     return [model_dict(item) for item in db.scalars(select(DidIdentity).order_by(DidIdentity.owner_type, DidIdentity.owner_id)).all()]
@@ -266,7 +195,7 @@ def dids(
 
 @router.get("/metrics/summary")
 def metrics(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
     records = db.scalars(select(MetricRecord).order_by(MetricRecord.recorded_at.desc()).limit(200)).all()
@@ -284,28 +213,28 @@ def metrics(
     ) or 0
     compute_jobs = db.scalars(select(PrivacyComputeJob)).all()
     successful_jobs = [item for item in compute_jobs if item.status == "SUCCESS"]
-    privacy_safe_jobs = [
+    api_bounded_jobs = [
         item for item in successful_jobs
-        if (item.execution_attestation_json or {}).get("raw_data_exported") is False
+        if (item.execution_attestation_json or {}).get("api_raw_records_returned") is False
     ]
     agreements_total = db.scalar(select(func.count(DataSpaceAgreement.agreement_id))) or 0
     consumed_agreements = db.scalar(
         select(func.count(DataSpaceAgreement.agreement_id)).where(DataSpaceAgreement.state == "CONSUMED")
     ) or 0
     return {
-        "compute_cost_ms": avg("MPC_DURATION_MS"),
+        "compute_cost_ms": avg("LOCAL_COMPUTE_DURATION_MS") or avg("MPC_DURATION_MS"),
         "privacy_analysis_ms": avg("PRIVACY_ANALYSIS_MS"),
-        "verify_rate": avg("VERIFY_RATE") or 100,
+        "verify_rate": avg("VERIFY_RATE") if records else None,
         "agent_event_count": db.scalar(select(func.count(AgentEvent.event_id))) or 0,
         "evidence_count": verified_count,
         "active_data_refs": db.scalar(select(func.count(DataUpload.upload_id)).where(DataUpload.validation_status == "PASSED")) or 0,
-        "raw_data_centralized": 0,
-        "measurement_scope": "当前虚拟仿真样本",
+        "raw_data_centralized": None,
+        "measurement_scope": settings.environment_name or settings.app_env,
         "data_flow_efficiency_pct": round(100 * audited_tasks / max(task_total, 1), 2) if task_total else 0,
-        "privacy_protection_rate_pct": round(100 * len(privacy_safe_jobs) / max(len(successful_jobs), 1), 2) if successful_jobs else 0,
-        "raw_data_exposure_rate_pct": 0 if successful_jobs else None,
+        "api_output_boundary_rate_pct": round(100 * len(api_bounded_jobs) / max(len(successful_jobs), 1), 2) if successful_jobs else None,
+        "cross_domain_non_export_rate_pct": None,
         "authorized_call_count": consumed_agreements,
         "authorized_agreement_count": agreements_total,
-        "baseline_note": "当前仅展示虚拟仿真实测值；与生产基线的相对提升需接入现场基线后计算。",
+        "baseline_note": "仅展示系统已记录的运行事实；未接入的跨域证明与现场基线不估算。",
         "series": [model_dict(item) for item in records[:30]],
     }

@@ -1,4 +1,6 @@
-# 隐链明算比赛演示部署说明
+# 非生产：隐链明算比赛演示部署说明
+
+> 该流程只启动 test 环境，不属于 production 发布路径。生产部署见 `PRODUCTION_DEPLOYMENT.md`。
 
 ## 三种访问方式
 

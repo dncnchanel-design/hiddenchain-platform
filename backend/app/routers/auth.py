@@ -18,7 +18,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 MODULES = [
-    {"code": "overview", "path": "/overview", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "overview", "path": "/overview", "roles": ["ADMIN"]},
     {"code": "workbench", "path": "/workbench", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "generation-data", "path": "/data/generation", "roles": ["GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "retail-data", "path": "/data/retail", "roles": ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
@@ -29,12 +29,12 @@ MODULES = [
     {"code": "results", "path": "/results", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "evidence", "path": "/evidence", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "audit", "path": "/audit", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "agents", "path": "/agents", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "agents", "path": "/agents", "roles": ["ADMIN"]},
     {"code": "anomalies", "path": "/anomalies", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "logs", "path": "/logs", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},
     {"code": "system", "path": "/system", "roles": ["ADMIN"]},
     {"code": "reports", "path": "/reports", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "metrics", "path": "/metrics", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "metrics", "path": "/metrics", "roles": ["ADMIN"]},
 ]
 
 
@@ -61,17 +61,6 @@ def _user_payload(db: Session, user: User) -> dict:
             "audit_evidence": "FULL" if user.role_code == "REGULATOR" else "ROLE_SCOPED",
         },
     }
-
-
-@router.get("/demo-users")
-def demo_users() -> list[dict]:
-    return [
-        {"role": "GENERATOR", "username": "generator", "password": "generator123", "label": "发电企业"},
-        {"role": "RETAILER", "username": "retailer", "password": "retailer123", "label": "售电企业"},
-        {"role": "EXCHANGE", "username": "exchange", "password": "exchange123", "label": "交易中心"},
-        {"role": "REGULATOR", "username": "regulator", "password": "regulator123", "label": "监管方"},
-        {"role": "ADMIN", "username": "admin", "password": "admin123", "label": "系统管理员"},
-    ]
 
 
 @router.post("/login")

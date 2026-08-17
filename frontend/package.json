@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "build:production": "pnpm check:production && pnpm build",
+    "check:production": "node scripts/check-production.mjs",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",

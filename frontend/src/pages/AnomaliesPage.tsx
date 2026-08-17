@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, RefreshCw } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, post } from "../api";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, FilterBar, IdText, LoadingState, Metric, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -15,6 +16,8 @@ const eventLabels: Record<string, string> = {
 
 export function AnomaliesPage() {
   const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const taskId = searchParams.get("task_id") || "";
   const [statusFilter, setStatusFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
   const [selected, setSelected] = useState<JsonRecord | null>(null);
@@ -27,7 +30,7 @@ export function AnomaliesPage() {
     (signal) => api("/anomalies", { signal, timeoutMs: 12000, cache: "no-store" }), [],
   );
   const canResolve = ["REGULATOR", "ADMIN"].includes(session!.user.role_code);
-  const rows = useMemo(() => (data || []).filter((item) => (!statusFilter || item.status === statusFilter) && (!riskFilter || item.risk_level === riskFilter)), [data, riskFilter, statusFilter]);
+  const rows = useMemo(() => (data || []).filter((item) => (!taskId || item.task_id === taskId) && (!statusFilter || item.status === statusFilter) && (!riskFilter || item.risk_level === riskFilter)), [data, riskFilter, statusFilter, taskId]);
 
   async function resolve() {
     if (!resolveTarget || resolution.trim().length < 2) return;
@@ -51,7 +54,8 @@ export function AnomaliesPage() {
 
   return (
     <>
-      <PageHeader title="风险处置" description="查看检测到的风险事件、关联证据及处置状态。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title="风险处置" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
       <div className="metrics-grid three">
         <Metric label="待处置事件" value={data.filter((item) => item.status === "OPEN").length} tone="red" />
         <Metric label="待处置高风险" value={data.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length} tone="amber" />
@@ -67,7 +71,7 @@ export function AnomaliesPage() {
           keyField="event_id" rows={rows} label="风险事件清单"
           columns={[
             { key: "title", label: "事件", minWidth: 220, render: (row) => <button className="table-link risk-title" type="button" onClick={() => setSelected(row)}><AlertTriangle size={16} />{row.title || "—"}</button> },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <IdText value={row.task_id} /> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} /></Link> },
             { key: "event_type", label: "检测规则", minWidth: 150, render: (row) => eventLabels[row.event_type] || row.event_type || "—" },
             { key: "risk_level", label: "风险等级", render: (row) => <StatusTag value={row.risk_level} /> },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
@@ -78,7 +82,7 @@ export function AnomaliesPage() {
       </Surface>
 
       {selected && <DetailDrawer title="风险事件详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
-        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><IdText value={selected.task_id} /></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
+        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
         <div className="detail-section"><h3>事件说明</h3><p>{selected.description || "—"}</p></div>
         {selected.resolution && <div className="detail-section"><h3>处置意见</h3><p>{selected.resolution}</p></div>}
         {selected.evidence_json && <details className="secondary-details"><summary>查看关联证据</summary><pre className="json-view">{JSON.stringify(selected.evidence_json, null, 2)}</pre></details>}

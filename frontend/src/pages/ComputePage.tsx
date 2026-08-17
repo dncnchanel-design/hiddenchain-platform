@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Database, Play, Plus, RefreshCw, Route } from "lucide-react";
+import { ArrowLeft, Database, Eye, Play, Plus, RefreshCw, Route } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
-import { Button, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, IdText, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { AmountText, Button, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, IdText, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
 import type { JsonRecord } from "../types";
@@ -14,8 +15,23 @@ function strategyName(code: unknown) {
   return ALGORITHM_LABELS[String(code)] || String(code || "—");
 }
 
+function purposeName(code: unknown) {
+  return ({ POWER_SETTLEMENT: "电力结算", MARKET_SETTLEMENT: "市场结算" } as Record<string, string>)[String(code)] || "任务约定用途";
+}
+
+function outputModeName(code: unknown) {
+  return code === "AGGREGATE_ONLY" ? "仅披露聚合结算结果" : "未提供披露策略";
+}
+
+function authorizationSummary(items: JsonRecord[] = []) {
+  const purposes = Array.from(new Set(items.map((item) => purposeName(item.purpose))));
+  return `${items.length} 份${purposes.length ? ` · ${purposes.join("、")}` : ""}`;
+}
+
 export function ComputePage() {
   const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const taskId = searchParams.get("task_id") || "";
   const analysisAllowed = ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"].includes(session!.user.role_code);
   const canCreateAnalysis = ["RETAILER", "EXCHANGE", "REGULATOR"].includes(session!.user.role_code);
   const [tab, setTab] = useState<ComputeTab>("SETTLEMENT");
@@ -24,13 +40,13 @@ export function ComputePage() {
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
     const [jobs, strategies] = await Promise.all([
-      api<JsonRecord[]>("/privacy/jobs", request),
+      api<JsonRecord[]>(taskId ? `/privacy/jobs?task_id=${encodeURIComponent(taskId)}` : "/privacy/jobs", request),
       api<JsonRecord[]>("/privacy/strategy/catalog", request),
     ]);
     const analyses = analysisAllowed ? await api<JsonRecord[]>("/privacy/analysis/jobs", request) : [];
     return { jobs, analyses, strategies };
   };
-  const { data, loading, refreshing, error, reload } = useRemote(loader, [analysisAllowed]);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, [analysisAllowed, taskId]);
 
   if (loading) return <LoadingState label="正在加载计算任务" variant="page" />;
   if (error || !data) return <ErrorState message={error || "隐私计算加载失败"} retry={reload} />;
@@ -39,16 +55,18 @@ export function ComputePage() {
 
   return (
     <>
-      <PageHeader title="隐私计算" description="查看受控计算策略、任务执行状态与聚合结果回执。" actions={<><Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>{tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
+      <PageHeader title="隐私计算" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>{!taskId && tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
+      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
       <div className="segmented" role="tablist">
         <button type="button" role="tab" aria-selected={tab === "SETTLEMENT"} className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>调用计算</button>
         {analysisAllowed && <button type="button" role="tab" aria-selected={tab === "LOAD"} className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用电分析</button>}
       </div>
-      <Surface title="计算方式">
+      <Surface title="策略建议" meta="不代表运行环境已接入对应协议">
         <DataTable keyField="scenario_code" rows={data.strategies} label="计算方式目录" pageSize={20} columns={[
           { key: "scenario_code", label: "业务场景", minWidth: 170, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_name || row.scenario_code || "—" },
-          { key: "primary", label: "主要方式", minWidth: 180, render: (row) => strategyName(row.primary) },
-          { key: "supporting", label: "辅助方式", minWidth: 240, render: (row) => (row.supporting || []).map((code: string) => strategyName(code)).join("、") || "—" },
+          { key: "primary", label: "建议主要方式", minWidth: 180, render: (row) => strategyName(row.primary) },
+          { key: "supporting", label: "建议辅助方式", minWidth: 240, render: (row) => (row.supporting || []).map((code: string) => strategyName(code)).join("、") || "—" },
+          { key: "implementation_status", label: "运行能力", minWidth: 90, render: (row) => <StatusTag value={row.implementation_status} label={row.execution_capability ? "可执行" : "未接入"} /> },
           { key: "sensitivity_level", label: "敏感等级", render: (row) => <StatusTag value={row.sensitivity_level} /> },
           { key: "latency_requirement", label: "时延要求", render: (row) => <StatusTag value={row.latency_requirement} /> },
           { key: "participant_count", label: "参与方", align: "right", render: (row) => row.participant_count === undefined ? "—" : `${row.participant_count} 方` },
@@ -59,13 +77,18 @@ export function ComputePage() {
           keyField={tab === "SETTLEMENT" ? "job_id" : "analysis_id"}
           rows={currentRows}
           columns={tab === "SETTLEMENT" ? [
-            { key: "job_id", label: "计算编号", minWidth: 150, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}><IdText value={row.job_id} copyable={false} /></button> },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <IdText value={row.task_id} /> },
-            { key: "algorithm_code", label: "计算方案", render: (row) => strategyName(row.algorithm_code) },
-            { key: "duration_ms", label: "耗时", align: "right", render: (row) => row.duration_ms === null || row.duration_ms === undefined ? "—" : `${formatNumber(row.duration_ms, 0)} ms` },
-            { key: "output_hash", label: "输出摘要", minWidth: 150, render: (row) => <IdText value={row.output_hash} /> },
+            { key: "task_id", label: "关联结算任务", minWidth: 200, render: (row) => <div className="task-name-cell"><Link to={`/settlements/${row.task_id}`}>{row.task_name || "结算任务"}</Link><IdText value={row.task_id} /></div> },
+            { key: "trade_batch_no", label: "数据批次", minWidth: 125, render: (row) => <IdText value={row.trade_batch_no} length={8} /> },
+            { key: "participants", label: "参与主体", minWidth: 200, sortable: false, render: (row) => (row.participants || []).map((item: JsonRecord) => item.org_name || item.org_id).join("、") || "—" },
+            { key: "authorization_basis", label: "授权依据", minWidth: 125, sortable: false, render: (row) => authorizationSummary(row.authorization_basis) },
+            { key: "algorithm_code", label: "计算方案", minWidth: 130, render: (row) => strategyName(row.algorithm_code) },
+            { key: "disclosure", label: "结果披露", minWidth: 140, sortable: false, render: (row) => outputModeName(row.disclosure?.output_mode) },
+            { key: "output_hash", label: "输出摘要", minWidth: 135, render: (row) => <IdText value={row.output_hash} /> },
+            { key: "evidence_count", label: "证据", align: "right", render: (row) => `${row.evidence_count || 0} 项` },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
             { key: "created_at", label: "执行时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
+            { key: "duration_ms", label: "耗时", align: "right", render: (row) => row.duration_ms === null || row.duration_ms === undefined ? "—" : `${formatNumber(row.duration_ms, 0)} ms` },
+            { key: "action", label: "操作", minWidth: 100, sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={Eye} onClick={() => setSelected(row)}>查看回执</Button> },
           ] : [
             { key: "analysis_name", label: "分析任务", minWidth: 180, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.analysis_name}</button> },
             { key: "analysis_type", label: "分析类型", render: (row) => ({ PEAK_VALLEY: "峰谷特征", LOAD_CLUSTER: "负荷聚类", DR_POTENTIAL: "响应潜力" } as Record<string, string>)[row.analysis_type] || row.analysis_type },
@@ -87,17 +110,45 @@ export function ComputePage() {
 
 function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void }) {
   const guarantees = job.privacy_guarantees || {};
+  const result = job.result_json || {};
+  const participants = job.participants || [];
+  const authorization = job.authorization_basis || [];
   return (
     <DetailDrawer title="隐私计算回执" onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
       <div className="detail-grid">
         <div><span>计算编号</span><IdText value={job.job_id} /></div>
-        <div><span>关联任务</span><IdText value={job.task_id} /></div>
+        <div><span>关联结算任务</span><Link className="text-link" to={`/settlements/${job.task_id}`}>{job.task_name || <IdText value={job.task_id} />}</Link></div>
+        <div><span>数据批次</span><IdText value={job.trade_batch_no} /></div>
         <div><span>计算方式</span><strong>{strategyName(job.algorithm_code)}</strong></div>
+        <div><span>结算规则</span><strong>{job.rule ? `${job.rule.rule_version} · ${job.rule.rule_name}` : "未提供"}</strong></div>
+        <div><span>结果披露</span><strong>{outputModeName(job.disclosure?.output_mode)}</strong></div>
         <div><span>计算耗时</span><strong>{job.duration_ms === null || job.duration_ms === undefined ? "—" : `${formatNumber(job.duration_ms, 0)} ms`}</strong></div>
         <div><span>输出摘要</span><IdText value={job.output_hash} /></div>
         <div><span>状态</span><StatusTag value={job.status} /></div>
       </div>
-      {Object.keys(guarantees).length > 0 && <div className="detail-section"><h3>隐私控制</h3><div className="detail-grid">{Object.entries(guarantees).map(([key, value]) => <div key={key}><span>{key}</span><strong>{typeof value === "object" ? JSON.stringify(value) : String(value)}</strong></div>)}</div></div>}
+
+      <div className="detail-section">
+        <h3>参与主体</h3>
+        <div className="detail-grid">{participants.map((item: JsonRecord) => <div key={item.org_id}><span>{item.role_in_task === "GENERATOR" ? "发电企业" : "售电企业"}</span><strong>{item.org_name || item.org_id}</strong></div>)}</div>
+      </div>
+
+      <div className="detail-section">
+        <h3>授权依据</h3>
+        <div className="detail-grid">{authorization.map((item: JsonRecord, index: number) => <div key={item.agreement_id}><span>协议 {index + 1} · {purposeName(item.purpose)}</span><strong>{item.provider_org_name || item.provider_org_id} → {item.consumer_org_name || item.consumer_org_id}</strong><IdText value={item.policy_hash} length={9} /></div>)}</div>
+      </div>
+
+      <div className="detail-section">
+        <h3>输出与证据</h3>
+        <div className="detail-grid">
+          <div><span>结算电量</span><strong>{result.settlement_energy_mwh === undefined ? "按角色范围披露" : `${formatNumber(result.settlement_energy_mwh, 2)} MWh`}</strong></div>
+          <div><span>应结金额</span>{result.payable_amount_yuan === undefined ? <strong>按角色范围披露</strong> : <AmountText value={result.payable_amount_yuan} />}</div>
+          <div><span>证据记录</span><strong>{job.evidence_count || 0} 项</strong></div>
+          <div><span>原始记录接口返回</span><strong>{job.disclosure?.api_raw_records_returned === false ? "否" : "未提供验证信息"}</strong></div>
+        </div>
+        <div className="section-links"><Link to={`/results?task_id=${job.task_id}`}>查看结算结果</Link><Link to={`/evidence?task_id=${job.task_id}`}>查看审计证据</Link><Link to={`/audit?task_id=${job.task_id}`}>进入审计复核</Link></div>
+      </div>
+
+      {Object.keys(guarantees).length > 0 && <details className="secondary-details"><summary>技术执行边界</summary><div className="detail-grid"><div><span>执行环境</span><strong>{guarantees.execution_environment === "APPLICATION_PROCESS" ? "应用进程内" : "未提供"}</strong></div><div><span>远程证明</span><strong>{guarantees.attestation_status === "NOT_PROVIDED" ? "未提供" : guarantees.attestation_status || "未提供"}</strong></div><div><span>跨域不出域证明</span><strong>{guarantees.cross_domain_non_export_verified ? "已验证" : "未提供验证信息"}</strong></div><div><span>执行适配器</span><strong>{guarantees.strategy || "未提供"}</strong></div></div></details>}
       {(job.logs_json || []).length > 0 && <details className="secondary-details"><summary>查看执行记录</summary><div className="log-console">{job.logs_json.map((line: string, index: number) => <div key={`${line}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{line}</div>)}</div></details>}
     </DetailDrawer>
   );

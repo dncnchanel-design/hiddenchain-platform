@@ -1,2 +1,1 @@
-"""HiddenChain MVP backend."""
-
+"""HiddenChain power-settlement service."""

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Eye, FileSignature, RefreshCw } from "lucide-react";
+import { ArrowLeft, Eye, FileSignature, RefreshCw } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, formatMoney, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -13,16 +14,18 @@ const amountDirectionLabels: Record<string, string> = {
 
 export function ResultsPage() {
   const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const taskId = searchParams.get("task_id") || "";
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<JsonRecord | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
-    const [results, orgs] = await Promise.all([api<JsonRecord[]>("/settlement/results", request), api<JsonRecord[]>("/system/organizations", request)]);
+    const [results, orgs] = await Promise.all([api<JsonRecord[]>(taskId ? `/settlement/results?task_id=${encodeURIComponent(taskId)}` : "/settlement/results", request), api<JsonRecord[]>("/system/organizations", request)]);
     return { results, orgs };
   };
-  const { data, loading, refreshing, error, reload } = useRemote(loader, []);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, [taskId]);
   const totals = useMemo(() => {
     const orgRows = data?.results.filter((item) => item.result_scope === "ORG") || [];
     const summaryRows = data?.results.filter((item) => item.result_scope === "SUMMARY") || [];
@@ -52,10 +55,11 @@ export function ResultsPage() {
   if (loading) return <LoadingState label="正在加载结果回执" variant="page" />;
   if (error || !data) return <ErrorState message={error || "结果回执加载失败"} retry={reload} />;
 
-  const canConfirm = ["GENERATOR", "RETAILER", "EXCHANGE"].includes(session!.user.role_code);
+  const canConfirm = ["GENERATOR", "RETAILER"].includes(session!.user.role_code);
   return (
     <>
-      <PageHeader title="结果确认" description="查看主体级与汇总级结果，并对当前权限范围内的回执进行签名确认；当前环境尚未开放经服务端审计的导出通道。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title="结算结果" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
       <div className="metrics-grid three">
         <Metric label="主体结果" value={totals.rows} />
         <Metric label="已确认" value={totals.confirmed} tone="green" />
@@ -66,7 +70,7 @@ export function ResultsPage() {
         <DataTable
           keyField="result_id" rows={data.results} label="结果与回执列表"
           columns={[
-            { key: "task_id", label: "验证任务", minWidth: 155, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}><IdText value={row.task_id} copyable={false} /></button> },
+            { key: "task_id", label: "结算任务", minWidth: 155, render: (row) => <Link className="table-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} copyable={false} /></Link> },
             { key: "org_id", label: "结果主体", minWidth: 150, render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || <IdText value={row.org_id} /> : "平台汇总结果" },
             { key: "result_scope", label: "结果类型", render: (row) => RESULT_SCOPE_LABELS[row.result_scope] || row.result_scope || "—" },
             { key: "energy", label: "场景电量", align: "right", render: (row) => row.result_json?.settlement_energy_mwh === undefined ? "—" : `${formatNumber(row.result_json.settlement_energy_mwh, 2)} MWh` },
@@ -75,7 +79,7 @@ export function ResultsPage() {
             { key: "result_hash", label: "结果摘要", minWidth: 155, render: (row) => <IdText value={row.result_hash} /> },
             { key: "confirm_status", label: "确认状态", render: (row) => <StatusTag value={row.confirm_status} /> },
             { key: "created_at", label: "生成时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
-            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", minWidth: 96, render: (row) => <div className="inline-actions">{row.confirm_status !== "CONFIRMED" && canConfirm && <Button icon={FileSignature} busy={busy === row.result_id} onClick={() => setConfirmTarget(row)}>签名确认</Button>}<Button icon={Eye} onClick={() => setSelected(row)}>详情</Button></div> },
+            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", minWidth: 96, render: (row) => <div className="inline-actions">{row.confirm_status === "UNCONFIRMED" && row.org_id === session!.user.org_id && canConfirm && <Button icon={FileSignature} busy={busy === row.result_id} onClick={() => setConfirmTarget(row)}>签名确认</Button>}<Button icon={Eye} onClick={() => setSelected(row)}>详情</Button></div> },
           ]}
         />
       </Surface>
@@ -83,7 +87,7 @@ export function ResultsPage() {
       {selected && <DetailDrawer title="结果回执详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
         <div className="detail-grid">
           <div><span>结果编号</span><IdText value={selected.result_id} /></div>
-          <div><span>关联任务</span><IdText value={selected.task_id} /></div>
+          <div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div>
           <div><span>结果类型</span><strong>{RESULT_SCOPE_LABELS[selected.result_scope] || selected.result_scope || "—"}</strong></div>
           <div><span>结果主体</span><strong>{selected.org_id ? data.orgs.find((item) => item.org_id === selected.org_id)?.org_name || "当前主体" : "平台汇总结果"}</strong></div>
           <div><span>收付方向</span><strong>{selected.result_scope === "SUMMARY" ? "任务汇总" : amountDirectionLabels[selected.result_json?.amount_direction] || "未标注"}</strong></div>

@@ -53,15 +53,17 @@ export function Surface({
   actions,
   children,
   className = "",
+  id,
 }: {
   title?: string;
   meta?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
-    <section className={`surface ${className}`.trim()}>
+    <section id={id} className={`surface ${className}`.trim()}>
       {(title || meta || actions) && (
         <div className="surface-header">
           <div className="surface-heading">
@@ -124,9 +126,9 @@ export function Button({
   );
 }
 
-const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW"]);
-const warning = new Set(["DRAFT", "PENDING", "AUTHORIZED", "COMPUTING", "EVIDENCED", "RUNNING", "MEDIUM", "REVIEW_REQUIRED", "UNCONFIRMED"]);
-const negative = new Set(["FAILED", "DENY", "HIGH", "OPEN", "INVALID", "REVOKED", "REJECTED"]);
+const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW", "RECORDED", "NOT_REQUIRED"]);
+const warning = new Set(["DRAFT", "PENDING", "RUNNING", "MEDIUM", "REVIEW_REQUIRED", "UNCONFIRMED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED", "UNVERIFIED", "NOT_PROVIDED", "NOT_CONFIGURED"]);
+const negative = new Set(["FAILED", "EXCEPTION", "DENY", "HIGH", "OPEN", "INVALID", "REVOKED", "REJECTED"]);
 
 export function StatusTag({ value, label }: { value?: string | null; label?: string }) {
   const normalized = String(value || "UNKNOWN").toUpperCase();
@@ -328,6 +330,7 @@ export function DataTable<Row extends Record<string, any>>({
                     <td
                       key={column.key}
                       className={`${column.className || ""}${stickySide ? ` table-sticky-column table-sticky-${stickySide}` : ""}${column.align ? ` align-${column.align}` : ""}`.trim()}
+                      style={{ width: column.width, minWidth: column.minWidth }}
                     >
                       {column.render ? column.render(row) : row[column.key] ?? MISSING_VALUE}
                     </td>

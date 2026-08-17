@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..dependencies import require_roles
 from ..models import BlockchainEvidence, TrustedExecutionReview, User
 from ..schemas import TrustedExecutionRequest, TrustedExecutionReviewRequest
 from ..services.common import add_audit_log, model_dict
 from ..services.trust_execution import (
-    BlockchainAuditLogger,
+    EvidenceAuditLogger,
     CallerIdentity,
     EnergyNodeRegistry,
     TrustworthyExecutionController,
@@ -29,33 +30,8 @@ def execution_status(
     db: Session = Depends(get_db),
 ) -> dict:
     status = trusted_execution_status()
-    status["nodes"] = EnergyNodeRegistry(db).catalog()
+    status["nodes"] = EnergyNodeRegistry(db).catalog() if settings.app_env != "production" else []
     return status
-
-
-@router.get("/example")
-def execution_example() -> dict:
-    return {
-        "description": "能源局查询上月电煤库存变化与火电出力、电网负荷平衡趋势的跨能源受控调用",
-        "request": {
-            "question": "分析上月由于电煤库存变化引起的火电出力与电网负荷平衡趋势",
-            "consumer_role": "ENERGY_BUREAU",
-            "purpose": "CROSS_ENERGY_TREND",
-            "target_data_types": [
-                "COAL_INVENTORY",
-                "POWER_THERMAL_OUTPUT",
-                "GRID_LOAD",
-            ],
-            "group_by": ["region", "period"],
-            "output_mode": "SUMMARY",
-        },
-        "expected_policy": {
-            "COAL_INVENTORY": "AGGREGATE",
-            "POWER_THERMAL_OUTPUT": "AGGREGATE",
-            "GRID_LOAD": "AGGREGATE",
-            "raw_data_returned": False,
-        },
-    }
 
 
 @router.get("/policy/catalog")
@@ -69,6 +45,11 @@ def trusted_query(
     user: User = Depends(require_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
+    if settings.app_env == "production":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="跨能源数据节点尚未配置，生产环境不执行内置测试数据",
+        )
     return TrustworthyExecutionController(db).execute(payload, user)
 
 
@@ -174,13 +155,13 @@ def confirm_execution_review(
             if item.get("source_attestation")
         ],
     }
-    chain = BlockchainAuditLogger.enqueue(task_id=None, payload=chain_payload)
+    evidence_record = EvidenceAuditLogger.enqueue(task_id=None, payload=chain_payload)
     return {
         "request_id": request_id,
         "verification_status": review.verification_status,
         "review": TrustedExecutionReviewService.summary(review, include_snapshot=True),
         "signature": signature_value,
-        "chain_audit": chain,
+        "evidence_audit": evidence_record,
     }
 
 

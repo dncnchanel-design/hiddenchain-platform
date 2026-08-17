@@ -34,7 +34,7 @@ def test_role_and_data_domain_boundaries(client, auth_headers):
     )
     assert own_data.status_code == 200
     assert own_data.json()
-    assert all(item["owner_org_id"] == "org-generator-demo" for item in own_data.json())
+    assert all(item["owner_org_id"] == "org-generator-t01" for item in own_data.json())
     assert all(item["raw_payload_exposed"] is False for item in own_data.json())
     assert all(item["trusted_acquisition"] is True for item in own_data.json())
     assert all(item["secure_transport"]["encryption"] == "TLS1.3" for item in own_data.json())
@@ -53,24 +53,87 @@ def test_role_and_data_domain_boundaries(client, auth_headers):
     assert denied_upload.status_code == 403
 
 
+def test_settlement_creation_readiness_and_action_permissions(client, auth_headers):
+    ready_payload = {
+        "task_name": "2026年7月正式结算复核任务",
+        "trade_batch_no": "TB-2026-07-T01",
+        "period_start": "2026-07-01",
+        "period_end": "2026-07-31",
+        "rule_id": "rule-settlement-v1",
+        "participants": [
+            {"org_id": "org-generator-t01", "role_in_task": "GENERATOR"},
+            {"org_id": "org-retailer-t01", "role_in_task": "RETAILER"},
+        ],
+        "compute_mode": "LOCAL_CONTROLLED",
+        "algorithm_code": "CONTROLLED_SETTLEMENT_V1",
+    }
+    forbidden = client.post(
+        "/api/settlement/tasks",
+        headers=auth_headers["generator"],
+        json=ready_payload,
+    )
+    assert forbidden.status_code == 403
+
+    created = client.post(
+        "/api/settlement/tasks",
+        headers=auth_headers["exchange"],
+        json=ready_payload,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "READY"
+    assert created.json()["readiness"]["preflight_passed"] is True
+
+    blocked_payload = {
+        **ready_payload,
+        "task_name": "2026年8月待准备结算任务",
+        "trade_batch_no": "TB-2026-08-NOT-READY",
+        "period_start": "2026-08-01",
+        "period_end": "2026-08-31",
+    }
+    blocked = client.post(
+        "/api/settlement/tasks",
+        headers=auth_headers["exchange"],
+        json=blocked_payload,
+    )
+    assert blocked.status_code == 201, blocked.text
+    assert blocked.json()["status"] == "DRAFT"
+    assert blocked.json()["readiness"]["preflight_passed"] is False
+    assert len(blocked.json()["readiness"]["preflight_blockers"]) == 2
+
+    simulated_mode = client.post(
+        "/api/settlement/tasks",
+        headers=auth_headers["exchange"],
+        json={**ready_payload, "task_name": "无效计算模式", "compute_mode": "MPC_MOCK"},
+    )
+    assert simulated_mode.status_code == 422
+
+    admin_run = client.post(
+        f"/api/settlement/tasks/{created.json()['task_id']}/run",
+        headers=auth_headers["admin"],
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
+    )
+    assert admin_run.status_code == 403
+
+
 def test_complete_agent_native_settlement_workflow(client, auth_headers):
     response = client.post(
-        "/api/settlement/tasks/task-ready-demo/run",
+        "/api/settlement/tasks/task-ready-t01/run",
         headers=auth_headers["exchange"],
-        json={"compute_mode": "MPC_MOCK", "algorithm_code": "SETTLEMENT_MPC_V1"},
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
     result = response.json()
-    assert result["task"]["status"] == "AUDITED"
-    assert result["task"]["risk_level"] == "LOW"
+    assert result["task"]["status"] == "PENDING_CONFIRMATION"
+    assert result["task"]["risk_level"] == "MEDIUM"
     assert result["compute_job"]["status"] == "SUCCESS"
-    assert result["compute_job"]["raw_data_exposed"] is False
-    assert result["compute_job"]["privacy_guarantees"]["raw_data_exported"] is False
+    assert result["compute_job"]["execution_attestation_json"]["api_raw_records_returned"] is False
+    assert result["compute_job"]["privacy_guarantees"]["api_raw_records_returned"] is False
+    assert result["compute_job"]["privacy_guarantees"]["cross_domain_non_export_verified"] is False
     assert result["verification_profile"]["traceable_audit"] is True
-    assert result["verification_profile"]["acceptance_metrics"]["raw_data_transferred"] == 0
+    assert result["verification_profile"]["acceptance_metrics"]["api_raw_records_returned"] == 0
     assert len(result["results"]) >= 2
     assert len(result["evidence"]) >= 4
-    assert result["report"]["conclusion"] == "PASS"
+    assert result["report"]["conclusion"] == "REVIEW_REQUIRED"
     coordination = result["task"]["scenario_coordination"]
     assert {item["code"] for item in coordination} == {
         "RENEWABLE_CONSUMPTION",
@@ -88,9 +151,26 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
     )
     assert all(item["decision_json"]["policy_input_hash"] for item in result["data_space"]["agreements"])
 
+    scoped_results = [item for item in result["results"] if item["result_scope"] == "ORG"]
+    by_org = {item["org_id"]: item for item in scoped_results}
+    generator_confirmation = client.post(
+        f"/api/results/{by_org['org-generator-t01']['result_id']}/confirm",
+        headers=auth_headers["generator"],
+        json={"opinion": "同意结算结果"},
+    )
+    assert generator_confirmation.status_code == 200
+    assert generator_confirmation.json()["task"]["status"] == "PARTIALLY_CONFIRMED"
+    retailer_confirmation = client.post(
+        f"/api/results/{by_org['org-retailer-t01']['result_id']}/confirm",
+        headers=auth_headers["retailer"],
+        json={"opinion": "同意结算结果"},
+    )
+    assert retailer_confirmation.status_code == 200
+    assert retailer_confirmation.json()["task"]["status"] == "AUDITED"
+
     events = client.get(
-        "/api/agents/events?task_id=task-ready-demo",
-        headers=auth_headers["exchange"],
+        "/api/agents/events?task_id=task-ready-t01",
+        headers=auth_headers["admin"],
     )
     assert events.status_code == 200
     event_codes = {item["agent_code"] for item in events.json()}
@@ -104,7 +184,7 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
     }.issubset(event_codes)
 
     evidence = client.get(
-        "/api/chain/evidence?task_id=task-ready-demo",
+        "/api/chain/evidence?task_id=task-ready-t01",
         headers=auth_headers["regulator"],
     ).json()
     assert {item["stage"] for item in evidence} >= {"PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"}
@@ -135,7 +215,8 @@ def test_privacy_analysis_returns_only_aggregate_results(client, auth_headers):
     assert job["raw_records_returned"] is False
     assert len(job["result_json"]["aggregate_curve"]) == 24
     assert "load_curve" not in str(job["result_json"])
-    assert job["result_json"]["compute_strategy"]["primary"] == "SECRET_SHARING_HE"
+    assert job["result_json"]["compute_strategy"]["primary"] == "LOCAL_CONTROLLED_SETTLEMENT_V1"
+    assert job["result_json"]["recommended_strategy"]["primary"] == "SECRET_SHARING_HE"
 
 
 def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, auth_headers):
@@ -151,10 +232,10 @@ def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, 
         "TRACEABLE_AUDIT",
     ]
     assert {item["code"] for item in payload["four_chain_fusion"]} == {
-        "DID",
-        "PRIVACY",
-        "BLOCKCHAIN",
-        "AGENT",
+        "IDENTITY",
+        "COMPUTE",
+        "EVIDENCE",
+        "PROCESS",
     }
 
     catalog = client.get("/api/privacy/strategy/catalog", headers=auth_headers["exchange"])
@@ -169,7 +250,7 @@ def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, 
 
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     catalog = client.get(
-        "/api/data/catalog?trade_batch_no=TB-2026-07-DEMO",
+        "/api/data/catalog?trade_batch_no=TB-2026-07-T01",
         headers=auth_headers["exchange"],
     )
     assert catalog.status_code == 200
@@ -193,24 +274,58 @@ def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     protocol_payload = protocol.json()
     assert "CONTRACT_NEGOTIATION" in protocol_payload["capabilities"]
     assert "USAGE_CONTROL" in protocol_payload["capabilities"]
-    assert protocol_payload["raw_data_transferred"] is False
+    assert protocol_payload["cross_domain_non_export_verification"] == "NOT_PROVIDED"
+    assert protocol_payload["api_raw_records_returned"] is False
 
 
 def test_settlement_records_connector_agreements_and_enforces_usage_control(client, auth_headers):
     response = client.post(
-        "/api/settlement/tasks/task-ready-demo/run",
+        "/api/settlement/tasks/task-ready-t01/run",
         headers=auth_headers["exchange"],
-        json={"compute_mode": "MPC_MOCK", "algorithm_code": "SETTLEMENT_MPC_V1"},
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
     result = response.json()
     data_space = result["data_space"]
     assert data_space["protocol_version"] == "HCDS-1.0"
     assert data_space["agreement_count"] >= 3
-    assert data_space["raw_data_transferred"] is False
+    assert data_space["raw_data_transfer_verification"] == "NOT_PROVIDED"
     assert all(item["state"] == "CONSUMED" for item in data_space["agreements"])
-    assert result["compute_job"]["execution_attestation_json"]["raw_data_exported"] is False
+    assert result["compute_job"]["execution_attestation_json"]["api_raw_records_returned"] is False
+    assert result["compute_job"]["execution_attestation_json"]["cross_domain_non_export_verified"] is False
     assert result["compute_job"]["result_json"]["capsule_id"] == result["task"]["capsule_id"]
+
+    agreements = client.get(
+        "/api/data/agreements?task_id=task-ready-t01",
+        headers=auth_headers["exchange"],
+    )
+    assert agreements.status_code == 200
+    assert all(item["provider_org_name"] for item in agreements.json())
+    assert all(item["consumer_org_name"] for item in agreements.json())
+
+    jobs = client.get(
+        "/api/privacy/jobs?task_id=task-ready-t01",
+        headers=auth_headers["exchange"],
+    )
+    assert jobs.status_code == 200
+    job = jobs.json()[0]
+    assert job["task_name"] == result["task"]["task_name"]
+    assert job["trade_batch_no"] == result["task"]["trade_batch_no"]
+    assert {item["role_in_task"] for item in job["participants"]} == {"GENERATOR", "RETAILER"}
+    assert all(item["org_name"] for item in job["participants"])
+    assert len(job["authorization_basis"]) >= 2
+    assert all(item["policy_hash"] for item in job["authorization_basis"])
+    assert job["rule"]["rule_version"]
+    assert job["disclosure"]["output_mode"] == "AGGREGATE_ONLY"
+    assert job["disclosure"]["api_raw_records_returned"] is False
+    assert job["evidence_count"] >= 1
+
+    party_jobs = client.get(
+        "/api/privacy/jobs?task_id=task-ready-t01",
+        headers=auth_headers["generator"],
+    )
+    assert party_jobs.status_code == 200
+    assert set(party_jobs.json()[0]["result_json"]) == {"output_hash", "raw_data_exposed", "status"}
 
     agreement_id = data_space["agreements"][0]["agreement_id"]
     denied = client.post(
@@ -222,7 +337,7 @@ def test_settlement_records_connector_agreements_and_enforces_usage_control(clie
             "algorithm_code": "UNAUTHORIZED_ALGORITHM",
             "raw_data_export": False,
             "output_mode": "AGGREGATE_ONLY",
-            "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
+            "execution_environment": "APPLICATION_PROCESS",
         },
     )
     assert denied.status_code == 200
@@ -232,9 +347,9 @@ def test_settlement_records_connector_agreements_and_enforces_usage_control(clie
 
 def test_usage_control_rejects_raw_output_and_wrong_algorithm(client, auth_headers):
     response = client.post(
-        "/api/settlement/tasks/task-ready-demo/run",
+        "/api/settlement/tasks/task-ready-t01/run",
         headers=auth_headers["exchange"],
-        json={"compute_mode": "MPC_MOCK", "algorithm_code": "SETTLEMENT_MPC_V1"},
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
     agreement_id = response.json()["data_space"]["agreements"][0]["agreement_id"]
@@ -244,7 +359,7 @@ def test_usage_control_rejects_raw_output_and_wrong_algorithm(client, auth_heade
         json={
             "agreement_id": agreement_id,
             "purpose": "POWER_SETTLEMENT",
-            "algorithm_code": "SETTLEMENT_MPC_V1",
+            "algorithm_code": "CONTROLLED_SETTLEMENT_V1",
             "raw_data_export": True,
             "output_mode": "RAW_RECORDS",
             "execution_environment": "UNTRUSTED_CLIENT",
@@ -258,13 +373,13 @@ def test_usage_control_rejects_raw_output_and_wrong_algorithm(client, auth_heade
     assert denied.json()["decision_hash"]
 
 
-def test_health_exposes_mvp_adapters(client):
+def test_health_exposes_calculation_services(client):
     response = client.get("/api/health")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["mvp_adapters"]["policy"]["code"] == "OPA_REGO_COMPAT"
-    assert payload["mvp_adapters"]["grid"]["code"] == "PANDAPOWER_3_BUS"
-    assert payload["mvp_adapters"]["grid"]["installed"] is True
+    assert payload["calculation_services"]["policy"]["code"] == "OPA_REGO_COMPAT"
+    assert payload["calculation_services"]["grid"]["code"] == "PANDAPOWER_3_BUS"
+    assert payload["calculation_services"]["grid"]["installed"] is True
 
 
 def test_pandapower_adapter_has_pass_and_reject_paths():
@@ -326,8 +441,8 @@ def test_opa_rest_adapter_accepts_opa_decision_shape(monkeypatch):
             "constraint": {
                 "capsule_id": "capsule-1",
                 "consumer_did": "did:example:consumer",
-                "algorithm_codes": ["SETTLEMENT_MPC_V1"],
-                "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
+                "algorithm_codes": ["CONTROLLED_SETTLEMENT_V1"],
+                "execution_environment": "APPLICATION_PROCESS",
                 "output_mode": "AGGREGATE_ONLY",
                 "raw_data_export": False,
             },
@@ -347,15 +462,15 @@ def test_opa_rest_adapter_accepts_opa_decision_shape(monkeypatch):
 
 def test_audit_query_is_grounded_in_evidence(client, auth_headers):
     settled = client.post(
-        "/api/settlement/tasks/task-ready-demo/run",
+        "/api/settlement/tasks/task-ready-t01/run",
         headers=auth_headers["exchange"],
-        json={"compute_mode": "MPC_MOCK", "algorithm_code": "SETTLEMENT_MPC_V1"},
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert settled.status_code == 200, settled.text
     response = client.post(
         "/api/agent/query",
         headers=auth_headers["regulator"],
-        json={"task_id": "task-ready-demo", "question": "本次结算是否完整可信？"},
+        json={"task_id": "task-ready-t01", "question": "本次结算是否完整可信？"},
     )
     assert response.status_code == 200
     answer = response.json()
@@ -367,14 +482,14 @@ def test_audit_query_is_grounded_in_evidence(client, auth_headers):
 
 
 def test_deepseek_agent_endpoint_never_fakes_success_when_disabled(client, auth_headers):
-    status = client.get("/api/agents/llm/status", headers=auth_headers["regulator"])
+    status = client.get("/api/agents/llm/status", headers=auth_headers["admin"])
     assert status.status_code == 200
     assert status.json()["enabled"] is False
     response = client.post(
         "/api/agents/ORCHESTRATOR/invoke",
-        headers=auth_headers["regulator"],
+        headers=auth_headers["admin"],
         json={
-            "task_id": "task-ready-demo",
+            "task_id": "task-ready-t01",
             "instruction": "核对当前任务编排状态。",
         },
     )
@@ -386,7 +501,7 @@ def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_head
     injected = client.post(
         "/api/anomalies/inject",
         headers=auth_headers["admin"],
-        json={"task_id": "task-ready-demo", "event_type": "UNAUTHORIZED_ACCESS"},
+        json={"task_id": "task-ready-t01", "event_type": "UNAUTHORIZED_ACCESS"},
     )
     assert injected.status_code == 201, injected.text
     event = injected.json()
@@ -409,7 +524,7 @@ def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_head
         if item["target_type"] == "ANOMALY_EVENT" and item["target_id"] == event["event_id"]
     ]
     assert {item["action_code"] for item in matching} >= {
-        "INJECT_DEMO_ANOMALY",
+        "INJECT_TEST_ANOMALY",
         "RESOLVE_ANOMALY",
     }
 
@@ -489,8 +604,8 @@ def test_task_creation_rejects_invalid_participant_shape(client, auth_headers):
             "period_end": "2026-08-31",
             "rule_id": rule_id,
             "participants": [
-                {"org_id": "org-generator-demo", "role_in_task": "GENERATOR"},
-                {"org_id": "org-generator-demo", "role_in_task": "GENERATOR"},
+                {"org_id": "org-generator-t01", "role_in_task": "GENERATOR"},
+                {"org_id": "org-generator-t01", "role_in_task": "GENERATOR"},
             ],
         },
     )
@@ -504,7 +619,7 @@ def test_retailer_cannot_analyze_another_organization_load_curve(client, auth_he
         headers=auth_headers["admin"],
         json={
             "asset_type": "USER_LOAD_CURVE",
-            "owner_org_id": "org-generator-demo",
+            "owner_org_id": "org-generator-t01",
             "trade_batch_no": "TB-CROSS-ORG-001",
             "label": "发电侧负荷曲线测试数据",
             "local_payload": {"period": "2026-08", "load_curve": [1] * 24},
@@ -537,13 +652,13 @@ def test_import_fixture_runs_settlement_end_to_end(client, auth_headers):
     assert response.status_code == 200, response.text
     result = response.json()
     assert len(result["uploads"]) == 6
-    assert result["task"]["status"] == "AUDITED"
+    assert result["task"]["status"] == "PENDING_CONFIRMATION"
     assert result["compute_job"]["status"] == "SUCCESS"
-    assert result["compute_job"]["raw_data_exposed"] is False
+    assert result["compute_job"]["execution_attestation_json"]["api_raw_records_returned"] is False
     assert result["privacy_analysis"]["status"] == "SUCCESS"
     assert result["privacy_analysis"]["raw_records_returned"] is False
     assert result["uploads"][0]["ingress_json"]["protocol"] == "HTTPS"
-    assert result["task"]["verification_profile"]["secure_transport"] is True
+    assert result["task"]["verification_profile"]["transport_evidence_provided"] is True
     assert result["verification_profile"]["mode"] == "SCENE_DATA_METADATA"
     assert result["verification_profile"]["is_simulated"] is False
     assert len(result["evidence"]) >= 4
@@ -723,13 +838,14 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
     assert status_response.status_code == 200
     status_payload = status_response.json()
     assert status_payload["security_boundary"] == {
-        "raw_data_transferred": False,
-        "raw_data_returned": False,
-        "anti_inference_checks": True,
+        "api_raw_records_returned": False,
+        "cross_domain_non_export_verified": False,
+        "anti_inference_check": "LOCAL_OUTPUT_CHECK",
         "topology_coordinates_released": False,
     }
     assert status_payload["audit"] == {
-        "asynchronous_blockchain_logging": True,
+        "asynchronous_evidence_recording": True,
+        "evidence_backend": "LOCAL_EVIDENCE_LEDGER_V1",
         "result_hash_required": True,
     }
 
@@ -783,12 +899,13 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
         "rounding_mode": "HALF_UP",
         "balance_formula": "thermal_output_mwh - grid_load_mwh",
     }
-    assert result["privacy_controls"]["compute_environment"] == "SIMULATED_TEE"
+    assert result["privacy_controls"]["compute_environment"] == "APPLICATION_PROCESS"
+    assert result["privacy_controls"]["cross_domain_non_export_verified"] is False
     assert result["privacy_controls"]["topology_coordinate_offset"]["coordinates_returned"] is False
     assert any("coal_inventory_tons" in item for item in result["series"])
     assert any("thermal_output_mwh" in item and "grid_load_mwh" in item for item in result["series"])
     assert all(item["raw_data_exposed"] is False for item in result["sources"])
-    assert payload["chain_audit"]["status"] == "QUEUED"
+    assert payload["evidence_audit"]["status"] == "QUEUED"
 
     audit = None
     for _ in range(40):
@@ -845,7 +962,7 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
     confirmation_payload = confirmation.json()
     assert confirmation_payload["verification_status"] == "CONFIRMED"
     assert confirmation_payload["signature"]
-    assert confirmation_payload["chain_audit"]["status"] == "QUEUED"
+    assert confirmation_payload["evidence_audit"]["status"] == "QUEUED"
 
     confirmed = client.get(
         f"/api/trusted-execution/reviews/{payload['request_id']}",

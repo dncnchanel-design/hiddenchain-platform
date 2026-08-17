@@ -18,7 +18,7 @@ from ..config import settings
 from ..database import SessionLocal
 from ..models import DataUpload, DidIdentity, Signature, TrustedExecutionReview, User, utc_now
 from ..security import sha256_json, sign_value
-from .adapters import MockBlockchainAdapter
+from .adapters import LocalEvidenceLedgerAdapter
 from .common import add_audit_log, trace_id
 from .credentials import JsonLdCredentialAdapter
 from .lineage import emit_run_event, input_dataset
@@ -971,8 +971,8 @@ class TrustedExecutionReviewService:
         return cls.summary(review, include_snapshot=True), signature_value
 
 
-class BlockchainAuditLogger:
-    """Asynchronously anchor the required audit summary into the chain adapter."""
+class EvidenceAuditLogger:
+    """Asynchronously append the required audit summary to the local evidence ledger."""
 
     _executor = ThreadPoolExecutor(
         max_workers=max(settings.execution_audit_workers, 1),
@@ -983,7 +983,7 @@ class BlockchainAuditLogger:
     def _anchor(cls, task_id: str | None, payload: dict[str, Any]) -> dict[str, Any]:
         db = SessionLocal()
         try:
-            evidence = MockBlockchainAdapter().anchor(
+            evidence = LocalEvidenceLedgerAdapter().anchor(
                 db,
                 task_id=task_id,
                 stage="TRUST_EXECUTION",
@@ -1150,9 +1150,10 @@ class TrustworthyExecutionController:
             "policy_actions": sorted({decision.action.value for decision in decisions}),
             "output_mode": "AGGREGATED_AND_COMPUTE_ONLY",
             "privacy_controls": {
-                "raw_data_stays_in_provider_domain": True,
-                "compute_environment": "SIMULATED_TEE",
-                "anti_inference_check": "PASSED_BEFORE_DELIVERY",
+                "cross_domain_non_export_verified": False,
+                "compute_environment": "APPLICATION_PROCESS",
+                "attestation_status": "NOT_PROVIDED",
+                "anti_inference_check": "LOCAL_OUTPUT_CHECK_PASSED",
                 "topology_coordinate_offset": {
                     "status": "APPLIED_WHEN_TOPOLOGY_FIELDS_ARE_REQUESTED",
                     "coordinates_returned": False,
@@ -1223,7 +1224,7 @@ class TrustworthyExecutionController:
                 "step": 8,
                 "code": "LOG",
                 "status": "QUEUED",
-                "details": {"destination": "SIMULATED_BLOCKCHAIN"},
+                "details": {"destination": "LOCAL_EVIDENCE_LEDGER_V1"},
             },
         ]
         payload = {
@@ -1287,8 +1288,8 @@ class TrustworthyExecutionController:
             policy_hash=plan.get("plan_hash") if plan else None,
             raw_data_exported=False,
         )
-        chain = BlockchainAuditLogger.enqueue(task_id=None, payload=payload)
-        self._step(steps, 8, "LOG", "QUEUED", chain)
+        evidence_record = EvidenceAuditLogger.enqueue(task_id=None, payload=payload)
+        self._step(steps, 8, "LOG", "QUEUED", evidence_record)
         return {
             "request_id": request_id,
             "trace_id": current_trace_id,
@@ -1301,7 +1302,7 @@ class TrustworthyExecutionController:
             "result": result,
             "result_hash": result_hash,
             "accuracy_review": TrustedExecutionReviewService.summary(review),
-            "chain_audit": chain,
+            "evidence_audit": evidence_record,
             "lineage": lineage,
             "raw_data_returned": False,
         }
@@ -1502,14 +1503,16 @@ class TrustworthyExecutionController:
 def trusted_execution_status() -> dict[str, Any]:
     return {
         "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",
+        "availability": "TEST_FIXTURE_ONLY" if settings.app_env in {"development", "test"} else "NOT_CONFIGURED",
         "security_boundary": {
-            "raw_data_transferred": False,
-            "raw_data_returned": False,
-            "anti_inference_checks": True,
+            "api_raw_records_returned": False,
+            "cross_domain_non_export_verified": False,
+            "anti_inference_check": "LOCAL_OUTPUT_CHECK",
             "topology_coordinates_released": False,
         },
         "audit": {
-            "asynchronous_blockchain_logging": True,
+            "asynchronous_evidence_recording": True,
+            "evidence_backend": LocalEvidenceLedgerAdapter.code,
             "result_hash_required": True,
         },
         "workflow_steps": [

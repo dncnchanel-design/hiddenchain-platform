@@ -37,7 +37,7 @@ export function LogsPage() {
 
   return (
     <>
-      <PageHeader title="系统日志" description="按操作主体、对象、动作、结果或追踪编号检索审计记录；当前环境尚未开放经服务端审计的导出通道。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title="系统日志" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
       <FilterBar actions={<span className="filter-result-count">显示 {rows.length} / {data.length} 条</span>}>
         <label><span>关键词</span><div className="input-with-icon"><Search size={15} /><input placeholder="主体、对象或追踪编号" value={search} onChange={(event) => setSearch(event.target.value)} /></div></label>
         <label><span>操作动作</span><select value={action} onChange={(event) => setAction(event.target.value)}><option value="">全部动作</option>{actions.map((item) => <option key={item} value={item}>{ACTION_LABELS[item] || item}</option>)}</select></label>

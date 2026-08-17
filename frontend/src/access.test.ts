@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ROUTE_POLICIES, canAccessRoute, getAvailableWorkspaces, getDefaultPath, getVisibleRoutes } from "./access";
+import { ROUTE_POLICIES, canAccessRoute, canCreateSettlement, getAvailableWorkspaces, getDefaultPath, getVisibleRoutes } from "./access";
 import type { RoleCode, SessionPayload } from "./types";
 
 function sessionFor(role: RoleCode, menuPaths = ROUTE_POLICIES.map((route) => route.path)): SessionPayload {
@@ -44,5 +44,12 @@ describe("route access policy", () => {
     const paths = getVisibleRoutes(retailer, "business").map((route) => route.path);
     expect(paths).toContain("/data/retail");
     expect(paths).not.toContain("/data/generation");
+  });
+
+  it("only lets the exchange create a settlement even though all roles can view tasks", () => {
+    expect(canCreateSettlement(sessionFor("EXCHANGE"))).toBe(true);
+    expect(canCreateSettlement(sessionFor("GENERATOR"))).toBe(false);
+    expect(canCreateSettlement(sessionFor("REGULATOR"))).toBe(false);
+    expect(canCreateSettlement(sessionFor("ADMIN"))).toBe(false);
   });
 });

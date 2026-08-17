@@ -115,7 +115,7 @@ AGENT_DEFINITIONS = [
         "code": "SECURE_SETTLEMENT",
         "name": "虚拟电厂协同Agent",
         "did": "did:hiddenchain:agent:secure-settlement",
-        "tools": ["PSIAdapter", "MPCAdapter", "VPPResourceAdapter", "DeterministicEngine"],
+        "tools": ["CommitmentJoin", "LocalControlledCompute", "VPPResourceAdapter", "DeterministicEngine"],
         "input": "DataPermit、RulePackage、可调资源承诺",
         "output": "响应计划、ComputeReceipt、SettlementResult",
         "scenario_code": "VPP_OPERATION",
@@ -125,7 +125,7 @@ AGENT_DEFINITIONS = [
         "code": "AUDIT_RISK",
         "name": "电网调度与监管Agent",
         "did": "did:hiddenchain:agent:audit-risk",
-        "tools": ["GridBoundaryAdapter", "SecurityGate", "EvidenceGraph", "FISCOAdapter", "RiskRuleEngine"],
+        "tools": ["GridBoundaryAdapter", "SecurityGate", "EvidenceGraph", "LocalEvidenceLedger", "RiskRuleEngine"],
         "input": "调度边界承诺、计算回执、证据事件",
         "output": "安全校核结论、AuditBundle、风险等级",
         "scenario_code": "GRID_DISPATCH",
@@ -144,8 +144,8 @@ AGENT_DEFINITIONS = [
 ]
 
 
-class MockDidAdapter:
-    code = "MOCK_WEIDENTITY"
+class IdentityCredentialAdapter:
+    code = "LOCAL_DID_CREDENTIAL_V1"
 
     @staticmethod
     def verify_owner(db: Session, owner_id: str) -> dict[str, Any]:
@@ -175,7 +175,7 @@ class OPAPolicyAdapter:
     """Evaluate the local policy contract through OPA's REST shape.
 
     The local evaluator intentionally mirrors the bundled Rego policy. This
-    keeps the offline demo and unit tests deterministic while Docker Compose
+    keeps local development and unit tests deterministic while Docker Compose
     can use a real OPA sidecar by setting ``OPA_URL``.
     """
 
@@ -301,8 +301,8 @@ class OPAPolicyAdapter:
         capsule_id: str,
         *,
         consumer_did: str | None = None,
-        algorithm_code: str = "SETTLEMENT_MPC_V1",
-        execution_environment: str = "AUTHORIZED_COMPUTE_SANDBOX",
+        algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
+        execution_environment: str = "APPLICATION_PROCESS",
         output_mode: str = "AGGREGATE_ONLY",
         raw_data_export: bool = False,
         use_count: int | None = None,
@@ -375,8 +375,8 @@ class OPAPolicyAdapter:
         }
 
 
-class MockDataSpaceAdapter:
-    """Backward-compatible facade for the OPA-compatible policy adapter."""
+class LocalUsagePolicyAdapter:
+    """Create and evaluate the local data-use policy contract."""
 
     code = OPAPolicyAdapter.code
 
@@ -386,9 +386,9 @@ class MockDataSpaceAdapter:
         task: SettlementTask,
         provider: Organization,
         uploads: list[DataUpload],
+        consumer_org_id: str,
         purpose: str = "POWER_SETTLEMENT",
-        consumer_org_id: str = "org-exchange-demo",
-        algorithm_code: str = "SETTLEMENT_MPC_V1",
+        algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
         max_uses: int = 1,
     ) -> DataContract:
         consumer_did_record = db.scalar(
@@ -417,7 +417,7 @@ class MockDataSpaceAdapter:
                 "capsule_id": task.capsule_id,
                 "consumer_did": consumer_did,
                 "algorithm_codes": [algorithm_code],
-                "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
+                "execution_environment": "APPLICATION_PROCESS",
                 "output_mode": "AGGREGATE_ONLY",
                 "max_uses": max_uses,
                 "valid_from": utc_now().isoformat(),
@@ -452,8 +452,8 @@ class MockDataSpaceAdapter:
         capsule_id: str,
         *,
         consumer_did: str | None = None,
-        algorithm_code: str = "SETTLEMENT_MPC_V1",
-        execution_environment: str = "AUTHORIZED_COMPUTE_SANDBOX",
+        algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
+        execution_environment: str = "APPLICATION_PROCESS",
         output_mode: str = "AGGREGATE_ONLY",
         raw_data_export: bool = False,
         use_count: int | None = None,
@@ -480,7 +480,7 @@ class MockDataSpaceAdapter:
 class DataSpaceConnectorAdapter:
     """A small, testable connector boundary aligned with the dataspace papers.
 
-    It intentionally keeps the current local Vault and mock compute runtime,
+    It intentionally keeps the current local Vault and controlled compute runtime,
     but makes catalog discovery, agreement negotiation, policy enforcement and
     receipt recording explicit so a real EDC/OPA adapter can replace it later.
     """
@@ -508,6 +508,7 @@ class DataSpaceConnectorAdapter:
         )
         return {
             "data_product_id": DataSpaceConnectorAdapter.data_product_id(upload),
+            "upload_id": upload.upload_id,
             "asset_type": upload.asset_type,
             "label": upload.label,
             "owner_org_id": upload.owner_org_id,
@@ -527,6 +528,7 @@ class DataSpaceConnectorAdapter:
                 "period": summary.get("period"),
                 "data_hash": upload.data_hash,
             },
+            "commitment_confirmed": bool(upload.signature_value),
             "usage": {
                 "allowed_purposes": [spec.get("default_purpose", "POWER_SETTLEMENT")],
                 "output_mode": "AGGREGATE_ONLY",
@@ -536,9 +538,9 @@ class DataSpaceConnectorAdapter:
             "transport": {
                 "protocol": upload.ingress_json.get("protocol", "HTTPS"),
                 "protocols": DataSpaceConnectorAdapter.transport_protocols,
-                "source_layer": upload.ingress_json.get("stage", "EDGE"),
-                "encryption": upload.ingress_json.get("encryption", "TLS1.3"),
-                "attestation": upload.ingress_json.get("attestation", "虚拟仿真来源证明"),
+                "source_layer": upload.ingress_json.get("stage", "BUSINESS"),
+                "encryption": upload.ingress_json.get("encryption", "NOT_PROVIDED"),
+                "attestation": upload.ingress_json.get("attestation", "NOT_PROVIDED"),
             },
         }
 
@@ -583,9 +585,9 @@ class DataSpaceConnectorAdapter:
         max_uses: int = 1,
         current_trace_id: str,
     ) -> tuple[DataSpaceAgreement, dict[str, Any]]:
-        provider_proof = MockDidAdapter.verify_owner(db, provider_org_id)
-        consumer_proof = MockDidAdapter.verify_owner(db, consumer_org_id)
-        decision = MockDataSpaceAdapter.evaluate(
+        provider_proof = IdentityCredentialAdapter.verify_owner(db, provider_org_id)
+        consumer_proof = IdentityCredentialAdapter.verify_owner(db, consumer_org_id)
+        decision = LocalUsagePolicyAdapter.evaluate(
             contract,
             purpose,
             task.capsule_id,
@@ -632,7 +634,7 @@ class DataSpaceConnectorAdapter:
         *,
         purpose: str,
         algorithm_code: str,
-        execution_environment: str = "AUTHORIZED_COMPUTE_SANDBOX",
+        execution_environment: str = "APPLICATION_PROCESS",
         output_mode: str = "AGGREGATE_ONLY",
         raw_data_export: bool = False,
         consume: bool = False,
@@ -640,7 +642,7 @@ class DataSpaceConnectorAdapter:
         contract = db.get(DataContract, agreement.contract_id)
         if contract is None:
             return {"decision": "DENY", "reasons": ["CONTRACT_NOT_FOUND"]}
-        decision = MockDataSpaceAdapter.evaluate(
+        decision = LocalUsagePolicyAdapter.evaluate(
             contract,
             purpose,
             contract.policy_json.get("constraint", {}).get("capsule_id", ""),
@@ -686,13 +688,18 @@ class DataSpaceConnectorAdapter:
         agreement.last_receipt_json = {
             "receipt_hash": sha256_json(receipt),
             "output_hash": receipt.get("output_hash"),
-            "raw_data_exported": receipt.get("execution_attestation", {}).get("raw_data_exported", False),
+            "api_raw_records_returned": receipt.get("execution_attestation", {}).get(
+                "api_raw_records_returned"
+            ),
+            "cross_domain_non_export_verified": receipt.get("execution_attestation", {}).get(
+                "cross_domain_non_export_verified"
+            ),
             "recorded_at": utc_now().isoformat(),
         }
 
 
 class RulePackageAdapter:
-    code = "RAG_DSL_OPA_MVP"
+    code = "SIGNED_RULE_PACKAGE_V1"
 
     @staticmethod
     def build(rule: SettlementRule) -> dict[str, Any]:
@@ -725,7 +732,7 @@ class AdaptivePrivacyRouter:
             "name": "电力市场联合结算",
             "primary": "PSI_MPC",
             "supporting": ["DETERMINISTIC_RULE_ENGINE"],
-            "reason": "先对齐交易关系，再对敏感电量和价格中间量执行多方安全计算。",
+            "reason": "候选方案需接入并验证外部PSI/MPC运行时；当前系统不会执行该方案。",
         },
         "VPP_AGGREGATION": {
             "name": "虚拟电厂资源聚合",
@@ -737,7 +744,7 @@ class AdaptivePrivacyRouter:
             "name": "实时调度安全校核",
             "primary": "TEE_CONFIDENTIAL_COMPUTE",
             "supporting": ["POLICY_SANDBOX"],
-            "reason": "在低时延可信执行环境内使用调度边界完成安全约束校核。",
+            "reason": "候选方案需接入TEE并完成远程证明；当前系统不会执行该方案。",
         },
     }
 
@@ -757,7 +764,7 @@ class AdaptivePrivacyRouter:
         if latency_requirement == "REAL_TIME" and primary != "TEE_CONFIDENTIAL_COMPUTE":
             supporting.insert(0, primary)
             primary = "TEE_CONFIDENTIAL_COMPUTE"
-            reasons.append("实时任务优先进入TEE，原策略作为域内受控工具运行。")
+            reasons.append("实时任务建议评估外部TEE；接入并完成远程证明前不可执行该候选方案。")
         if sensitivity_level == "L4" and "DIFFERENTIAL_PRIVACY_OUTPUT" not in supporting:
             supporting.append("DIFFERENTIAL_PRIVACY_OUTPUT")
             reasons.append("L4数据的对外结果增加差分隐私披露约束。")
@@ -771,6 +778,9 @@ class AdaptivePrivacyRouter:
             "participant_count": participant_count,
             "release_policy": "AGGREGATE_ONLY",
             "raw_data_export": False,
+            "implementation_status": "NOT_CONFIGURED",
+            "execution_capability": False,
+            "requires_external_runtime": True,
             "reason": " ".join(reasons),
         }
         plan["plan_hash"] = sha256_json(plan)
@@ -947,8 +957,14 @@ class PandapowerGridAdapter:
             }
 
 
-class MockPrivacyComputeAdapter:
-    code = "MOCK_SECRET_FLOW"
+class LocalControlledComputeAdapter:
+    """Deterministic in-process calculation with aggregate-only API output.
+
+    This adapter does not claim MPC, TEE, or cross-domain data non-export. Those
+    guarantees require an external protocol implementation and attestation.
+    """
+
+    code = "LOCAL_CONTROLLED_SETTLEMENT_V1"
 
     @staticmethod
     def _quantize(value: Decimal, digits: int) -> Decimal:
@@ -963,7 +979,7 @@ class MockPrivacyComputeAdapter:
         rule_package: dict[str, Any],
         capsule_id: str,
         scenario_uploads: dict[str, DataUpload] | None = None,
-        algorithm_code: str = "SETTLEMENT_MPC_V1",
+        algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
     ) -> tuple[dict[str, Any], dict[str, Any], list[str], int]:
         started = time.perf_counter()
         generator_private = LocalDomainVault.read(generator_upload.data_ref)
@@ -977,20 +993,20 @@ class MockPrivacyComputeAdapter:
         forecast_private = read_scenario("RENEWABLE_FORECAST")
         vpp_private = read_scenario("VPP_RESOURCE")
         grid_private = read_scenario("GRID_CONSTRAINT")
-        compute_strategy = AdaptivePrivacyRouter.recommend(
-            "MARKET_SETTLEMENT",
-            sensitivity_level="L4",
-            latency_requirement="BATCH",
-            participant_count=2,
-        )
+        compute_strategy = {
+            "primary": self.code,
+            "requested_algorithm": algorithm_code,
+            "cross_domain_protocol": "NOT_PROVIDED",
+        }
+        compute_strategy["plan_hash"] = sha256_json(compute_strategy)
         logs = [
-            "PSI: participantId + contractId + period intersection established",
-            f"StrategyRouter: {compute_strategy['primary']} selected for MARKET_SETTLEMENT",
-            "MPC: additive secret-sharing simulation started",
-            "MPC: only authorized aggregates released to deterministic engine",
+            "Participant and contract period intersection established",
+            "Usage policy accepted for the selected data references",
+            "Deterministic settlement calculation started in the application process",
+            "Only the configured aggregate result was returned through the API",
         ]
-        if settings.mock_delay_ms:
-            time.sleep(settings.mock_delay_ms / 1000)
+        if settings.test_compute_delay_ms:
+            time.sleep(settings.test_compute_delay_ms / 1000)
 
         generation = Decimal(str(generator_private["energy_mwh"]))
         retail = Decimal(str(retailer_private["energy_mwh"]))
@@ -1016,6 +1032,7 @@ class MockPrivacyComputeAdapter:
             deviation_mwh=float(deviation),
             grid_payload=grid_private,
         )
+        grid_powerflow["input_boundary_provided"] = bool(grid_private)
         grid_check_passed = n_minus_one_passed and deviation <= max_residual and grid_powerflow["passed"]
         if not grid_check_passed:
             reasons = ", ".join(grid_powerflow.get("reasons", [])) or "GRID_CONSTRAINT_REJECTED"
@@ -1041,7 +1058,7 @@ class MockPrivacyComputeAdapter:
                 {
                     "code": "RENEWABLE_CONSUMPTION",
                     "name": "新能源消纳",
-                    "status": "PASSED" if float(forecast_private.get("forecast_accuracy_pct", 100)) >= 85 else "REVIEW",
+                    "status": "PASSED" if forecast_private and float(forecast_private.get("forecast_accuracy_pct", 0)) >= 85 else "REVIEW_REQUIRED" if forecast_private else "NOT_PROVIDED",
                     "metric": f"预测准确率 {float(forecast_private.get('forecast_accuracy_pct', 0)):.1f}%" if forecast_private else "未接入预测资产",
                     "artifact": scenario_uploads.get("RENEWABLE_FORECAST").commitment if scenario_uploads.get("RENEWABLE_FORECAST") else None,
                 },
@@ -1062,8 +1079,8 @@ class MockPrivacyComputeAdapter:
                 {
                     "code": "GRID_DISPATCH",
                     "name": "电网调度",
-                    "status": "PASSED" if grid_check_passed else "REJECTED",
-                    "metric": f"剩余偏差 {float(self._quantize(deviation, 3)):.1f} MWh",
+                    "status": "PASSED" if grid_private and grid_check_passed else "REJECTED" if grid_private else "NOT_PROVIDED",
+                    "metric": f"剩余偏差 {float(self._quantize(deviation, 3)):.1f} MWh" if grid_private else "未提供调度边界",
                     "artifact": scenario_uploads.get("GRID_CONSTRAINT").commitment if scenario_uploads.get("GRID_CONSTRAINT") else None,
                 },
             ],
@@ -1071,7 +1088,7 @@ class MockPrivacyComputeAdapter:
         }
         receipt = {
             "adapter": self.code,
-            "psi_key": "participantId+contractId+period",
+            "join_key": "participantId+contractId+period",
             "input_commitments": [generator_upload.commitment, retailer_upload.commitment],
             "compute_plan_hash": sha256_json(
                 {"algorithm": algorithm_code, "capsule_id": capsule_id, "strategy": compute_strategy}
@@ -1082,24 +1099,29 @@ class MockPrivacyComputeAdapter:
                 code: upload.commitment for code, upload in scenario_uploads.items()
             },
             "execution_attestation": {
-                "runtime": "isolated-multi-party-mock",
-                "raw_data_exported": False,
+                "runtime": "application-process",
+                "attestation_status": "NOT_PROVIDED",
+                "api_raw_records_returned": False,
+                "cross_domain_non_export_verified": False,
                 "deterministic_engine": "decimal-v1",
-                "grid_security_gate": "PASSED",
+                "grid_security_gate": "PASSED" if grid_private else "NOT_RUN",
                 "grid_powerflow_adapter": grid_powerflow["adapter"],
                 "grid_powerflow_network": grid_powerflow["network_version"],
             },
             "output_hash": sha256_json(result),
         }
         receipt["receipt_signature"] = sign_value(receipt, "did:hiddenchain:agent:secure-settlement")
-        logs.extend(
-            [
-                f"VPP: {float(vpp_adjustment):.3f} MWh flexibility applied inside secure sandbox",
-                f"Pandapower: {grid_powerflow['network_version']} power-flow check passed",
-                "Grid gate: N-1 flag, residual imbalance and pandapower constraints passed",
-                "Deterministic engine: RuleHash, precision and rounding policy applied",
-            ]
-        )
+        logs.append(f"VPP adjustment applied: {float(vpp_adjustment):.3f} MWh")
+        if grid_private:
+            logs.extend(
+                [
+                    f"Pandapower: {grid_powerflow['network_version']} power-flow check passed",
+                    "Grid gate: supplied N-1 flag, residual imbalance and pandapower constraints passed",
+                ]
+            )
+        else:
+            logs.append("Grid gate was not run because no dispatch boundary was provided")
+        logs.append("Deterministic engine: RuleHash, precision and rounding policy applied")
         duration_ms = max(1, int((time.perf_counter() - started) * 1000))
         return result, receipt, logs, duration_ms
 
@@ -1156,8 +1178,10 @@ class MockPrivacyComputeAdapter:
         return result, max(1, int((time.perf_counter() - started) * 1000))
 
 
-class MockBlockchainAdapter:
-    code = "MOCK_FISCO_BCOS"
+class LocalEvidenceLedgerAdapter:
+    """Append-only local evidence ledger backed by database ordering and hashes."""
+
+    code = "LOCAL_EVIDENCE_LEDGER_V1"
 
     def anchor(
         self,

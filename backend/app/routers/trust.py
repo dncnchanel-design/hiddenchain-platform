@@ -9,7 +9,7 @@ from ..dependencies import BUSINESS_ROLES, require_roles
 from ..config import settings
 from ..models import AgentEvent, BlockchainEvidence, SettlementTask, TaskParticipant, User
 from ..schemas import AgentBatchInvokeRequest, AgentInvokeRequest
-from ..services.adapters import AGENT_DEFINITIONS, MockBlockchainAdapter
+from ..services.adapters import AGENT_DEFINITIONS, LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log, model_dict
 from ..services.llm import DeepSeekUnavailable
 from ..services.workflow import AGENT_DEFAULT_INSTRUCTIONS, invoke_deepseek_agent
@@ -51,7 +51,7 @@ def verify_evidence(
     scoped = _authorized_task_ids(db, user)
     if scoped is not None and evidence.task_id not in scoped:
         raise HTTPException(status_code=403, detail="无权核验该证据")
-    result = MockBlockchainAdapter.verify(evidence)
+    result = LocalEvidenceLedgerAdapter.verify(evidence)
     add_audit_log(
         db,
         action="VERIFY_CHAIN_EVIDENCE",
@@ -67,7 +67,7 @@ def verify_evidence(
 
 @router.get("/agents/definitions")
 def agent_definitions(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
 ) -> list[dict]:
     return [
         {
@@ -82,7 +82,7 @@ def agent_definitions(
 
 @router.get("/agents/llm/status")
 def agent_llm_status(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
     latest = db.scalar(
@@ -155,7 +155,7 @@ def _invoke_and_log(
 @router.post("/agents/invoke-all")
 def invoke_all_agents(
     payload: AgentBatchInvokeRequest,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
     if db.get(SettlementTask, payload.task_id) is None:
@@ -197,7 +197,7 @@ def invoke_all_agents(
 def invoke_agent(
     agent_code: str,
     payload: AgentInvokeRequest,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
     normalized_code = agent_code.upper()
@@ -222,7 +222,7 @@ def invoke_agent(
 @router.get("/agents/events")
 def agent_events(
     task_id: str | None = None,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(AgentEvent).order_by(AgentEvent.created_at.desc(), AgentEvent.sequence_no.desc())

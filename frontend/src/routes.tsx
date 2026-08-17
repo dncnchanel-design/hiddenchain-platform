@@ -31,6 +31,8 @@ export const pages = {
   results: lazyNamed(() => import("./pages/ResultsPage"), "ResultsPage"),
   rules: lazyNamed(() => import("./pages/RulesPage"), "RulesPage"),
   settlement: lazyNamed(() => import("./pages/SettlementPage"), "SettlementPage"),
+  settlementCreate: lazyNamed(() => import("./pages/SettlementCreatePage"), "SettlementCreatePage"),
+  settlementDetail: lazyNamed(() => import("./pages/SettlementDetailPage"), "SettlementDetailPage"),
   system: lazyNamed(() => import("./pages/SystemPage"), "SystemPage"),
   workbench: lazyNamed(() => import("./pages/WorkbenchPage"), "WorkbenchPage"),
 };
@@ -49,6 +51,8 @@ const routePages: Array<[string, LazyPage]> = [
   ["/reports", pages.reports],
   ["/results", pages.results],
   ["/rules", pages.rules],
+  ["/settlements/new", pages.settlementCreate],
+  ["/settlements/", pages.settlementDetail],
   ["/settlements", pages.settlement],
   ["/system", pages.system],
   ["/workbench", pages.workbench],

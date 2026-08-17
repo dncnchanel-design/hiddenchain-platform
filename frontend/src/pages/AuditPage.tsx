@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { FileSearch, RefreshCw, SearchCheck } from "lucide-react";
+import { ArrowLeft, FileSearch, RefreshCw, SearchCheck } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, post } from "../api";
 import { AuditTimeline, Button, DataTable, DateTimeText, ErrorState, FilterBar, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
-import { TrustedExecutionReviewPanel } from "../components/TrustedExecutionReviewPanel";
 import { useRemote } from "../hooks";
 import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS, type JsonRecord } from "../types";
 
@@ -21,13 +21,15 @@ const confidenceLabels: Record<string, string> = {
 
 function eventTitle(event: JsonRecord) {
   const title = String(event.title || "").split(" · ");
-  if (event.kind === "CHAIN_EVIDENCE") return `${STAGE_LABELS[title[0]] || title[0]} · ${EVIDENCE_TYPE_LABELS[title[1]] || title[1]}`;
+  if (event.kind === "EVIDENCE_RECORD") return `${STAGE_LABELS[title[0]] || title[0]} · ${EVIDENCE_TYPE_LABELS[title[1]] || title[1]}`;
   if (event.kind === "AGENT_EVENT") return `${AGENT_LABELS[title[0]] || title[0]} · ${MESSAGE_TYPE_LABELS[title[1]] || title[1]}`;
   return event.title || "审计事件";
 }
 
 export function AuditPage() {
-  const [taskId, setTaskId] = useState("");
+  const [searchParams] = useSearchParams();
+  const linkedTaskId = searchParams.get("task_id") || "";
+  const [taskId, setTaskId] = useState(linkedTaskId);
   const [checkCode, setCheckCode] = useState<(typeof checks)[number]["code"]>("RULE_TRACE");
   const [answer, setAnswer] = useState<JsonRecord | null>(null);
   const [checking, setChecking] = useState(false);
@@ -64,9 +66,9 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="审计与复核" description="按任务核对事件链路、规则、数据边界、签名与计算结果。" actions={<Button icon={RefreshCw} busy={tasks.refreshing || timeline.refreshing} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button>} />
+      <PageHeader title="审计与复核" actions={<>{linkedTaskId && <Link className="button button-secondary" to={`/settlements/${linkedTaskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={tasks.refreshing || timeline.refreshing} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button></>} />
       <FilterBar>
-        <label><span>审计对象</span><select value={effectiveTaskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        <label><span>审计对象</span><select value={effectiveTaskId} disabled={Boolean(linkedTaskId)} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
         {timeline.data?.task && <><div className="filter-status"><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div className="filter-status"><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div></>}
       </FilterBar>
 
@@ -84,12 +86,11 @@ export function AuditPage() {
             {answer && <div className="audit-check-result"><header><strong>辅助解释</strong><StatusTag value={answer.fallback ? "MEDIUM" : "INFO"} label={answer.fallback ? "模板降级" : "生成说明"} /></header><div className="audit-answer-meta"><div><span>置信度</span><strong>{confidenceLabels[String(answer.confidence || "")] || "未标注"}</strong></div><div><span>证据引用</span><strong>{answer.grounded ? "已关联" : "未关联"}</strong></div><div><span>生成方式</span><strong>{answer.fallback ? "结构化模板" : "生成式能力"}</strong></div></div><p>{answer.answer || "—"}</p>{answer.boundary && <div className="audit-answer-boundary"><strong>能力边界</strong><span>{String(answer.boundary)}</span></div>}<DataTable keyField="evidence_id" rows={answer.citations || []} empty="未引用具体凭证" label="辅助解释引用凭证" columns={[
               { key: "stage", label: "阶段", render: (row) => STAGE_LABELS[row.stage] || row.stage || "—" },
               { key: "evidence_id", label: "凭证编号", render: (row) => <IdText value={row.evidence_id} /> },
-              { key: "tx_hash", label: "交易摘要", render: (row) => <IdText value={row.tx_hash} /> },
+              { key: "tx_hash", label: "台账记录摘要", render: (row) => <IdText value={row.tx_hash} /> },
             ]} /></div>}
           </div>
         </Surface>
       </div>
-      <TrustedExecutionReviewPanel />
     </>
   );
 }
