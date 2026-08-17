@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Eye, RefreshCw, Search } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button, DataTable, DateTimeText, DetailDrawer, FilterBar, IdText, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -22,6 +22,7 @@ const purposeNames: Record<string, string> = {
 };
 
 export function DataSpacePage() {
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const taskId = searchParams.get("task_id") || "";
   const [batch, setBatch] = useState("");
@@ -47,6 +48,12 @@ export function DataSpacePage() {
   const agreements = data?.agreements || [];
   const assetCount = useMemo(() => new Set(entries.map((item: JsonRecord) => item.asset_type)).size, [entries]);
   const receiptCount = agreements.filter((item) => item.last_receipt_json?.receipt_hash).length;
+
+  useEffect(() => {
+    if (loading || location.hash !== "#data-authorizations") return;
+    const frame = window.requestAnimationFrame(() => document.getElementById("data-authorizations")?.scrollIntoView());
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, location.hash]);
 
   async function applyBatch() {
     const next = batchInput.trim();
@@ -85,7 +92,7 @@ export function DataSpacePage() {
         />
       </Surface>
 
-      <Surface title="调用协议" meta={`${agreements.length} 项`}>
+      <Surface id="data-authorizations" title="数据授权记录" meta={`${agreements.length} 项`}>
         <DataTable
           keyField="agreement_id" rows={agreements} empty="暂无调用协议" label="调用协议列表"
           columns={[

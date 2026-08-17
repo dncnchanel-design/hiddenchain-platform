@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ArrowRight, Plus, RefreshCw } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Button, DataTable, DateTimeText, ErrorState, IdText, LoadingState, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -18,9 +18,11 @@ const tabs: Array<{ code: TaskTab; label: string }> = [
 
 export function SettlementPage() {
   const { session } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const role = session!.user.role_code;
   const orgId = session!.user.org_id;
-  const [activeTab, setActiveTab] = useState<TaskTab>("todo");
+  const requestedView = searchParams.get("view");
+  const activeTab = tabs.some((item) => item.code === requestedView) ? requestedView as TaskTab : "todo";
   const { data, loading, refreshing, error, reload } = useRemote(
     (signal) => api<JsonRecord[]>("/settlement/tasks", { signal, cache: "no-store" }),
     [role, orgId],
@@ -33,6 +35,12 @@ export function SettlementPage() {
   })), [data, orgId, role]);
   const tabCounts = useMemo(() => Object.fromEntries(tabs.map((tab) => [tab.code, taskRows.filter((item) => item.business_tab === tab.code).length])), [taskRows]);
   const visibleRows = taskRows.filter((item) => item.business_tab === activeTab);
+
+  function selectTab(code: TaskTab) {
+    const next = new URLSearchParams(searchParams);
+    next.set("view", code);
+    setSearchParams(next, { replace: true });
+  }
 
   if (loading) return <LoadingState label="正在读取结算任务" variant="page" />;
   if (error) return <ErrorState message={error} retry={reload} />;
@@ -56,7 +64,7 @@ export function SettlementPage() {
               role="tab"
               aria-selected={activeTab === tab.code}
               className={activeTab === tab.code ? "active" : ""}
-              onClick={() => setActiveTab(tab.code)}
+              onClick={() => selectTab(tab.code)}
             >
               <span>{tab.label}</span><strong>{tabCounts[tab.code] || 0}</strong>
             </button>

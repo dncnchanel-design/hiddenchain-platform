@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { canAccessRoute, canCreateSettlement, getDefaultPath } from "./access";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { canAccessRouteView, canCreateSettlement, getDefaultPath } from "./access";
 import { useAuth } from "./auth";
 import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
@@ -47,9 +47,11 @@ function LoginGate() {
 
 function Allowed({ path, children }: { path: string; children: React.ReactNode }) {
   const { session } = useAuth();
-  return session && canAccessRoute(session, path)
+  const location = useLocation();
+  const deniedPath = `${location.pathname}${location.search}${location.hash}`;
+  return session && canAccessRouteView(session, path, location.search)
     ? children
-    : <Navigate to={`/403?path=${encodeURIComponent(path)}`} replace state={{ deniedPath: path }} />;
+    : <Navigate to={`/403?path=${encodeURIComponent(deniedPath)}`} replace state={{ deniedPath }} />;
 }
 
 function ExchangeOnly({ children }: { children: React.ReactNode }) {

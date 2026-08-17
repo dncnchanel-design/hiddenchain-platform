@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ROUTE_POLICIES, canAccessRoute, canCreateSettlement, getAvailableWorkspaces, getDefaultPath, getVisibleRoutes } from "./access";
+import { ROUTE_POLICIES, canAccessRoute, canAccessRouteView, canCreateSettlement, getAvailableWorkspaces, getDefaultPath, getPrimaryNavigation, getVisibleRoutes } from "./access";
 import type { RoleCode, SessionPayload } from "./types";
 
 function sessionFor(role: RoleCode, menuPaths = ROUTE_POLICIES.map((route) => route.path)): SessionPayload {
@@ -51,5 +51,39 @@ describe("route access policy", () => {
     expect(canCreateSettlement(sessionFor("GENERATOR"))).toBe(false);
     expect(canCreateSettlement(sessionFor("REGULATOR"))).toBe(false);
     expect(canCreateSettlement(sessionFor("ADMIN"))).toBe(false);
+  });
+
+  it("rejects restricted query-driven views on direct navigation", () => {
+    expect(canAccessRouteView(sessionFor("GENERATOR"), "/compute", "?tab=tasks")).toBe(true);
+    expect(canAccessRouteView(sessionFor("GENERATOR"), "/compute", "?tab=analysis")).toBe(false);
+    expect(canAccessRouteView(sessionFor("RETAILER"), "/compute", "?tab=analysis")).toBe(true);
+  });
+
+  it("builds top-level navigation from the same role and backend menu policy", () => {
+    const generatorNavigation = getPrimaryNavigation(sessionFor("GENERATOR"));
+    expect(generatorNavigation.map((group) => group.label)).toEqual(["首页", "结算管理", "可信数据空间", "隐私计算", "审计与风控"]);
+    expect(generatorNavigation.flatMap((group) => group.items).map((item) => item.label)).not.toContain("发起结算任务");
+    expect(generatorNavigation.flatMap((group) => group.items).map((item) => item.label)).not.toContain("用电侧数据");
+    expect(generatorNavigation.some((group) => group.id === "manage")).toBe(false);
+
+    const adminNavigation = getPrimaryNavigation(sessionFor("ADMIN"));
+    expect(adminNavigation.find((group) => group.id === "manage")?.items.map((item) => item.label)).toEqual([
+      "管理总览",
+      "组织与权限",
+      "能力与服务",
+      "运行监控",
+      "系统日志",
+    ]);
+  });
+
+  it("adds only real view entries and gates task creation", () => {
+    const exchangeNavigation = getPrimaryNavigation(sessionFor("EXCHANGE"));
+    const settlementItems = exchangeNavigation.find((group) => group.id === "settlement")?.items || [];
+    expect(settlementItems.map((item) => item.label)).toEqual(["发起结算任务", "结算任务", "待我处理", "结果确认", "结算记录", "结算规则"]);
+    expect(settlementItems.find((item) => item.label === "结算记录")?.to).toBe("/settlements?view=completed");
+
+    const restricted = getPrimaryNavigation(sessionFor("EXCHANGE", ["/workbench", "/settlements"]));
+    expect(restricted.flatMap((group) => group.items).map((item) => item.label)).not.toContain("结算规则");
+    expect(restricted.flatMap((group) => group.items).map((item) => item.label)).not.toContain("结果确认");
   });
 });
