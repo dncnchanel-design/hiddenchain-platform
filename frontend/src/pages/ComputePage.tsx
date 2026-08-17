@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Database, Eye, Play, Plus, RefreshCw, Route } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
@@ -30,11 +30,12 @@ function authorizationSummary(items: JsonRecord[] = []) {
 
 export function ComputePage() {
   const { session } = useAuth();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const taskId = searchParams.get("task_id") || "";
   const analysisAllowed = ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"].includes(session!.user.role_code);
   const canCreateAnalysis = ["RETAILER", "EXCHANGE", "REGULATOR"].includes(session!.user.role_code);
-  const [tab, setTab] = useState<ComputeTab>("SETTLEMENT");
+  const tab: ComputeTab = searchParams.get("tab") === "analysis" && analysisAllowed ? "LOAD" : "SETTLEMENT";
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const loader = async (signal?: AbortSignal) => {
@@ -48,6 +49,18 @@ export function ComputePage() {
   };
   const { data, loading, refreshing, error, reload } = useRemote(loader, [analysisAllowed, taskId]);
 
+  useEffect(() => {
+    if (loading || location.hash !== "#compute-strategies") return;
+    const frame = window.requestAnimationFrame(() => document.getElementById("compute-strategies")?.scrollIntoView());
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, location.hash]);
+
+  function selectTab(nextTab: ComputeTab) {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", nextTab === "LOAD" ? "analysis" : "tasks");
+    setSearchParams(next, { replace: true });
+  }
+
   if (loading) return <LoadingState label="正在加载计算任务" variant="page" />;
   if (error || !data) return <ErrorState message={error || "隐私计算加载失败"} retry={reload} />;
 
@@ -58,10 +71,10 @@ export function ComputePage() {
       <PageHeader title="隐私计算" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>{!taskId && tab === "LOAD" && canCreateAnalysis && <Button icon={Plus} variant="primary" onClick={() => setShowAnalysis(true)}>发起分析</Button>}</>} />
       {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
       <div className="segmented" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "SETTLEMENT"} className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => setTab("SETTLEMENT")}>调用计算</button>
-        {analysisAllowed && <button type="button" role="tab" aria-selected={tab === "LOAD"} className={tab === "LOAD" ? "active" : ""} onClick={() => setTab("LOAD")}>用电分析</button>}
+        <button type="button" role="tab" aria-selected={tab === "SETTLEMENT"} className={tab === "SETTLEMENT" ? "active" : ""} onClick={() => selectTab("SETTLEMENT")}>调用计算</button>
+        {analysisAllowed && <button type="button" role="tab" aria-selected={tab === "LOAD"} className={tab === "LOAD" ? "active" : ""} onClick={() => selectTab("LOAD")}>用电分析</button>}
       </div>
-      <Surface title="策略建议" meta="不代表运行环境已接入对应协议">
+      <Surface id="compute-strategies" title="计算方案" meta="候选方案不代表运行环境已接入对应协议">
         <DataTable keyField="scenario_code" rows={data.strategies} label="计算方式目录" pageSize={20} columns={[
           { key: "scenario_code", label: "业务场景", minWidth: 170, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_name || row.scenario_code || "—" },
           { key: "primary", label: "建议主要方式", minWidth: 180, render: (row) => strategyName(row.primary) },
