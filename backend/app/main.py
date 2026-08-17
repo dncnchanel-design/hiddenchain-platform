@@ -12,11 +12,11 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from .config import settings
+from .config import settings, validate_runtime_settings
 from .database import SessionLocal, engine, ensure_runtime_schema
 from .models import Base
+from .production import assert_production_database_clean
 from .routers import audit, auth, data, energy, execution, system, trade, trust
-from .seed import seed_demo
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
@@ -36,18 +36,22 @@ from .services.trust_execution import DynamicPolicyEngine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_runtime_settings()
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
-    if settings.demo_seed:
-        with SessionLocal() as db:
-            seed_demo(db)
+    with SessionLocal() as db:
+        assert_production_database_clean(db, settings)
+        if settings.test_fixture_seed:
+            from .seed import seed_test_fixtures
+
+            seed_test_fixtures(db)
     yield
 
 
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="以可信数据调用与隐私计算为核心、以能源电力为验证场景的 Agent 原生可信数据空间 MVP",
+    description="面向电力交易结算的数据授权、受控计算、结果确认与审计追溯服务",
     docs_url=f"{settings.api_prefix}/docs",
     openapi_url=f"{settings.api_prefix}/openapi.json",
     lifespan=lifespan,
@@ -89,7 +93,13 @@ async def collect_prometheus_metrics(request: Request, call_next):
     )
     return response
 
-for router in [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router, energy.router]:
+application_routers = [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router, energy.router]
+if settings.app_env in {"development", "test"}:
+    from .routers import test_support
+
+    application_routers.append(test_support.router)
+
+for router in application_routers:
     app.include_router(router, prefix=settings.api_prefix)
 
 
@@ -98,9 +108,8 @@ def health() -> dict:
     return {
         "status": "ok",
         "service": settings.app_name,
-        "mode": "MVP_WITH_REPLACEABLE_ADAPTERS",
-        "security_boundary": "Agent orchestration is separated from deterministic execution.",
-        "mvp_adapters": {
+        "environment": settings.app_env,
+        "calculation_services": {
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
             "differential_privacy": OpenDPAdapter.status(),
@@ -132,8 +141,9 @@ def health() -> dict:
                 "DELIVER",
                 "LOG",
             ],
-            "raw_data_transferred": False,
-            "async_blockchain_audit": True,
+            "async_evidence_recording": True,
+            "evidence_backend": "LOCAL_EVIDENCE_LEDGER_V1",
+            "data_boundary_statement": "Each execution must be evaluated from its recorded protocol and attestation.",
         },
     }
 

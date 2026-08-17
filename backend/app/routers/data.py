@@ -102,18 +102,32 @@ def list_data_space_agreements(
             for item in records
             if item.provider_org_id == user.org_id or item.consumer_org_id == user.org_id
         ]
-    return [model_dict(item) for item in records]
+    org_names = {org.org_id: org.org_name for org in db.scalars(select(Organization)).all()}
+    return [
+        {
+            **model_dict(item),
+            "provider_org_name": org_names.get(item.provider_org_id),
+            "consumer_org_name": org_names.get(item.consumer_org_id),
+        }
+        for item in records
+    ]
 
 
 @router.get("/uploads")
 def list_uploads(
     asset_type: str | None = None,
+    task_id: str | None = None,
+    trade_batch_no: str | None = None,
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(DataUpload).order_by(DataUpload.created_at.desc())
     if asset_type:
         query = query.where(DataUpload.asset_type == asset_type)
+    if task_id:
+        query = query.where(DataUpload.task_id == task_id)
+    if trade_batch_no:
+        query = query.where(DataUpload.trade_batch_no == trade_batch_no)
     if user.role_code in {"GENERATOR", "RETAILER"}:
         query = query.where(DataUpload.owner_org_id == user.org_id)
     records = db.scalars(query).all()
@@ -124,7 +138,11 @@ def list_uploads(
             "owner_org_name": org_names.get(item.owner_org_id),
             "raw_payload_exposed": False,
             "trusted_acquisition": bool(item.ingress_json),
-            "secure_transport": item.ingress_json or {"protocol": "HTTPS", "encryption": "TLS1.3"},
+            "secure_transport": item.ingress_json or {
+                "protocol": "HTTPS",
+                "encryption": "NOT_PROVIDED",
+                "attestation": "NOT_PROVIDED",
+            },
         }
         for item in records
     ]

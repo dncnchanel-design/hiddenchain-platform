@@ -14,11 +14,11 @@ class StrictModel(BaseModel):
 class IngressMetadata(StrictModel):
     """Metadata for the trusted acquisition and secure transport boundary."""
 
-    source_type: str = Field(default="EDGE_METER", min_length=2, max_length=64)
+    source_type: str = Field(default="UNSPECIFIED", min_length=2, max_length=64)
     protocol: Literal["HTTPS", "MQTT", "WebSocket"] = "HTTPS"
-    stage: Literal["TERMINAL", "EDGE", "CLOUD", "BUSINESS"] = "EDGE"
-    encryption: Literal["TLS1.3", "TLS1.2"] = "TLS1.3"
-    attestation: str = Field(default="虚拟仿真来源证明", min_length=2, max_length=128)
+    stage: Literal["TERMINAL", "EDGE", "CLOUD", "BUSINESS"] = "BUSINESS"
+    encryption: Literal["TLS1.3", "TLS1.2", "NOT_PROVIDED"] = "NOT_PROVIDED"
+    attestation: str = Field(default="NOT_PROVIDED", min_length=2, max_length=128)
 
 
 class LoginRequest(StrictModel):
@@ -126,11 +126,16 @@ class SettlementTaskCreate(StrictModel):
     period_end: date
     rule_id: str
     participants: list[ParticipantInput] = Field(min_length=2)
+    scenario_code: Literal["MARKET_SETTLEMENT"] = "MARKET_SETTLEMENT"
+    business_description: str = Field(default="", max_length=1000)
+    compute_mode: Literal["LOCAL_CONTROLLED"] = "LOCAL_CONTROLLED"
+    algorithm_code: str = Field(default="CONTROLLED_SETTLEMENT_V1", min_length=2, max_length=64)
+    output_mode: Literal["AGGREGATE_ONLY"] = "AGGREGATE_ONLY"
 
 
 class WorkflowRunRequest(StrictModel):
-    compute_mode: Literal["MPC_MOCK", "SECRET_FLOW"] = "MPC_MOCK"
-    algorithm_code: str = "SETTLEMENT_MPC_V1"
+    compute_mode: Literal["LOCAL_CONTROLLED"] = "LOCAL_CONTROLLED"
+    algorithm_code: str = "CONTROLLED_SETTLEMENT_V1"
 
 
 class ConnectorNegotiationRequest(StrictModel):
@@ -139,7 +144,7 @@ class ConnectorNegotiationRequest(StrictModel):
     consumer_org_id: str = Field(min_length=1, max_length=64)
     asset_types: list[str] = Field(min_length=1)
     purpose: Literal["POWER_SETTLEMENT", "GRID_SECURITY_CHECK", "VPP_AGGREGATION"] = "POWER_SETTLEMENT"
-    algorithm_code: str = Field(default="SETTLEMENT_MPC_V1", min_length=2, max_length=64)
+    algorithm_code: str = Field(default="CONTROLLED_SETTLEMENT_V1", min_length=2, max_length=64)
     max_uses: int = Field(default=1, ge=1, le=100)
 
 
@@ -149,11 +154,11 @@ class UsageControlCheckRequest(StrictModel):
     algorithm_code: str = Field(min_length=2, max_length=64)
     raw_data_export: bool = False
     output_mode: Literal["AGGREGATE_ONLY", "RAW_RECORDS"] = "AGGREGATE_ONLY"
-    execution_environment: Literal["AUTHORIZED_COMPUTE_SANDBOX", "UNTRUSTED_CLIENT"] = "AUTHORIZED_COMPUTE_SANDBOX"
+    execution_environment: Literal["APPLICATION_PROCESS", "UNTRUSTED_CLIENT"] = "APPLICATION_PROCESS"
 
 
 class ResultConfirmRequest(StrictModel):
-    opinion: str = "同意场景结果"
+    opinion: str = "同意结算结果"
 
 
 class AuditReportCreate(StrictModel):
@@ -208,73 +213,6 @@ class PrivacyAnalysisCreate(StrictModel):
     ] = "VPP_AGGREGATION"
     sensitivity_level: Literal["L2", "L3", "L4"] = "L3"
     latency_requirement: Literal["REAL_TIME", "MINUTE", "BATCH"] = "BATCH"
-
-
-class ImportBatch(StrictModel):
-    trade_batch_no: str = Field(min_length=3, max_length=64)
-    period: str = Field(min_length=1, max_length=32)
-    period_start: date
-    period_end: date
-
-
-class ImportDataAsset(StrictModel):
-    asset_type: Literal[
-        "GENERATION_DATA",
-        "RENEWABLE_FORECAST",
-        "RETAIL_DATA",
-        "USER_LOAD_CURVE",
-        "VPP_RESOURCE",
-        "GRID_CONSTRAINT",
-    ]
-    upload_id: str | None = None
-    owner_org_id: str = Field(min_length=1, max_length=64)
-    label: str = Field(min_length=2, max_length=128)
-    ingress: IngressMetadata = Field(default_factory=IngressMetadata)
-    local_payload: dict[str, Any]
-    validation_status: str | None = None
-    signature_status: str | None = None
-    signature_id: str | None = None
-
-
-class ImportPrivacyAnalysisRequest(StrictModel):
-    analysis_name: str = Field(min_length=2, max_length=128)
-    dataset_ids: list[str] = Field(default_factory=list)
-    analysis_type: Literal["PEAK_VALLEY", "LOAD_CLUSTER", "DR_POTENTIAL"] = "PEAK_VALLEY"
-    privacy_level: Literal["AGGREGATED", "K_ANONYMIZED", "DIFFERENTIAL_PRIVACY"] = "AGGREGATED"
-    privacy_budget: float = Field(default=1.0, gt=0, le=10)
-    scenario_code: Literal[
-        "RENEWABLE_FORECAST",
-        "MARKET_SETTLEMENT",
-        "VPP_AGGREGATION",
-        "GRID_SECURITY_CHECK",
-    ] = "VPP_AGGREGATION"
-    sensitivity_level: Literal["L2", "L3", "L4"] = "L3"
-    latency_requirement: Literal["REAL_TIME", "MINUTE", "BATCH"] = "BATCH"
-
-
-class ImportBusinessValidationRequest(StrictModel):
-    task_name: str = Field(min_length=2, max_length=128)
-    rule_id: str = Field(min_length=1, max_length=64)
-    participants: list[ParticipantInput] = Field(min_length=2)
-    compute_mode: Literal["MPC_MOCK", "SECRET_FLOW"] = "MPC_MOCK"
-    algorithm_code: str = Field(default="SETTLEMENT_MPC_V1", min_length=2, max_length=64)
-
-
-class SettlementImportFile(StrictModel):
-    fixture_id: str = Field(min_length=1, max_length=128)
-    created_at: str | None = None
-    is_simulated: bool = True
-    organizations: dict[str, Any] = Field(default_factory=dict)
-    batch: ImportBatch
-    data_assets: list[ImportDataAsset] = Field(min_length=2)
-    privacy_analysis_request: ImportPrivacyAnalysisRequest | None = None
-    business_validation_request: ImportBusinessValidationRequest
-
-
-class AnomalyInjectCreate(StrictModel):
-    task_id: str
-    event_type: Literal["HASH_MISMATCH", "UNAUTHORIZED_ACCESS", "MISSING_SIGNATURE", "POLICY_DENIED"]
-    mutate_evidence: bool = False
 
 
 class AnomalyResolve(StrictModel):

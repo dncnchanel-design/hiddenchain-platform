@@ -11,15 +11,18 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: development
     depends_on:
       opa:
         condition: service_started
     environment:
+      APP_ENV: test
       DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
-      JWT_SECRET: ${JWT_SECRET:-hiddenchain-compose-demo-jwt-secret}
-      SIGNING_SECRET: ${SIGNING_SECRET:-hiddenchain-compose-demo-signing-secret}
-      DEMO_SEED: "true"
-      MOCK_DELAY_MS: "80"
+      JWT_SECRET: ${JWT_SECRET:-hiddenchain-compose-test-jwt-secret}
+      SIGNING_SECRET: ${SIGNING_SECRET:-hiddenchain-compose-test-signing-secret}
+      TEST_FIXTURE_SEED: "true"
+      TEST_COMPUTE_DELAY_MS: "80"
+      ENVIRONMENT_NAME: 测试环境
       OPA_URL: http://opa:8181
       OPA_POLICY_PATH: /v1/data/hiddenchain/decision
       OPA_TIMEOUT_SECONDS: "1.0"

@@ -6,7 +6,7 @@ from typing import Any
 
 
 # Keep the context in the application so credential processing never needs to
-# dereference a user-controlled URL. The vocabulary covers the demo
+# dereference a user-controlled URL. The vocabulary covers the local
 # credentials issued by the seed data and agent registry.
 LOCAL_JSON_LD_CONTEXT: dict[str, Any] = {
     "@version": 1.1,

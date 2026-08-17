@@ -21,19 +21,19 @@ from .services.workflow import run_settlement_workflow
 
 
 ORGS = [
-    ("org-generator-demo", "GENERATOR", "齐鲁新能源发电有限公司", "91370000GEN001"),
-    ("org-retailer-demo", "RETAILER", "海岱售电服务有限公司", "91370000RET001"),
-    ("org-exchange-demo", "EXCHANGE", "山东电力交易中心（演示）", "91370000EXC001"),
-    ("org-regulator-demo", "REGULATOR", "能源交易监管单位（演示）", "91370000REG001"),
-    ("org-admin-demo", "ADMIN", "隐链明算平台运维组织", "91370000ADM001"),
+    ("org-generator-t01", "GENERATOR", "齐鲁新能源发电有限公司", "91370000GEN001"),
+    ("org-retailer-t01", "RETAILER", "海岱售电服务有限公司", "91370000RET001"),
+    ("org-exchange-t01", "EXCHANGE", "区域电力交易中心", "91370000EXC001"),
+    ("org-regulator-t01", "REGULATOR", "区域能源交易监管机构", "91370000REG001"),
+    ("org-admin-t01", "ADMIN", "隐链明算平台运维组织", "91370000ADM001"),
 ]
 
 USERS = [
-    ("user-generator", "org-generator-demo", "generator", "generator123", "发电企业业务员", "GENERATOR"),
-    ("user-retailer", "org-retailer-demo", "retailer", "retailer123", "售电企业业务员", "RETAILER"),
-    ("user-exchange", "org-exchange-demo", "exchange", "exchange123", "交易中心验证员", "EXCHANGE"),
-    ("user-regulator", "org-regulator-demo", "regulator", "regulator123", "监管审计员", "REGULATOR"),
-    ("user-admin", "org-admin-demo", "admin", "admin123", "平台系统管理员", "ADMIN"),
+    ("user-generator", "org-generator-t01", "generator", "generator123", "发电企业业务员", "GENERATOR"),
+    ("user-retailer", "org-retailer-t01", "retailer", "retailer123", "售电企业业务员", "RETAILER"),
+    ("user-exchange", "org-exchange-t01", "exchange", "exchange123", "交易中心验证员", "EXCHANGE"),
+    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管审计员", "REGULATOR"),
+    ("user-admin", "org-admin-t01", "admin", "admin123", "平台系统管理员", "ADMIN"),
 ]
 
 
@@ -79,7 +79,7 @@ def _seed_upload(
     return upload
 
 
-def seed_demo(db: Session) -> None:
+def seed_test_fixtures(db: Session) -> None:
     if db.scalar(select(Organization.org_id).limit(1)):
         return
 
@@ -95,7 +95,7 @@ def seed_demo(db: Session) -> None:
         )
         credential = {
             "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
-            "issuer": "did:hiddenchain:regulator:demo",
+            "issuer": "did:hiddenchain:regulator:test",
             "credentialSubject": {"id": f"did:hiddenchain:org:{org_id}", "orgType": org_type},
         }
         db.add(
@@ -104,7 +104,7 @@ def seed_demo(db: Session) -> None:
                 owner_type="ORG",
                 owner_id=org_id,
                 org_id=org_id,
-                public_key_fingerprint=sha256_json({"org_id": org_id, "key": "demo-public-key"}),
+                public_key_fingerprint=sha256_json({"org_id": org_id, "key": "test-public-key"}),
                 chain_address=f"0x{sha256_json(org_id)[:40]}",
                 credential_status="VALID",
                 credential_json=credential,
@@ -130,7 +130,7 @@ def seed_demo(db: Session) -> None:
                 did_id=definition["did"],
                 owner_type="AGENT",
                 owner_id=definition["code"],
-                org_id="org-exchange-demo",
+                org_id="org-exchange-t01",
                 public_key_fingerprint=sha256_json({"agent": definition["code"], "tools": definition["tools"]}),
                 chain_address=f"0x{sha256_json(definition['did'])[:40]}",
                 credential_status="VALID",
@@ -153,18 +153,18 @@ def seed_demo(db: Session) -> None:
     rule_payload = {"formula": formula, "parameters": rule_parameters, "version": "SETTLE-2026-001"}
     db.add(
         SettlementRule(
-            rule_id="rule-settlement-demo",
+            rule_id="rule-settlement-v1",
             rule_name="山东能源场景可信验证规则",
             rule_version="SETTLE-2026-001",
-            description="用于比赛MVP能源场景验证的确定性规则，所有参数均为假数据。",
-            source_refs_json=["赛题方案-多方安全协同", "演示规则库-月度结算条款-01"],
+            description="用于自动化验收的确定性测试规则；所有参数均为非生产夹具数据。",
+            source_refs_json=["测试规则库-月度结算条款-01"],
             formula_dsl=formula,
             parameters_json=rule_parameters,
             policy_refs_json=["policy:settlement-purpose", "policy:no-raw-data-export"],
             approver_signatures_json=[
                 {
-                    "did": "did:hiddenchain:org:org-exchange-demo",
-                    "signature": sign_value(rule_payload, "did:hiddenchain:org:org-exchange-demo"),
+                    "did": "did:hiddenchain:org:org-exchange-t01",
+                    "signature": sign_value(rule_payload, "did:hiddenchain:org:org-exchange-t01"),
                 }
             ],
             rule_hash=sha256_json(rule_payload),
@@ -174,9 +174,9 @@ def seed_demo(db: Session) -> None:
 
     _seed_upload(
         db,
-        upload_id="upload-generation-demo",
+        upload_id="upload-generation-t01",
         asset_type="GENERATION_DATA",
-        owner_org_id="org-generator-demo",
+        owner_org_id="org-generator-t01",
         label="2026年6月发电侧计量数据",
         payload={
             "contract_id": "CONTRACT-2026-Q2",
@@ -188,9 +188,9 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-retail-demo",
+        upload_id="upload-retail-t01",
         asset_type="RETAIL_DATA",
-        owner_org_id="org-retailer-demo",
+        owner_org_id="org-retailer-t01",
         label="2026年6月售电侧履约数据",
         payload={
             "contract_id": "CONTRACT-2026-Q2",
@@ -204,7 +204,7 @@ def seed_demo(db: Session) -> None:
         db,
         upload_id="upload-load-curve-a",
         asset_type="USER_LOAD_CURVE",
-        owner_org_id="org-retailer-demo",
+        owner_org_id="org-retailer-t01",
         label="园区用户群A脱敏负荷曲线",
         payload={
             "period": "2026-06-18",
@@ -216,7 +216,7 @@ def seed_demo(db: Session) -> None:
         db,
         upload_id="upload-load-curve-b",
         asset_type="USER_LOAD_CURVE",
-        owner_org_id="org-retailer-demo",
+        owner_org_id="org-retailer-t01",
         label="园区用户群B脱敏负荷曲线",
         payload={
             "period": "2026-06-18",
@@ -226,11 +226,11 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-generation-july-demo",
+        upload_id="upload-generation-july-t01",
         asset_type="GENERATION_DATA",
-        owner_org_id="org-generator-demo",
+        owner_org_id="org-generator-t01",
         label="2026年7月发电侧计量数据",
-        trade_batch_no="TB-2026-07-DEMO",
+        trade_batch_no="TB-2026-07-T01",
         payload={
             "contract_id": "CONTRACT-2026-Q3",
             "period": "2026-07",
@@ -241,11 +241,11 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-retail-july-demo",
+        upload_id="upload-retail-july-t01",
         asset_type="RETAIL_DATA",
-        owner_org_id="org-retailer-demo",
+        owner_org_id="org-retailer-t01",
         label="2026年7月售电侧履约数据",
-        trade_batch_no="TB-2026-07-DEMO",
+        trade_batch_no="TB-2026-07-T01",
         payload={
             "contract_id": "CONTRACT-2026-Q3",
             "period": "2026-07",
@@ -256,11 +256,11 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-renewable-forecast-july-demo",
+        upload_id="upload-renewable-forecast-july-t01",
         asset_type="RENEWABLE_FORECAST",
-        owner_org_id="org-generator-demo",
+        owner_org_id="org-generator-t01",
         label="2026年7月新能源出力预测",
-        trade_batch_no="TB-2026-07-DEMO",
+        trade_batch_no="TB-2026-07-T01",
         payload={
             "period": "2026-07",
             "record_count": 31,
@@ -271,11 +271,11 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-vpp-resource-july-demo",
+        upload_id="upload-vpp-resource-july-t01",
         asset_type="VPP_RESOURCE",
-        owner_org_id="org-retailer-demo",
+        owner_org_id="org-retailer-t01",
         label="2026年7月虚拟电厂可调资源池",
-        trade_batch_no="TB-2026-07-DEMO",
+        trade_batch_no="TB-2026-07-T01",
         payload={
             "period": "2026-07",
             "record_count": 1860,
@@ -287,24 +287,24 @@ def seed_demo(db: Session) -> None:
     )
     _seed_upload(
         db,
-        upload_id="upload-grid-constraint-july-demo",
+        upload_id="upload-grid-constraint-july-t01",
         asset_type="GRID_CONSTRAINT",
-        owner_org_id="org-exchange-demo",
+        owner_org_id="org-exchange-t01",
         label="2026年7月调度安全边界",
-        trade_batch_no="TB-2026-07-DEMO",
+        trade_batch_no="TB-2026-07-T01",
         payload={
             "period": "2026-07",
             "record_count": 24,
             "n_minus_one_passed": True,
             "max_residual_imbalance_mwh": 90.0,
             "congestion_margin_pct": 14.2,
-            "boundary_source": "DEMO_DISPATCH_GATEWAY",
+            "boundary_source": "TEST_DISPATCH_GATEWAY",
         },
     )
 
     for task_id, capsule_id, name, batch, period_start, period_end in [
-        ("task-history-demo", "HC-CAPSULE-202606-001", "2026年6月能源场景验证", "TB-2026-06-001", date(2026, 6, 1), date(2026, 6, 30)),
-        ("task-ready-demo", "HC-CAPSULE-202607-001", "2026年7月可信调用验证", "TB-2026-07-DEMO", date(2026, 7, 1), date(2026, 7, 31)),
+        ("task-history-t01", "HC-CAPSULE-202606-001", "2026年6月月度结算任务", "TB-2026-06-001", date(2026, 6, 1), date(2026, 6, 30)),
+        ("task-ready-t01", "HC-CAPSULE-202607-001", "2026年7月月度结算任务", "TB-2026-07-T01", date(2026, 7, 1), date(2026, 7, 31)),
     ]:
         task = SettlementTask(
             task_id=task_id,
@@ -313,18 +313,18 @@ def seed_demo(db: Session) -> None:
             trade_batch_no=batch,
             period_start=period_start,
             period_end=period_end,
-            rule_id="rule-settlement-demo",
-            creator_org_id="org-exchange-demo",
-            status="DRAFT",
-            current_stage="任务创建",
+            rule_id="rule-settlement-v1",
+            creator_org_id="org-exchange-t01",
+            status="READY" if task_id == "task-ready-t01" else "DRAFT",
+            current_stage="待启动结算" if task_id == "task-ready-t01" else "任务创建",
         )
         db.add(task)
         db.add_all(
             [
-                TaskParticipant(task_id=task_id, org_id="org-generator-demo", role_in_task="GENERATOR"),
-                TaskParticipant(task_id=task_id, org_id="org-retailer-demo", role_in_task="RETAILER"),
+                TaskParticipant(task_id=task_id, org_id="org-generator-t01", role_in_task="GENERATOR"),
+                TaskParticipant(task_id=task_id, org_id="org-retailer-t01", role_in_task="RETAILER"),
             ]
         )
 
     db.commit()
-    run_settlement_workflow(db, task_id="task-history-demo", actor=None)
+    run_settlement_workflow(db, task_id="task-history-t01", actor=None)

@@ -70,7 +70,7 @@ def test_pvlib_solar_adapter_returns_derived_metrics_only():
 def test_pyld_canonicalizes_did_vc_with_stable_fingerprint():
     credential = {
         "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
-        "issuer": "did:hiddenchain:regulator:demo",
+        "issuer": "did:hiddenchain:regulator:test",
         "credentialSubject": {
             "id": "did:hiddenchain:org:demo",
             "orgType": "GENERATOR",
@@ -81,7 +81,7 @@ def test_pyld_canonicalizes_did_vc_with_stable_fingerprint():
             "orgType": "GENERATOR",
             "id": "did:hiddenchain:org:demo",
         },
-        "issuer": "did:hiddenchain:regulator:demo",
+        "issuer": "did:hiddenchain:regulator:test",
         "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
     }
 
@@ -120,7 +120,7 @@ def test_prometheus_endpoint_is_protected_and_has_no_business_labels(client, aut
 
 def test_frictionless_catalog_package_contains_metadata_only(client, auth_headers):
     response = client.get(
-        "/api/data/catalog/package?trade_batch_no=TB-2026-07-DEMO",
+        "/api/data/catalog/package?trade_batch_no=TB-2026-07-T01",
         headers=auth_headers["regulator"],
     )
 
@@ -158,7 +158,7 @@ def test_frictionless_catalog_package_contains_metadata_only(client, auth_header
 
 def test_dataspace_protocol_catalog_is_valid_and_metadata_only(client, auth_headers):
     response = client.get(
-        "/api/data/catalog/dataspace?trade_batch_no=TB-2026-07-DEMO",
+        "/api/data/catalog/dataspace?trade_batch_no=TB-2026-07-T01",
         headers=auth_headers["regulator"],
     )
 
@@ -235,8 +235,8 @@ def test_health_and_lineage_endpoint_expose_safe_integration_status(client, auth
     health = client.get("/api/health")
     assert health.status_code == 200
     payload = health.json()
-    assert payload["mvp_adapters"]["differential_privacy"]["installed"] is True
-    assert payload["mvp_adapters"]["solar_resource"]["installed"] is True
+    assert payload["calculation_services"]["differential_privacy"]["installed"] is True
+    assert payload["calculation_services"]["solar_resource"]["installed"] is True
     assert payload["integrations"]["prometheus"]["package_available"] is True
     assert payload["integrations"]["correlation_id"]["code"] == "ASGI_CORRELATION_ID_5_0_1"
     assert payload["integrations"]["correlation_id"]["header"] == "X-Request-ID"

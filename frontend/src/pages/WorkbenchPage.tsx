@@ -1,10 +1,11 @@
 import type { ElementType } from "react";
-import { ArrowRight, BarChart3, Building2, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { ArrowRight, BarChart3, Building2, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Button, DataTable, DateTimeText, ErrorState, IdText, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { taskNextAction, taskTabFor } from "../settlement-model";
 import type { JsonRecord, RoleCode } from "../types";
 
 type WorkbenchAction = { title: string; path: string; icon: ElementType };
@@ -13,7 +14,7 @@ type WorkbenchData = { tasks: JsonRecord[]; organizations: JsonRecord[]; summary
 
 const roleConfig: Record<RoleCode, RoleConfig> = {
   GENERATOR: {
-    title: "发电企业工作台", nextStep: "登记发电数据", nextPath: "/data/generation",
+    title: "发电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
     actions: [
       { title: "登记发电数据", path: "/data/generation", icon: Database },
       { title: "确认结果", path: "/results", icon: FileCheck2 },
@@ -21,7 +22,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     ],
   },
   RETAILER: {
-    title: "售电企业工作台", nextStep: "登记用电数据", nextPath: "/data/retail",
+    title: "售电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
     actions: [
       { title: "登记用电数据", path: "/data/retail", icon: Database },
       { title: "发起隐私分析", path: "/compute", icon: LockKeyhole },
@@ -29,9 +30,9 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     ],
   },
   EXCHANGE: {
-    title: "交易中心工作台", nextStep: "进入调用验证", nextPath: "/settlements",
+    title: "交易中心工作台", nextStep: "发起结算任务", nextPath: "/settlements/new",
     actions: [
-      { title: "进入调用验证", path: "/settlements", icon: Upload },
+      { title: "查看结算任务", path: "/settlements", icon: Network },
       { title: "维护授权规则", path: "/rules", icon: Gavel },
       { title: "查看计算任务", path: "/compute", icon: Network },
     ],
@@ -45,9 +46,9 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     ],
   },
   ADMIN: {
-    title: "可信执行业务工作台", nextStep: "查看验证任务", nextPath: "/settlements",
+    title: "可信执行业务工作台", nextStep: "查看结算任务", nextPath: "/settlements",
     actions: [
-      { title: "查看验证任务", path: "/settlements", icon: Network },
+      { title: "查看结算任务", path: "/settlements", icon: Network },
       { title: "查看授权规则", path: "/rules", icon: Gavel },
       { title: "查看风险事件", path: "/anomalies", icon: ShieldCheck },
     ],
@@ -80,10 +81,14 @@ export function WorkbenchPage() {
   if (loading) return <LoadingState label="正在读取工作台" variant="page" />;
   if (error || !data) return <ErrorState message={error || "工作台加载失败"} retry={reload} />;
 
-  const tasks = data.tasks;
-  const pendingTasks = tasks.filter((item) => item.status !== "AUDITED");
-  const runningTasks = tasks.filter((item) => ["AUTHORIZED", "COMPUTING", "RUNNING", "EVIDENCED"].includes(String(item.status))).length;
-  const exceptionTasks = tasks.filter((item) => ["FAILED", "INVALID", "REJECTED"].includes(String(item.status)) || item.risk_level === "HIGH").length;
+  const tasks: JsonRecord[] = data.tasks.map((item) => ({
+    ...item,
+    next_action: taskNextAction(item, role, authenticatedSession.user.org_id),
+    business_tab: taskTabFor(item, role, authenticatedSession.user.org_id),
+  }));
+  const pendingTasks = tasks.filter((item) => item.business_tab === "todo");
+  const runningTasks = tasks.filter((item) => ["running", "created"].includes(item.business_tab)).length;
+  const exceptionTasks = tasks.filter((item) => ["EXCEPTION", "INVALID", "REJECTED"].includes(String(item.status)) || item.risk_level === "HIGH").length;
   const resultTasks = tasks.filter((item) => Number(item.result_count || 0) > 0).length;
   const openAnomalies = Number(data.summary.kpis?.open_anomalies || 0);
   const activeRule = data.rules.find((item) => item.status === "ACTIVE");
@@ -91,7 +96,7 @@ export function WorkbenchPage() {
 
   return (
     <>
-      <PageHeader title={config.title} description="聚合当前身份可处理的任务、风险和最近业务活动。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title={config.title} actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
 
       <section className="workspace-bar" aria-label="当前业务上下文">
         <div className="workspace-context-primary"><div className="workspace-icon"><Building2 size={19} /></div><div><span>当前组织</span><strong>{String(authenticatedSession.org.org_name || "—")}</strong></div></div>
@@ -123,13 +128,12 @@ export function WorkbenchPage() {
             <DataTable
               keyField="task_id" rows={pendingTasks} empty="暂无待处理任务" label="待处理任务列表"
               columns={[
-                { key: "task_id", label: "任务编号", minWidth: 150, render: (row) => <IdText value={row.task_id} /> },
-                { key: "task_name", label: "业务对象", minWidth: 180 },
-                { key: "creator_org_id", label: "申请机构", minWidth: 150, render: (row) => organizationName(data.organizations, row.creator_org_id) },
+                { key: "task_name", label: "结算任务", minWidth: 210, render: (row) => <div className="task-name-cell"><Link to={`/settlements/${row.task_id}`}>{row.task_name}</Link><IdText value={row.capsule_id || row.task_id} length={7} /></div> },
+                { key: "creator_org_id", label: "发起机构", minWidth: 150, render: (row) => organizationName(data.organizations, row.creator_org_id) },
                 { key: "trade_batch_no", label: "数据批次", minWidth: 130, render: (row) => <IdText value={row.trade_batch_no} length={8} /> },
-                { key: "created_at", label: "创建时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
-                { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
-                { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Link className="table-link" to={`/settlements?task=${row.task_id}`}>查看 <ArrowRight size={13} /></Link> },
+                { key: "current_stage", label: "当前环节", minWidth: 130 },
+                { key: "next_action", label: "下一步", minWidth: 210, render: (row) => <div className="next-action-cell"><strong>{row.next_action.label}</strong><span>{row.next_action.responsible}</span>{row.next_action.blocker && <small>{row.next_action.blocker}</small>}</div> },
+                { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Link className="table-link" to={`/settlements/${row.task_id}`}>处理 <ArrowRight size={13} /></Link> },
               ]}
             />
           </Surface>
@@ -140,7 +144,7 @@ export function WorkbenchPage() {
             {openAnomalies || exceptionTasks ? (
               <div className="alert-list">
                 {openAnomalies > 0 && <Link to="/anomalies"><span><i className="alert-dot danger" />待处置风险事件</span><strong>{openAnomalies} 项</strong><ArrowRight size={14} /></Link>}
-                {exceptionTasks > 0 && <Link to="/settlements"><span><i className="alert-dot warning" />异常验证任务</span><strong>{exceptionTasks} 项</strong><ArrowRight size={14} /></Link>}
+                {exceptionTasks > 0 && <Link to="/settlements"><span><i className="alert-dot warning" />异常结算任务</span><strong>{exceptionTasks} 项</strong><ArrowRight size={14} /></Link>}
               </div>
             ) : <div className="alert-empty"><ShieldCheck size={17} /><span>暂无待处置风险。</span></div>}
           </Surface>

@@ -12,17 +12,34 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: production
     depends_on:
       opa:
         condition: service_started
     restart: unless-stopped
     environment:
+      APP_ENV: production
       DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
       SIGNING_SECRET: ${SIGNING_SECRET:?Set SIGNING_SECRET in .env.production}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
-      DEMO_SEED: ${DEMO_SEED:-false}
-      MOCK_DELAY_MS: ${MOCK_DELAY_MS:-80}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set the public HTTPS origin in .env.production}
+      TEST_FIXTURE_SEED: "false"
+      TEST_COMPUTE_DELAY_MS: "0"
+      PRODUCT_NAME: ${PRODUCT_NAME:-隐链明算}
+      PRODUCT_SHORT_NAME: ${PRODUCT_SHORT_NAME:-隐链明算}
+      PRODUCT_SUBTITLE: ${PRODUCT_SUBTITLE:-电力交易可信执行平台}
+      PRODUCT_LOGO: ${PRODUCT_LOGO:-}
+      PRODUCT_LOGO_COMPACT: ${PRODUCT_LOGO_COMPACT:-}
+      PRODUCT_FAVICON: ${PRODUCT_FAVICON:-}
+      CUSTOMER_NAME: ${CUSTOMER_NAME:-}
+      OPERATOR_NAME: ${OPERATOR_NAME:-}
+      BUILDER_NAME: ${BUILDER_NAME:-}
+      COPYRIGHT_OWNER: ${COPYRIGHT_OWNER:-}
+      COPYRIGHT_YEAR: ${COPYRIGHT_YEAR:-}
+      SUPPORT_NAME: ${SUPPORT_NAME:-}
+      SUPPORT_CONTACT: ${SUPPORT_CONTACT:-}
+      ENVIRONMENT_NAME: ${ENVIRONMENT_NAME:-}
+      LOGIN_NOTICE: ${LOGIN_NOTICE:-}
       OPA_URL: ${OPA_URL:-http://opa:8181}
       OPA_POLICY_PATH: ${OPA_POLICY_PATH:-/v1/data/hiddenchain/decision}
       OPA_TIMEOUT_SECONDS: ${OPA_TIMEOUT_SECONDS:-1.0}

@@ -10,15 +10,15 @@
   },
   "organizations": {
     "generator": {
-      "org_id": "org-generator-demo",
+      "org_id": "org-generator-t01",
       "name": "齐鲁新能源发电有限公司"
     },
     "retailer": {
-      "org_id": "org-retailer-demo",
+      "org_id": "org-retailer-t01",
       "name": "海岱售电服务有限公司"
     },
     "exchange": {
-      "org_id": "org-exchange-demo",
+      "org_id": "org-exchange-t01",
       "name": "山东电力交易中心（演示）"
     }
   },
@@ -26,7 +26,7 @@
     {
       "asset_type": "GENERATION_DATA",
       "upload_id": "90a621c1-6c51-471f-946c-c33240fb8608",
-      "owner_org_id": "org-generator-demo",
+      "owner_org_id": "org-generator-t01",
       "label": "模拟发电计量-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_METER",
@@ -48,7 +48,7 @@
     {
       "asset_type": "RETAIL_DATA",
       "upload_id": "d01b5fff-393f-47fb-a524-91203d71fca7",
-      "owner_org_id": "org-retailer-demo",
+      "owner_org_id": "org-retailer-t01",
       "label": "模拟售电履约-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_METER",
@@ -70,7 +70,7 @@
     {
       "asset_type": "RENEWABLE_FORECAST",
       "upload_id": "6c60bd99-9998-4d00-8f9b-125465e5a184",
-      "owner_org_id": "org-generator-demo",
+      "owner_org_id": "org-generator-t01",
       "label": "模拟新能源预测-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_FORECAST",
@@ -93,7 +93,7 @@
     {
       "asset_type": "VPP_RESOURCE",
       "upload_id": "915d6543-d0d9-4fce-b464-f9889db3d3f4",
-      "owner_org_id": "org-retailer-demo",
+      "owner_org_id": "org-retailer-t01",
       "label": "模拟可调资源-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_VPP_GATEWAY",
@@ -117,7 +117,7 @@
     {
       "asset_type": "GRID_CONSTRAINT",
       "upload_id": "33a420f8-0891-4a5d-ad3f-fa7a1dd7368b",
-      "owner_org_id": "org-exchange-demo",
+      "owner_org_id": "org-exchange-t01",
       "label": "模拟调度边界-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_DISPATCH_GATE",
@@ -141,7 +141,7 @@
     {
       "asset_type": "USER_LOAD_CURVE",
       "upload_id": "b6e01468-7474-4942-a7ce-4003019677ae",
-      "owner_org_id": "org-retailer-demo",
+      "owner_org_id": "org-retailer-t01",
       "label": "模拟用户负荷曲线-20260813124544",
       "ingress": {
         "source_type": "SIMULATION_MASKED_METER_GROUP",
@@ -198,18 +198,18 @@
   },
   "business_validation_request": {
     "task_name": "模拟可信数据调用验证-20260813124544",
-    "rule_id": "rule-settlement-demo",
+    "rule_id": "rule-settlement-v1",
     "participants": [
       {
-        "org_id": "org-generator-demo",
+        "org_id": "org-generator-t01",
         "role_in_task": "GENERATOR"
       },
       {
-        "org_id": "org-retailer-demo",
+        "org_id": "org-retailer-t01",
         "role_in_task": "RETAILER"
       }
     ],
-    "compute_mode": "MPC_MOCK",
-    "algorithm_code": "ADAPTIVE_MARKET_SETTLEMENT_V2"
+    "compute_mode": "LOCAL_CONTROLLED",
+    "algorithm_code": "CONTROLLED_SETTLEMENT_V1"
   }
 }

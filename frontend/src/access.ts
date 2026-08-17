@@ -1,7 +1,7 @@
 import type { RoleCode, SessionPayload } from "./types";
 
 export type WorkspaceId = "business" | "admin";
-export type NavigationGroupId = "entry" | "data" | "compute" | "audit" | "manage";
+export type NavigationGroupId = "entry" | "settlement" | "data" | "compute" | "audit" | "manage";
 
 export type RouteCode =
   | "workbench"
@@ -36,14 +36,14 @@ const REVIEW_ROLES: readonly RoleCode[] = ["EXCHANGE", "REGULATOR", "ADMIN"];
 
 export const ROUTE_POLICIES: readonly RoutePolicy[] = [
   { code: "workbench", path: "/workbench", title: "工作台", workspace: "business", group: "entry", roles: ALL_ROLES },
-  { code: "data-space", path: "/data-space", title: "数据目录", workspace: "business", group: "data", roles: ALL_ROLES },
+  { code: "data-space", path: "/data-space", title: "可信数据目录", workspace: "business", group: "data", roles: ALL_ROLES },
   { code: "generation-data", path: "/data/generation", title: "发电侧数据", workspace: "business", group: "data", roles: ["GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN"] },
   { code: "retail-data", path: "/data/retail", title: "用电侧数据", workspace: "business", group: "data", roles: ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"] },
-  { code: "rules", path: "/rules", title: "授权规则", workspace: "business", group: "data", roles: REVIEW_ROLES },
+  { code: "rules", path: "/rules", title: "结算规则", workspace: "business", group: "settlement", roles: REVIEW_ROLES },
   { code: "compute", path: "/compute", title: "隐私计算", workspace: "business", group: "compute", roles: ALL_ROLES },
-  { code: "settlements", path: "/settlements", title: "调用验证", workspace: "business", group: "compute", roles: ALL_ROLES },
-  { code: "results", path: "/results", title: "结果确认", workspace: "business", group: "compute", roles: ALL_ROLES },
-  { code: "evidence", path: "/evidence", title: "审计凭证", workspace: "business", group: "audit", roles: ALL_ROLES },
+  { code: "settlements", path: "/settlements", title: "结算任务", workspace: "business", group: "settlement", roles: ALL_ROLES },
+  { code: "results", path: "/results", title: "结算结果", workspace: "business", group: "settlement", roles: ALL_ROLES },
+  { code: "evidence", path: "/evidence", title: "证据台账", workspace: "business", group: "audit", roles: ALL_ROLES },
   { code: "audit", path: "/audit", title: "审计复核", workspace: "business", group: "audit", roles: REVIEW_ROLES },
   { code: "reports", path: "/reports", title: "审计报告", workspace: "business", group: "audit", roles: REVIEW_ROLES },
   { code: "anomalies", path: "/anomalies", title: "风险处置", workspace: "business", group: "audit", roles: REVIEW_ROLES },
@@ -57,8 +57,9 @@ export const ROUTE_POLICIES: readonly RoutePolicy[] = [
 export const NAVIGATION_GROUPS: Readonly<Record<WorkspaceId, readonly { id: NavigationGroupId; label: string }[]>> = {
   business: [
     { id: "entry", label: "工作入口" },
-    { id: "data", label: "数据与授权" },
-    { id: "compute", label: "计算与验证" },
+    { id: "settlement", label: "结算业务" },
+    { id: "data", label: "可信数据空间" },
+    { id: "compute", label: "隐私计算" },
     { id: "audit", label: "审计与风控" },
   ],
   admin: [{ id: "manage", label: "管理功能" }],
@@ -70,6 +71,9 @@ export const WORKSPACE_LABELS: Readonly<Record<WorkspaceId, string>> = {
 };
 
 export function getRoutePolicy(pathname: string): RoutePolicy | undefined {
+  if (pathname.startsWith("/settlements/")) {
+    return ROUTE_POLICIES.find((route) => route.code === "settlements");
+  }
   return ROUTE_POLICIES.find((route) => route.path === pathname);
 }
 
@@ -77,6 +81,10 @@ export function canAccessRoute(session: SessionPayload, pathname: string): boole
   const policy = getRoutePolicy(pathname);
   if (!policy || !policy.roles.includes(session.user.role_code)) return false;
   return session.menus.some((menu) => menu.code === policy.code && menu.path === policy.path);
+}
+
+export function canCreateSettlement(session: SessionPayload): boolean {
+  return session.user.role_code === "EXCHANGE" && canAccessRoute(session, "/settlements");
 }
 
 export function getVisibleRoutes(session: SessionPayload, workspace: WorkspaceId): RoutePolicy[] {

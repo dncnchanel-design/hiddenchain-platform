@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: hiddenchain-platform
+    name: hiddenchain-platform-review
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
@@ -11,7 +11,15 @@ services:
         value: sqlite:////app/runtime/hiddenchain.db
       - key: PORT
         value: "10000"
-      - key: DEMO_SEED
+      - key: APP_ENV
+        value: test
+      - key: ENVIRONMENT_NAME
+        value: 公开测试环境
+      - key: TEST_FIXTURE_SEED
+        value: "true"
+      - key: TEST_COMPUTE_DELAY_MS
+        value: "0"
+      - key: OPA_LOCAL_FALLBACK
         value: "true"
       - key: DEEPSEEK_ENABLED
         value: "false"

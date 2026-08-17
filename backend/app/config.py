@@ -37,6 +37,22 @@ def _load_local_env() -> None:
 _load_local_env()
 
 
+VALID_APP_ENVIRONMENTS = {"development", "test", "production"}
+
+
+def _app_env() -> str:
+    value = os.getenv("APP_ENV", "development").strip().lower()
+    return value or "development"
+
+
+def _default_environment_name(app_env: str) -> str:
+    return {
+        "development": "开发环境",
+        "test": "测试环境",
+        "production": "",
+    }.get(app_env, "")
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -60,18 +76,36 @@ def _float_env(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "隐链明算可信数据协同平台"
+    app_env: str = _app_env()
+    product_name: str = os.getenv("PRODUCT_NAME", "隐链明算")
+    product_short_name: str = os.getenv("PRODUCT_SHORT_NAME", "隐链明算")
+    product_subtitle: str = os.getenv("PRODUCT_SUBTITLE", "电力交易可信执行平台")
+    logo: str = os.getenv("PRODUCT_LOGO", "")
+    logo_compact: str = os.getenv("PRODUCT_LOGO_COMPACT", "")
+    favicon: str = os.getenv("PRODUCT_FAVICON", "")
+    customer_name: str = os.getenv("CUSTOMER_NAME", "")
+    operator_name: str = os.getenv("OPERATOR_NAME", "")
+    builder_name: str = os.getenv("BUILDER_NAME", "")
+    copyright_owner: str = os.getenv("COPYRIGHT_OWNER", "")
+    copyright_year: str = os.getenv("COPYRIGHT_YEAR", "")
+    support_name: str = os.getenv("SUPPORT_NAME", "")
+    support_contact: str = os.getenv("SUPPORT_CONTACT", "")
+    environment_name: str = os.getenv(
+        "ENVIRONMENT_NAME", _default_environment_name(_app_env())
+    )
+    login_notice: str = os.getenv("LOGIN_NOTICE", "")
+    app_name: str = os.getenv("API_SERVICE_NAME", "隐链明算可信执行服务")
     api_prefix: str = "/api"
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{(RUNTIME_DIR / 'hiddenchain.db').as_posix()}"
     )
-    # Keep local/demo defaults long enough for HS256 while still allowing
-    # deployments to override them through environment variables.
+    # Development and test retain deterministic local secrets. Production is
+    # rejected at startup until unique deployment secrets are supplied.
     jwt_secret: str = os.getenv(
-        "JWT_SECRET", "hiddenchain-demo-jwt-secret-2026-local-only"
+        "JWT_SECRET", "hiddenchain-development-jwt-secret-local-only"
     )
     signing_secret: str = os.getenv(
-        "SIGNING_SECRET", "hiddenchain-demo-signing-secret-2026-local-only"
+        "SIGNING_SECRET", "hiddenchain-development-signing-secret-local-only"
     )
     jwt_expire_minutes: int = _int_env("JWT_EXPIRE_MINUTES", 720)
     cors_origins: tuple[str, ...] = tuple(
@@ -81,8 +115,10 @@ class Settings:
         ).split(",")
         if item.strip()
     )
-    demo_seed: bool = _bool_env("DEMO_SEED", True)
-    mock_delay_ms: int = _int_env("MOCK_DELAY_MS", 80)
+    test_fixture_seed: bool = _bool_env(
+        "TEST_FIXTURE_SEED", _app_env() in {"development", "test"}
+    )
+    test_compute_delay_ms: int = _int_env("TEST_COMPUTE_DELAY_MS", 0)
     opa_url: str = os.getenv("OPA_URL", "").rstrip("/")
     opa_policy_path: str = os.getenv("OPA_POLICY_PATH", "/v1/data/hiddenchain/decision")
     opa_timeout_seconds: float = _float_env("OPA_TIMEOUT_SECONDS", 1.0)
@@ -91,15 +127,13 @@ class Settings:
         "EXECUTION_POLICY_PATH", str(PROJECT_DIR / "policy" / "energy_execution_policy.json")
     )
     execution_audit_workers: int = _int_env("EXECUTION_AUDIT_WORKERS", 2)
-    # SlowAPI protects the credential entry point. The default in-memory
-    # store is suitable for the single-instance demo; production deployments
-    # can point this at Redis so limits are shared across replicas.
+    # SlowAPI protects the credential entry point. Production deployments with
+    # multiple replicas must use a shared rate-limit store.
     rate_limit_enabled: bool = _bool_env("RATE_LIMIT_ENABLED", True)
     rate_limit_storage_uri: str = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
     auth_login_rate_limit: str = os.getenv("AUTH_LOGIN_RATE_LIMIT", "10/minute")
-    # OpenTelemetry is opt-in so the offline demo remains dependency-light at
-    # runtime, while deployments can send traces to any OTLP-compatible
-    # collector without changing application code.
+    # OpenTelemetry is opt-in; deployments can send traces to any
+    # OTLP-compatible collector without changing application code.
     otel_enabled: bool = _bool_env("OTEL_ENABLED", False)
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "hiddenchain-platform")
     otel_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").rstrip("/")
@@ -126,5 +160,73 @@ class Settings:
 
 
 settings = Settings()
+
+
+def public_branding(settings_value: Settings = settings) -> dict[str, object]:
+    """Return the non-sensitive runtime configuration consumed by the web UI."""
+
+    return {
+        "productName": settings_value.product_name,
+        "productShortName": settings_value.product_short_name,
+        "productSubtitle": settings_value.product_subtitle,
+        "logo": settings_value.logo,
+        "logoCompact": settings_value.logo_compact,
+        "favicon": settings_value.favicon,
+        "customerName": settings_value.customer_name,
+        "operatorName": settings_value.operator_name,
+        "builderName": settings_value.builder_name,
+        "copyrightOwner": settings_value.copyright_owner,
+        "copyrightYear": settings_value.copyright_year,
+        "supportName": settings_value.support_name,
+        "supportContact": settings_value.support_contact,
+        "environmentName": settings_value.environment_name,
+        "loginNotice": settings_value.login_notice,
+        "environment": settings_value.app_env,
+        "features": {
+            "fixtureImport": settings_value.app_env in {"development", "test"},
+            "anomalyInjection": settings_value.app_env in {"development", "test"},
+            "testOperations": settings_value.app_env in {"development", "test"},
+        },
+    }
+
+
+def validate_runtime_settings(settings_value: Settings = settings) -> None:
+    """Fail closed when a production process is configured like a test system."""
+
+    if settings_value.app_env not in VALID_APP_ENVIRONMENTS:
+        allowed = ", ".join(sorted(VALID_APP_ENVIRONMENTS))
+        raise RuntimeError(f"APP_ENV must be one of: {allowed}")
+    if settings_value.app_env != "production":
+        return
+
+    errors: list[str] = []
+    if settings_value.test_fixture_seed:
+        errors.append("TEST_FIXTURE_SEED must be false")
+    if settings_value.test_compute_delay_ms:
+        errors.append("TEST_COMPUTE_DELAY_MS must be 0")
+    if settings_value.opa_local_fallback:
+        errors.append("OPA_LOCAL_FALLBACK must be false")
+    for name, value in {
+        "JWT_SECRET": settings_value.jwt_secret,
+        "SIGNING_SECRET": settings_value.signing_secret,
+    }.items():
+        lowered = value.lower()
+        if len(value) < 32 or "local-only" in lowered or "replace" in lowered:
+            errors.append(f"{name} must be a unique value of at least 32 characters")
+    if settings_value.jwt_secret == settings_value.signing_secret:
+        errors.append("JWT_SECRET and SIGNING_SECRET must be different")
+    if not settings_value.opa_url:
+        errors.append("OPA_URL must identify the production policy service")
+    if not settings_value.cors_origins or any(
+        origin == "*" or "localhost" in origin or "127.0.0.1" in origin
+        for origin in settings_value.cors_origins
+    ):
+        errors.append("CORS_ORIGINS must contain only explicit production origins")
+    if settings_value.environment_name in {"开发环境", "测试环境", "演示环境"}:
+        errors.append("ENVIRONMENT_NAME cannot identify a non-production environment")
+    if errors:
+        raise RuntimeError("Invalid production configuration: " + "; ".join(errors))
+
+
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 VAULT_DIR.mkdir(parents=True, exist_ok=True)

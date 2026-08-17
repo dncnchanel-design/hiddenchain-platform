@@ -10,7 +10,9 @@ const metricNames: Record<string, string> = {
   AGENT_EVENT_COUNT: "能力事件数",
   VERIFY_RATE: "证据核验率",
   CHAIN_EVIDENCE_COUNT: "凭证数量",
-  MPC_DURATION_MS: "调用计算耗时",
+  MPC_DURATION_MS: "历史计算耗时",
+  LOCAL_COMPUTE_DURATION_MS: "本地受控计算耗时",
+  EVIDENCE_RECORD_COUNT: "证据记录数",
   PRIVACY_ANALYSIS_MS: "用电分析耗时",
 };
 
@@ -36,12 +38,12 @@ export function MetricsPage() {
     acc[key].value = acc[key].total / acc[key].count;
     return acc;
   }, {})) as JsonRecord[];
-  const hasComputeSample = aggregates.some((item) => item.code === "MPC_DURATION_MS");
+  const hasComputeSample = aggregates.some((item) => ["LOCAL_COMPUTE_DURATION_MS", "MPC_DURATION_MS"].includes(item.code));
   const hasVerifySample = aggregates.some((item) => item.code === "VERIFY_RATE") || Number(data.evidence_count) > 0;
 
   return (
     <>
-      <PageHeader title="运行监控" description="按计数、百分比和耗时分别展示当前环境的实测运行指标。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title="运行监控" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
       <Notice tone="info"><strong>测量范围：</strong>{data.measurement_scope || "—"}。{data.baseline_note || ""}</Notice>
       <div className="metrics-grid five">
         <Metric label="平均计算耗时" value={hasComputeSample ? `${formatNumber(data.compute_cost_ms, 2)} ms` : "—"} />

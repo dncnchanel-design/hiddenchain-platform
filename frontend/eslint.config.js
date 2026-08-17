@@ -27,7 +27,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/auth.tsx"],
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: globals.node,
+    },
+  },
+  {
+    files: ["src/auth.tsx", "src/branding.tsx"],
     rules: { "react-refresh/only-export-components": "off" },
   },
 );

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, Eye, RefreshCw, Search } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button, DataTable, DateTimeText, DetailDrawer, FilterBar, IdText, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
@@ -21,20 +22,24 @@ const purposeNames: Record<string, string> = {
 };
 
 export function DataSpacePage() {
+  const [searchParams] = useSearchParams();
+  const taskId = searchParams.get("task_id") || "";
   const [batch, setBatch] = useState("");
   const [batchInput, setBatchInput] = useState("");
   const [assetFilter, setAssetFilter] = useState("");
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const loader = async (signal?: AbortSignal) => {
-    const query = batch ? `?trade_batch_no=${encodeURIComponent(batch)}` : "";
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
+    const task = taskId ? await api<JsonRecord>(`/settlement/tasks/${taskId}`, request) : null;
+    const effectiveBatch = batch || task?.trade_batch_no || "";
+    const query = effectiveBatch ? `?trade_batch_no=${encodeURIComponent(effectiveBatch)}` : "";
     const [catalog, agreements] = await Promise.all([
       api<JsonRecord>(`/data/catalog${query}`, request),
-      api<JsonRecord[]>("/data/agreements", request),
+      api<JsonRecord[]>(taskId ? `/data/agreements?task_id=${encodeURIComponent(taskId)}` : "/data/agreements", request),
     ]);
-    return { catalog, agreements };
+    return { catalog, agreements, task, effectiveBatch };
   };
-  const { data, loading, refreshing, error, reload } = useRemote(loader, [batch]);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, [batch, taskId]);
   const entries = useMemo(() => {
     const rows = data?.catalog.entries || [];
     return assetFilter ? rows.filter((item: JsonRecord) => item.asset_type === assetFilter) : rows;
@@ -51,7 +56,8 @@ export function DataSpacePage() {
 
   return (
     <>
-      <PageHeader title="数据目录" description="按当前身份查看可调用数据产品与已建立的调用协议。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
+      <PageHeader title="可信数据目录" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      {data?.task && <div className="association-context"><span>关联任务</span><Link to={`/settlements/${taskId}`}>{data.task.task_name}</Link><IdText value={data.task.capsule_id || taskId} /></div>}
       <FilterBar actions={<><Button icon={Search} variant="primary" onClick={applyBatch}>查询</Button>{(batch || assetFilter) && <Button onClick={() => { setBatch(""); setBatchInput(""); setAssetFilter(""); }}>重置</Button>}</>}>
         <label><span>批次编号</span><input value={batchInput} placeholder="输入完整批次编号" onChange={(event) => setBatchInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void applyBatch(); } }} /></label>
         <label><span>资产类型</span><select value={assetFilter} onChange={(event) => setAssetFilter(event.target.value)}><option value="">全部类型</option>{Object.entries(assetNames).map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
@@ -84,8 +90,8 @@ export function DataSpacePage() {
           keyField="agreement_id" rows={agreements} empty="暂无调用协议" label="调用协议列表"
           columns={[
             { key: "agreement_id", label: "协议编号", minWidth: 160, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}><IdText value={row.agreement_id} copyable={false} /></button> },
-            { key: "provider_org_id", label: "提供方", minWidth: 145, render: (row) => <IdText value={row.provider_org_id} /> },
-            { key: "consumer_org_id", label: "使用方", minWidth: 145, render: (row) => <IdText value={row.consumer_org_id} /> },
+            { key: "provider_org_id", label: "提供方", minWidth: 170, render: (row) => row.provider_org_name || <IdText value={row.provider_org_id} /> },
+            { key: "consumer_org_id", label: "使用方", minWidth: 170, render: (row) => row.consumer_org_name || <IdText value={row.consumer_org_id} /> },
             { key: "requested_purpose", label: "用途", minWidth: 140, render: (row) => purposeNames[row.requested_purpose] || SCENARIO_LABELS[row.requested_purpose] || row.requested_purpose || "—" },
             { key: "algorithm_code", label: "计算方式", minWidth: 160, render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code || "—" },
             { key: "state", label: "状态", render: (row) => <StatusTag value={row.state} /> },
@@ -98,8 +104,10 @@ export function DataSpacePage() {
       {selected && <DetailDrawer title="调用协议详情" onClose={() => setSelected(null)}>
         <div className="detail-grid">
           <div><span>协议编号</span><IdText value={selected.agreement_id} /></div>
-          <div><span>关联任务</span><IdText value={selected.task_id} /></div>
+          <div><span>关联任务</span>{selected.task_id ? <Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link> : "—"}</div>
           <div><span>协议状态</span><StatusTag value={selected.state} /></div>
+          <div><span>数据提供方</span><strong>{selected.provider_org_name || selected.provider_org_id || "—"}</strong></div>
+          <div><span>授权使用方</span><strong>{selected.consumer_org_name || selected.consumer_org_id || "—"}</strong></div>
           <div><span>协议版本</span><strong>{selected.protocol_version || "—"}</strong></div>
           <div><span>生效时间</span><DateTimeText value={selected.valid_from} /></div>
           <div><span>失效时间</span><DateTimeText value={selected.expires_at} /></div>

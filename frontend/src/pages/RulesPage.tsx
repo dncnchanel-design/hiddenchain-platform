@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { CheckCircle2, Eye, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eye, Plus, RefreshCw, ShieldCheck } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, Field, IdText, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
@@ -18,6 +19,8 @@ function ruleScope(rule: JsonRecord) {
 
 export function RulesPage() {
   const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const taskId = searchParams.get("task_id") || "";
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [activateTarget, setActivateTarget] = useState<JsonRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -26,7 +29,9 @@ export function RulesPage() {
   const { data, loading, refreshing, error, reload } = useRemote<JsonRecord[]>(
     (signal) => api("/rules", { signal, timeoutMs: 12000, cache: "no-store" }), [],
   );
+  const taskContext = useRemote<JsonRecord | null>((signal) => taskId ? api(`/settlement/tasks/${taskId}`, { signal, cache: "no-store" }) : Promise.resolve(null), [taskId]);
   const canEdit = session!.user.role_code === "EXCHANGE";
+  const visibleRules = taskId && taskContext.data ? (data || []).filter((item) => item.rule_id === taskContext.data?.rule_id) : (data || []);
 
   async function activate(ruleId: string) {
     setBusy(ruleId);
@@ -44,11 +49,12 @@ export function RulesPage() {
 
   return (
     <>
-      <PageHeader title="授权规则" description="管理调用验证所使用的规则版本、适用范围与启用状态。" actions={<><Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" disabled={loading} onClick={() => setShowForm(true)}>新建规则</Button>}</>} />
+      <PageHeader title="结算规则" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>{canEdit && <Button icon={Plus} variant="primary" disabled={loading} onClick={() => setShowForm(true)}>新建规则</Button>}</>} />
+      {taskContext.data && <div className="association-context"><span>任务使用规则</span><Link to={`/settlements/${taskId}`}>{taskContext.data.task_name}</Link><IdText value={taskContext.data.capsule_id || taskId} /></div>}
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="规则列表" meta={data ? `${data.length} 项` : "正在读取"}>
+      <Surface title="规则列表" meta={data ? `${visibleRules.length} 项` : "正在读取"}>
         <DataTable
-          keyField="rule_id" rows={data || []} label="授权规则列表" loading={loading}
+          keyField="rule_id" rows={visibleRules} label="结算规则列表" loading={loading}
           error={error || (!loading && !data ? "规则加载失败" : "")} onRetry={reload}
           columns={[
             { key: "rule_name", label: "规则名称", minWidth: 190, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.rule_name || "—"}</button> },
@@ -65,7 +71,7 @@ export function RulesPage() {
       {showForm && <RuleForm onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setMessage("规则草稿已创建。"); await reload(); }} />}
       <ConfirmDialog
         open={Boolean(activateTarget)} title="启用规则版本" objectName={`${activateTarget?.rule_name || "—"}（${activateTarget?.rule_version || "—"}）`}
-        currentState={activateTarget?.status} consequence="启用后，该规则版本将可被新的调用验证任务引用，并记录当前审批人的签名。"
+        currentState={activateTarget?.status} consequence="启用后，该规则版本将可被新的结算任务引用，并记录当前审批人的签名。"
         confirmLabel="确认启用" busy={Boolean(activateTarget && busy === activateTarget.rule_id)} onCancel={() => setActivateTarget(null)}
         onConfirm={async () => { if (!activateTarget) return; await activate(activateTarget.rule_id); setActivateTarget(null); }}
       />

@@ -31,10 +31,10 @@ from .adapters import (
     AGENT_DEFINITIONS,
     AdaptivePrivacyRouter,
     DataSpaceConnectorAdapter,
-    MockBlockchainAdapter,
-    MockDataSpaceAdapter,
-    MockDidAdapter,
-    MockPrivacyComputeAdapter,
+    LocalEvidenceLedgerAdapter,
+    IdentityCredentialAdapter,
+    LocalUsagePolicyAdapter,
+    LocalControlledComputeAdapter,
     RulePackageAdapter,
 )
 from .common import add_audit_log, model_dict, trace_id
@@ -104,40 +104,161 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
     participants = db.scalars(
         select(TaskParticipant).where(TaskParticipant.task_id == task.task_id)
     ).all()
+    participant_payloads: list[dict[str, Any]] = []
+    preflight_blockers: list[str] = []
+    ready_data_count = 0
+    for participant in participants:
+        organization = db.get(Organization, participant.org_id)
+        expected_type = "GENERATION_DATA" if participant.role_in_task == "GENERATOR" else "RETAIL_DATA"
+        upload = db.scalar(
+            select(DataUpload)
+            .where(
+                DataUpload.owner_org_id == participant.org_id,
+                DataUpload.asset_type == expected_type,
+                DataUpload.trade_batch_no == task.trade_batch_no,
+                DataUpload.validation_status == "PASSED",
+            )
+            .order_by(DataUpload.created_at.desc())
+        )
+        provider_name = organization.org_name if organization else participant.org_id
+        if upload is None:
+            preflight_blockers.append(f"{provider_name}尚未提供当前批次的已校验数据")
+        elif not upload.signature_value:
+            preflight_blockers.append(f"{provider_name}尚未确认当前批次的数据承诺")
+        else:
+            ready_data_count += 1
+        participant_payloads.append(
+            {
+                **model_dict(participant),
+                "org_name": provider_name,
+                "required_asset_type": expected_type,
+                "data_reference": (
+                    {
+                        "upload_id": upload.upload_id,
+                        "label": upload.label,
+                        "validation_status": upload.validation_status,
+                        "commitment_confirmed": bool(upload.signature_value),
+                    }
+                    if upload
+                    else None
+                ),
+            }
+        )
     results = db.scalars(
         select(SettlementResult).where(SettlementResult.task_id == task.task_id)
     ).all()
     summary_result = next((item for item in results if item.result_scope == "SUMMARY"), None)
-    agreement_count = db.scalar(
-        select(func.count(DataSpaceAgreement.agreement_id)).where(
-            DataSpaceAgreement.task_id == task.task_id
+    scoped_results = [item for item in results if item.result_scope == "ORG"]
+    confirmed_results = [item for item in scoped_results if item.confirm_status == "CONFIRMED"]
+    agreements = db.scalars(
+        select(DataSpaceAgreement)
+        .where(DataSpaceAgreement.task_id == task.task_id)
+        .order_by(DataSpaceAgreement.created_at)
+    ).all()
+    authorized_agreements = [
+        item for item in agreements if item.state in {"NEGOTIATED", "ACTIVE", "CONSUMED"}
+    ]
+    latest_job = db.scalar(
+        select(PrivacyComputeJob)
+        .where(PrivacyComputeJob.task_id == task.task_id)
+        .order_by(PrivacyComputeJob.created_at.desc())
+    )
+    latest_report = db.scalar(
+        select(AuditReport)
+        .where(AuditReport.task_id == task.task_id)
+        .order_by(AuditReport.created_at.desc())
+    )
+    rule = db.get(SettlementRule, task.rule_id)
+    if rule is None:
+        preflight_blockers.append("任务绑定的结算规则不存在")
+    elif rule.status != "ACTIVE":
+        preflight_blockers.append("任务绑定的结算规则版本未启用")
+    open_anomaly_count = db.scalar(
+        select(func.count(AnomalyEvent.event_id)).where(
+            AnomalyEvent.task_id == task.task_id,
+            AnomalyEvent.status == "OPEN",
         )
     ) or 0
+    confirmation_remaining = max(len(scoped_results) - len(confirmed_results), 0)
+    blocking_conditions = list(preflight_blockers)
+    if task.status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and confirmation_remaining:
+        blocking_conditions.append(f"仍有 {confirmation_remaining} 个参与主体未确认结算结果")
+    if open_anomaly_count:
+        blocking_conditions.append(f"仍有 {open_anomaly_count} 个风险事件待处置")
+    evidence_count = db.scalar(
+        select(func.count(BlockchainEvidence.evidence_id)).where(
+            BlockchainEvidence.task_id == task.task_id
+        )
+    ) or 0
+    task_payload = model_dict(task)
+    if task.status == "DRAFT" and not preflight_blockers:
+        task_payload["status"] = "READY"
+        task_payload["current_stage"] = "待启动结算"
     return {
-        **model_dict(task),
-        "verification_profile": task.verification_profile_json or {
-            "mode": "VIRTUAL_SIMULATION",
-            "trusted_acquisition": True,
-            "secure_transport": True,
-            "controlled_use": True,
-            "privacy_compute": task.status == "AUDITED",
-            "traceable_audit": task.status == "AUDITED",
-            "raw_data_exposed": False,
-            "protocols": ["HTTPS", "MQTT", "WebSocket"],
-            "connected_layers": ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"],
-            "evidence_stages": ["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"],
+        **task_payload,
+        "verification_profile": task.verification_profile_json or {},
+        "creator_org_name": (db.get(Organization, task.creator_org_id).org_name if db.get(Organization, task.creator_org_id) else None),
+        "participants": participant_payloads,
+        "rule": (
+            {
+                "rule_id": rule.rule_id,
+                "rule_name": rule.rule_name,
+                "rule_version": rule.rule_version,
+                "rule_hash": rule.rule_hash,
+                "status": rule.status,
+                "created_at": rule.created_at.isoformat(),
+                "updated_at": rule.updated_at.isoformat(),
+            }
+            if rule
+            else None
+        ),
+        "readiness": {
+            "ready_data_count": ready_data_count,
+            "required_data_count": len(participants),
+            "preflight_passed": not preflight_blockers,
+            "preflight_blockers": preflight_blockers,
         },
-        "participants": [model_dict(item) for item in participants],
+        "authorization_summary": {
+            "agreement_count": len(agreements),
+            "authorized_count": len(authorized_agreements),
+            "states": sorted({item.state for item in agreements}),
+        },
+        "compute_summary": (
+            {
+                "job_id": latest_job.job_id,
+                "status": latest_job.status,
+                "algorithm_code": latest_job.algorithm_code,
+                "adapter_code": latest_job.adapter_code,
+                "output_hash": latest_job.output_hash,
+                "created_at": latest_job.created_at.isoformat(),
+            }
+            if latest_job
+            else None
+        ),
+        "confirmation_summary": {
+            "required_count": len(scoped_results),
+            "confirmed_count": len(confirmed_results),
+            "remaining_count": confirmation_remaining,
+            "confirmed_org_ids": [item.org_id for item in confirmed_results],
+        },
+        "audit_summary": (
+            {
+                "report_id": latest_report.report_id,
+                "status": latest_report.status,
+                "risk_level": latest_report.risk_level,
+                "report_hash": latest_report.report_hash,
+            }
+            if latest_report
+            else None
+        ),
+        "blocking_conditions": blocking_conditions,
+        "open_anomaly_count": open_anomaly_count,
         "result_count": len(results),
-        "evidence_count": db.scalar(
-            select(func.count(BlockchainEvidence.evidence_id)).where(
-                BlockchainEvidence.task_id == task.task_id
-            )
-        ) or 0,
+        "evidence_count": evidence_count,
         "agent_event_count": db.scalar(
             select(func.count(AgentEvent.event_id)).where(AgentEvent.task_id == task.task_id)
         ) or 0,
-        "data_space_agreement_count": agreement_count,
+        "data_space_agreement_count": len(agreements),
         "scenario_coordination": (
             summary_result.result_json.get("scenario_coordination", []) if summary_result else []
         ),
@@ -173,12 +294,7 @@ def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
     ).all()
     job_payload = model_dict(job) if job else None
     if job_payload is not None:
-        job_payload["raw_data_exposed"] = False
-        job_payload["privacy_guarantees"] = job.privacy_guarantees_json or {
-            "raw_data_exported": False,
-            "raw_records_returned": False,
-            "output_mode": "AGGREGATE_ONLY",
-        }
+        job_payload["privacy_guarantees"] = job.privacy_guarantees_json or {}
     report_payload = model_dict(report) if report else None
     if report_payload is not None:
         report_payload["conclusion"] = "PASS" if report.risk_level == "LOW" else "REVIEW_REQUIRED"
@@ -192,22 +308,15 @@ def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
             "protocol_version": DataSpaceConnectorAdapter.protocol_version,
             "agreement_count": len(agreements),
             "agreements": [model_dict(item) for item in agreements],
-            "raw_data_transferred": False,
+            "raw_data_transfer_verification": "NOT_PROVIDED",
             "usage_control": "PEP_PDP_ENFORCED",
         },
         "security_boundary": {
-            "raw_data_exposed": False,
-            "agent_direct_raw_data_access": False,
+            "api_raw_records_returned": False,
+            "cross_domain_non_export_verified": False,
             "deterministic_execution": True,
         },
-        "verification_profile": task.verification_profile_json or {
-            "mode": "VIRTUAL_SIMULATION",
-            "trusted_acquisition": False,
-            "secure_transport": False,
-            "controlled_use": False,
-            "privacy_compute": False,
-            "traceable_audit": False,
-        },
+        "verification_profile": task.verification_profile_json or {},
     }
 
 
@@ -216,8 +325,8 @@ def run_settlement_workflow(
     *,
     task_id: str,
     actor: User | None,
-    compute_mode: str = "MPC_MOCK",
-    algorithm_code: str = "SETTLEMENT_MPC_V1",
+    compute_mode: str = "LOCAL_CONTROLLED",
+    algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
     commit: bool = True,
 ) -> dict[str, Any]:
     task = db.get(SettlementTask, task_id)
@@ -225,8 +334,10 @@ def run_settlement_workflow(
         raise ValueError("Settlement task not found")
     if actor and not _scoped_task_allowed(db, task, actor):
         raise PermissionError("Task is outside the current user's scope")
-    if task.status == "AUDITED":
+    if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"}:
         return workflow_bundle(db, task)
+    if task.status == "RUNNING":
+        raise ValueError("Settlement task is already running")
 
     run_trace = trace_id()
     rule = db.get(SettlementRule, task.rule_id)
@@ -235,15 +346,15 @@ def run_settlement_workflow(
     participants = db.scalars(
         select(TaskParticipant).where(TaskParticipant.task_id == task.task_id)
     ).all()
-    if len(participants) < 2:
+    if len(participants) != 2 or {item.role_in_task for item in participants} != {"GENERATOR", "RETAILER"}:
         raise ValueError("Settlement requires generator and retailer participants")
     orgs = {item.org_id: db.get(Organization, item.org_id) for item in participants}
 
-    task.status = "AUTHORIZED"
+    task.status = "RUNNING"
     task.current_stage = "身份认证与任务编排"
-    identity_proofs = [MockDidAdapter.verify_owner(db, item.org_id) for item in participants]
+    identity_proofs = [IdentityCredentialAdapter.verify_owner(db, item.org_id) for item in participants]
     orchestrator = _agent_definition("ORCHESTRATOR")
-    capability = MockDidAdapter.issue_capability(
+    capability = IdentityCredentialAdapter.issue_capability(
         orchestrator["did"], orchestrator["tools"], task.capsule_id
     )
     task_context = {
@@ -286,6 +397,11 @@ def run_settlement_workflow(
                 f"Missing validated {expected_type} for {participant.org_id} "
                 f"in batch {task.trade_batch_no}"
             )
+        if not upload.signature_value:
+            raise ValueError(
+                f"Data commitment is not confirmed for {participant.org_id} "
+                f"in batch {task.trade_batch_no}"
+            )
         uploads_by_role[participant.role_in_task] = upload
         provider = orgs[participant.org_id]
         if provider is None:
@@ -309,7 +425,7 @@ def run_settlement_workflow(
         if scenario_upload is not None:
             provider_uploads.append(scenario_upload)
             scenario_uploads[scenario_asset_type] = scenario_upload
-        contract = MockDataSpaceAdapter.create_contract(
+        contract = LocalUsagePolicyAdapter.create_contract(
             db,
             task,
             provider,
@@ -352,7 +468,7 @@ def run_settlement_workflow(
         grid_provider = db.get(Organization, grid_upload.owner_org_id)
         if grid_provider is None:
             raise ValueError("Grid boundary provider organization not found")
-        grid_contract = MockDataSpaceAdapter.create_contract(
+        grid_contract = LocalUsagePolicyAdapter.create_contract(
             db,
             task,
             grid_provider,
@@ -388,7 +504,7 @@ def run_settlement_workflow(
             agreement,
             purpose=agreement.requested_purpose,
             algorithm_code=algorithm_code,
-            execution_environment="AUTHORIZED_COMPUTE_SANDBOX",
+            execution_environment="APPLICATION_PROCESS",
             output_mode="AGGREGATE_ONLY",
             raw_data_export=False,
             consume=False,
@@ -458,7 +574,7 @@ def run_settlement_workflow(
         },
     )
 
-    chain = MockBlockchainAdapter()
+    chain = LocalEvidenceLedgerAdapter()
     pre_evidence = chain.anchor(
         db,
         task_id=task.task_id,
@@ -481,8 +597,8 @@ def run_settlement_workflow(
         "capsule_id": task.capsule_id,
         "boundary_ref": grid_upload.data_ref if grid_upload else None,
         "boundary_commitment": grid_upload.commitment if grid_upload else None,
-        "policy_decision": "PERMIT" if grid_upload else "MVP_FALLBACK",
-        "check_mode": "SECURE_POST_MPC_GATE",
+        "policy_decision": "PERMIT" if grid_upload else "NOT_PROVIDED",
+        "check_mode": "POST_COMPUTE_BOUNDARY_CHECK" if grid_upload else "NOT_RUN",
         "raw_boundary_export": False,
     }
     _agent_event(
@@ -496,7 +612,6 @@ def run_settlement_workflow(
         details={"gate_status": "ARMED", "raw_boundary_accessed_by_agent": False},
     )
 
-    task.status = "COMPUTING"
     task.current_stage = "隐私计算与场景结果生成"
     compute_strategy = AdaptivePrivacyRouter.recommend(
         "MARKET_SETTLEMENT",
@@ -507,19 +622,19 @@ def run_settlement_workflow(
     job = PrivacyComputeJob(
         task_id=task.task_id,
         algorithm_code=algorithm_code,
-        adapter_code="MOCK_SECRET_FLOW" if compute_mode == "MPC_MOCK" else "SECRET_FLOW_RESERVED",
+        adapter_code=LocalControlledComputeAdapter.code,
         input_hashes_json=[item.data_hash for item in uploads_by_role.values()],
         status="RUNNING",
         progress=35,
         logs_json=[
             "DataPermit accepted",
-            "PSI input commitments loaded",
-            f"Adaptive plan accepted: {compute_strategy['primary']}",
+            "Input commitments loaded for participant-period matching",
+            f"Execution plan recorded: {compute_strategy['primary']}",
         ],
     )
     db.add(job)
     db.flush()
-    result_value, receipt, compute_logs, duration_ms = MockPrivacyComputeAdapter().run_settlement(
+    result_value, receipt, compute_logs, duration_ms = LocalControlledComputeAdapter().run_settlement(
         generator_upload=uploads_by_role["GENERATOR"],
         retailer_upload=uploads_by_role["RETAILER"],
         rule_package=rule_package,
@@ -535,7 +650,7 @@ def run_settlement_workflow(
             agreement,
             purpose=agreement.requested_purpose,
             algorithm_code=algorithm_code,
-            execution_environment="AUTHORIZED_COMPUTE_SANDBOX",
+            execution_environment="APPLICATION_PROCESS",
             output_mode="AGGREGATE_ONLY",
             raw_data_export=False,
             consume=True,
@@ -564,13 +679,14 @@ def run_settlement_workflow(
     job.logs_json = job.logs_json + compute_logs
     job.duration_ms = duration_ms
     job.privacy_guarantees_json = {
-        "raw_data_exported": False,
-        "raw_records_returned": False,
+        "api_raw_records_returned": False,
         "output_mode": "AGGREGATE_ONLY",
-        "input_commitments_only": True,
-        "execution_environment": "AUTHORIZED_COMPUTE_SANDBOX",
-        "strategy": compute_strategy["primary"],
-        "strategy_hash": compute_strategy["plan_hash"],
+        "input_commitments_only": False,
+        "execution_environment": "APPLICATION_PROCESS",
+        "cross_domain_non_export_verified": False,
+        "attestation_status": "NOT_PROVIDED",
+        "strategy": LocalControlledComputeAdapter.code,
+        "strategy_hash": receipt["compute_strategy"]["plan_hash"],
     }
 
     summary_result = SettlementResult(
@@ -579,7 +695,7 @@ def run_settlement_workflow(
         result_scope="SUMMARY",
         result_json=result_value,
         result_hash=sha256_json(result_value),
-        confirm_status="CONFIRMED",
+        confirm_status="NOT_REQUIRED",
     )
     db.add(summary_result)
     db.flush()
@@ -599,33 +715,17 @@ def run_settlement_workflow(
             result_scope="ORG",
             result_json=role_result,
             result_hash=sha256_json(role_result),
-            confirm_status="CONFIRMED",
+            confirm_status="UNCONFIRMED",
         )
         db.add(scoped_result)
-        did = MockDidAdapter.verify_owner(db, participant.org_id)["did"]
-        signature_value = sign_value(
-            {"result_hash": summary_result.result_hash, "opinion": "CONFIRMED"}, did
-        )
-        db.add(
-            Signature(
-                task_id=task.task_id,
-                signer_org_id=participant.org_id,
-                signer_did=did,
-                target_type="RESULT_CONFIRM",
-                target_id=summary_result.result_id,
-                target_hash=summary_result.result_hash,
-                signature_value=signature_value,
-                verify_status="VALID",
-            )
-        )
-        participant.confirm_status = "CONFIRMED"
+        participant.confirm_status = "PENDING"
 
     _agent_event(
         db,
         task_id=task.task_id,
         agent_code="SECURE_SETTLEMENT",
         message_type="ComputeReceipt",
-        tool_name="PSIAdapter+MPCAdapter+DeterministicEngine",
+        tool_name="CommitmentJoin+LocalControlledCompute+DeterministicEngine",
         input_value={"data_permit": data_permit, "rule_package": rule_package},
         output_value=receipt,
         details={
@@ -651,15 +751,12 @@ def run_settlement_workflow(
         biz_id=summary_result.result_id,
         payload={
             "result_hash": summary_result.result_hash,
-            "party_signatures": db.scalar(
-                select(func.count(Signature.signature_id)).where(Signature.task_id == task.task_id)
-            ),
-            "contract_state": "SIGNED",
+            "party_signatures": 0,
+            "contract_state": "RESULT_GENERATED",
         },
     )
 
-    task.status = "EVIDENCED"
-    task.current_stage = "证据图谱核验"
+    task.current_stage = "证据摘要核验"
     evidence_items = db.scalars(
         select(BlockchainEvidence)
         .where(BlockchainEvidence.task_id == task.task_id)
@@ -675,8 +772,16 @@ def run_settlement_workflow(
         item.get("status") == "REJECTED"
         for item in result_value.get("scenario_coordination", [])
     )
+    scenario_incomplete = any(
+        item.get("status") in {"NOT_PROVIDED", "REVIEW_REQUIRED", "NOT_CONNECTED"}
+        for item in result_value.get("scenario_coordination", [])
+    )
     risk_level = "HIGH" if scenario_rejected or any(not item["matched"] for item in verification) else (
-        "MEDIUM" if open_anomalies else "LOW"
+        "MEDIUM"
+        if open_anomalies
+        or scenario_incomplete
+        or not receipt["execution_attestation"]["cross_domain_non_export_verified"]
+        else "LOW"
     )
     audit_bundle = {
         "capsule_id": task.capsule_id,
@@ -698,7 +803,7 @@ def run_settlement_workflow(
         task_id=task.task_id,
         agent_code="AUDIT_RISK",
         message_type="AuditBundle",
-        tool_name="EvidenceGraph+FISCOAdapter+RiskRuleEngine",
+        tool_name="EvidenceGraph+LocalEvidenceLedger+RiskRuleEngine",
         input_value={"evidence_ids": [item.evidence_id for item in evidence_items]},
         output_value=audit_bundle,
         details={"checks": verification, "raw_data_accessed": False},
@@ -706,16 +811,16 @@ def run_settlement_workflow(
 
     report_content = (
         f"# {task.task_name}全过程可信审计报告\n\n"
-        f"- 可信验证胶囊：{task.capsule_id}\n"
+        f"- 结算任务编号：{task.capsule_id}\n"
         f"- 规则版本：{rule.rule_version}（{rule.rule_hash}）\n"
-        f"- 身份校验：{len(identity_proofs)}个主体VC有效\n"
-        f"- 数据合同：{len(contracts)}份，策略决策均为PERMIT\n"
-        f"- 隐私计算：{job.adapter_code}，原始数据未出域\n"
-        f"- 四场景协同：新能源预测、市场结算、虚拟电厂响应与调度安全校核已串联\n"
-        f"- 策略路由：{compute_strategy['primary']}（{compute_strategy['plan_hash']}）\n"
-        f"- 场景结果哈希：{summary_result.result_hash}\n"
-        f"- 三阶段证据：{len(evidence_items) + 1}项，风险等级{risk_level}\n"
-        f"- 审计结论：{'通过' if risk_level == 'LOW' else '需复核'}。"
+        f"- 身份校验：{len(identity_proofs)}个主体凭证记录有效\n"
+        f"- 数据授权：{len(contracts)}份协议，策略决策均为允许\n"
+        f"- 计算执行：{job.adapter_code}，接口未返回原始记录\n"
+        f"- 跨域隐私协议证明：未提供\n"
+        f"- 调度边界：{'已提供并完成校核' if grid_upload else '未提供'}\n"
+        f"- 结果摘要：{summary_result.result_hash}\n"
+        f"- 审计证据：{len(evidence_items) + 1}项，风险等级{risk_level}\n"
+        f"- 过程复核结论：{'通过' if risk_level == 'LOW' else '需复核'}；主体结果确认尚待完成。"
     )
     report_hash = sha256_json({"content": report_content, "audit_bundle": audit_bundle})
     report = AuditReport(
@@ -749,25 +854,29 @@ def run_settlement_workflow(
         details={"citation_count": len(evidence_items), "chain_evidence_id": report_evidence.evidence_id},
     )
 
-    task.status = "AUDITED"
-    task.current_stage = "监管审计完成"
+    task.status = "PENDING_CONFIRMATION"
+    task.current_stage = "待主体确认"
     task.risk_level = risk_level
     task.verification_profile_json = {
-        "mode": "VIRTUAL_SIMULATION",
-        "scenario": "能源可信数据空间多方安全协同",
-        "trusted_acquisition": True,
-        "secure_transport": True,
+        **(task.verification_profile_json or {}),
+        "data_references_validated": True,
+        "transport_evidence_provided": all(
+            item.ingress_json.get("encryption") in {"TLS1.2", "TLS1.3"}
+            for item in uploads_by_role.values()
+        ),
         "controlled_use": True,
-        "privacy_compute": True,
+        "controlled_compute": True,
+        "privacy_compute_protocol_verified": False,
         "traceable_audit": True,
-        "raw_data_exposed": False,
-        "protocols": ["HTTPS", "MQTT", "WebSocket"],
-        "connected_layers": ["数据采集终端", "边缘计算节点", "云端数据中心", "业务应用系统"],
+        "api_raw_records_returned": False,
+        "cross_domain_non_export_verified": False,
+        "compute_adapter": job.adapter_code,
+        "evidence_ledger": LocalEvidenceLedgerAdapter.code,
         "evidence_stages": ["PRE_COMPUTE", "IN_COMPUTE", "POST_COMPUTE"],
         "evidence_count": len(evidence_items) + 1,
         "acceptance_metrics": {
             "compute_duration_ms": duration_ms,
-            "raw_data_transferred": 0,
+            "api_raw_records_returned": 0,
             "authorized_agreement_count": len(agreements),
             "evidence_verify_rate_pct": round(
                 100 * sum(item["matched"] for item in verification) / max(len(verification), 1), 2
@@ -779,8 +888,8 @@ def run_settlement_workflow(
     ) or 0
     db.add_all(
         [
-            MetricRecord(task_id=task.task_id, metric_code="MPC_DURATION_MS", metric_value=duration_ms, metric_unit="ms"),
-            MetricRecord(task_id=task.task_id, metric_code="CHAIN_EVIDENCE_COUNT", metric_value=len(evidence_items) + 1, metric_unit="count"),
+            MetricRecord(task_id=task.task_id, metric_code="LOCAL_COMPUTE_DURATION_MS", metric_value=duration_ms, metric_unit="ms"),
+            MetricRecord(task_id=task.task_id, metric_code="EVIDENCE_RECORD_COUNT", metric_value=len(evidence_items) + 1, metric_unit="count"),
             MetricRecord(task_id=task.task_id, metric_code="VERIFY_RATE", metric_value=100 if risk_level == "LOW" else 75, metric_unit="percent"),
             MetricRecord(task_id=task.task_id, metric_code="AGENT_EVENT_COUNT", metric_value=agent_event_count, metric_unit="count"),
             MetricRecord(task_id=task.task_id, metric_code="SCENARIO_COUPLING_COUNT", metric_value=4, metric_unit="count"),
@@ -837,13 +946,13 @@ def emit_settlement_lineage(
     ]
     return emit_run_event(
         run_id=task.task_id,
-        job_name="trusted-settlement",
+        job_name="controlled-settlement",
         event_type="COMPLETE",
         trace_id=trace_id_value,
         input_datasets=inputs,
         output_name=f"settlement-result/{task.task_id}",
         output_hash=result_hash,
-        result_status="AUDITED",
+        result_status=task.status,
         policy_hash=sha256_json(task.verification_profile_json or {}),
         raw_data_exported=False,
     )
@@ -1077,16 +1186,16 @@ def _template_audit_answer(
 ) -> dict[str, Any]:
     lower = question.lower()
     if "篡改" in question or "哈希" in question:
-        checks = [MockBlockchainAdapter.verify(item) for item in evidences]
+        checks = [LocalEvidenceLedgerAdapter.verify(item) for item in evidences]
         matched = all(item["matched"] for item in checks)
-        answer = f"共核验{len(checks)}项链上证据，当前哈希{'全部一致' if matched else '存在不一致'}。"
+        answer = f"共核验{len(checks)}项证据台账记录，当前摘要{'全部一致' if matched else '存在不一致'}。"
     elif "规则" in question or "rule" in lower:
         rule = db.get(SettlementRule, task.rule_id)
         answer = f"该任务绑定规则{rule.rule_version if rule else '未知'}，RuleHash为{rule.rule_hash if rule else '未知'}。"
     elif "签名" in question or "确认" in question:
         answer = f"当前存在{len(signatures)}条多方签名，均由主体DID对场景结果哈希签署。"
     elif "原始数据" in question or "隐私" in question:
-        answer = "审计链只引用DataRef、输入承诺和ComputeReceipt；Agent、交易中心与监管方均未读取企业原始明细。"
+        answer = "审计记录只引用DataRef、输入承诺和ComputeReceipt；当前API响应不返回企业原始明细。跨域非导出尚未获得外部证明。"
     else:
         answer = f"任务{task.task_name}当前状态为{task.status}，风险等级{task.risk_level}，已形成{len(evidences)}项证据。"
     return {
@@ -1189,15 +1298,27 @@ def run_privacy_analysis(
 ) -> PrivacyAnalysisJob:
     uploads = [db.get(DataUpload, item) for item in job.dataset_ids_json]
     eligible = [item for item in uploads if item and item.asset_type == "USER_LOAD_CURVE"]
-    strategy = job.output_json.get("compute_strategy") or AdaptivePrivacyRouter.recommend(
+    recommended_strategy = (
+        job.output_json.get("recommended_strategy")
+        or job.output_json.get("compute_strategy")
+        or AdaptivePrivacyRouter.recommend(
         job.purpose,
         sensitivity_level="L3",
         latency_requirement="BATCH",
         participant_count=len(eligible),
+        )
     )
-    result, duration_ms = MockPrivacyComputeAdapter().run_load_analysis(
+    execution_strategy = {
+        "primary": LocalControlledComputeAdapter.code,
+        "recommended_primary": recommended_strategy.get("primary"),
+        "recommended_plan_hash": recommended_strategy.get("plan_hash"),
+        "cross_domain_protocol": "NOT_PROVIDED",
+        "attestation_status": "NOT_PROVIDED",
+    }
+    execution_strategy["plan_hash"] = sha256_json(execution_strategy)
+    result, duration_ms = LocalControlledComputeAdapter().run_load_analysis(
         eligible,
-        strategy,
+        execution_strategy,
         privacy_level=job.privacy_level,
         privacy_budget=job.privacy_budget,
     )
@@ -1207,6 +1328,7 @@ def run_privacy_analysis(
             "privacy_budget": job.privacy_budget,
             "purpose": job.purpose,
             "minimum_group_size_passed": len(eligible) >= 1,
+            "recommended_strategy": recommended_strategy,
         }
     )
     job.output_json = result

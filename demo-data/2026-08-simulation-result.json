@@ -1,5 +1,7 @@
 {
   "fixture_id": "hiddenchain-2026-08-simulation-001",
+  "record_status": "LEGACY_NON_PRODUCTION_SNAPSHOT",
+  "capability_disclaimer": "This historical fixture is not evidence of MPC, TEE, blockchain, or cross-domain non-export.",
   "execution": {
     "environment": "https://hiddenchain-platform.onrender.com",
     "executed_at": "2026-08-13T12:45:47+08:00",

@@ -1,0 +1,184 @@
+import { useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, Save, UsersRound } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { api, post } from "../api";
+import { Button, ErrorState, Field, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { useRemote } from "../hooks";
+import type { JsonRecord } from "../types";
+
+type CreateData = { organizations: JsonRecord[]; rules: JsonRecord[]; catalog: JsonRecord };
+
+const steps = [
+  { code: "BASIC", label: "基本信息" },
+  { code: "PARTIES", label: "参与主体" },
+  { code: "DATA", label: "数据准备" },
+  { code: "RULE", label: "规则与计算" },
+  { code: "REVIEW", label: "提交复核" },
+] as const;
+
+export function SettlementCreatePage() {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [taskName, setTaskName] = useState("");
+  const [description, setDescription] = useState("");
+  const [batch, setBatch] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [generatorId, setGeneratorId] = useState("");
+  const [retailerId, setRetailerId] = useState("");
+  const [ruleId, setRuleId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const { data, loading, error: loadError, reload } = useRemote(async (signal): Promise<CreateData> => {
+    const options = { signal, cache: "no-store" as RequestCache };
+    const [organizations, rules, catalog] = await Promise.all([
+      api<JsonRecord[]>("/system/organizations", options),
+      api<JsonRecord[]>("/rules", options),
+      api<JsonRecord>("/data/catalog", options),
+    ]);
+    return { organizations, rules, catalog };
+  }, []);
+
+  const activeRules = data?.rules.filter((item) => item.status === "ACTIVE") || [];
+  const generators = data?.organizations.filter((item) => item.org_type === "GENERATOR") || [];
+  const retailers = data?.organizations.filter((item) => item.org_type === "RETAILER") || [];
+  const entries = data?.catalog.entries || [];
+  const selectedRule = activeRules.find((item) => item.rule_id === ruleId);
+  const generator = generators.find((item) => item.org_id === generatorId);
+  const retailer = retailers.find((item) => item.org_id === retailerId);
+  const generationData = entries.find((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.owner_org_id === generatorId && item.trade_batch_no === batch);
+  const retailData = entries.find((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.owner_org_id === retailerId && item.trade_batch_no === batch);
+  const preflightBlockers: string[] = [];
+  if (!generationData) preflightBlockers.push("发电企业尚未登记当前批次的已校验计量数据");
+  else if (!generationData.commitment_confirmed) preflightBlockers.push("发电企业尚未确认数据承诺");
+  if (!retailData) preflightBlockers.push("售电企业尚未登记当前批次的已校验履约数据");
+  else if (!retailData.commitment_confirmed) preflightBlockers.push("售电企业尚未确认数据承诺");
+  if (!selectedRule) preflightBlockers.push("尚未选择启用的结算规则版本");
+
+  if (loading) return <LoadingState label="正在准备结算任务" variant="page" />;
+  if (loadError || !data) return <ErrorState message={loadError || "创建页加载失败"} retry={reload} />;
+
+  const basicReady = taskName.trim().length >= 2 && batch.trim().length >= 3 && Boolean(periodStart && periodEnd) && periodStart <= periodEnd;
+  const partiesReady = Boolean(generatorId && retailerId && generatorId !== retailerId);
+  const ruleReady = Boolean(selectedRule);
+  const canAdvance = [basicReady, partiesReady, true, ruleReady, true][step];
+  const canSubmit = basicReady && partiesReady && ruleReady;
+
+  async function submit() {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await post<JsonRecord>("/settlement/tasks", {
+        task_name: taskName.trim(),
+        trade_batch_no: batch.trim(),
+        period_start: periodStart,
+        period_end: periodEnd,
+        rule_id: ruleId,
+        participants: [
+          { org_id: generatorId, role_in_task: "GENERATOR" },
+          { org_id: retailerId, role_in_task: "RETAILER" },
+        ],
+        scenario_code: "MARKET_SETTLEMENT",
+        business_description: description.trim(),
+        compute_mode: "LOCAL_CONTROLLED",
+        algorithm_code: "CONTROLLED_SETTLEMENT_V1",
+        output_mode: "AGGREGATE_ONLY",
+      });
+      navigate(`/settlements/${created.task_id}`, { replace: true, state: { created: true } });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "结算任务创建失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader title="发起结算任务" actions={<Link className="button button-secondary" to="/settlements"><ArrowLeft size={16} />返回任务中心</Link>} />
+
+      <div className="wizard-layout">
+        <nav className="wizard-steps" aria-label="创建步骤">
+          {steps.map((item, index) => (
+            <button key={item.code} type="button" className={`${index === step ? "active" : ""}${index < step ? " complete" : ""}`} onClick={() => index <= step && setStep(index)} disabled={index > step}>
+              <span>{index < step ? <Check size={14} /> : index + 1}</span><strong>{item.label}</strong>
+            </button>
+          ))}
+        </nav>
+
+        <Surface className="wizard-panel">
+          {step === 0 && <div className="wizard-section">
+            <div className="section-title"><Network size={19} /><div><h2>基本信息</h2><p>明确交易批次与结算周期。</p></div></div>
+            <div className="form-grid two">
+              <Field label="任务名称"><input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="例如：2026年8月月度电量结算" autoFocus /></Field>
+              <Field label="交易批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} placeholder="例如：TB-2026-08-001" /></Field>
+              <Field label="周期开始"><input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} /></Field>
+              <Field label="周期结束" error={periodStart && periodEnd && periodStart > periodEnd ? "结束日期不能早于开始日期" : undefined}><input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></Field>
+              <Field label="业务说明"><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={4} placeholder="可选：记录合同范围、特殊结算事项或业务联系人" /></Field>
+            </div>
+          </div>}
+
+          {step === 1 && <div className="wizard-section">
+            <div className="section-title"><UsersRound size={19} /><div><h2>参与主体</h2><p>每个任务包含一个发电主体和一个售电主体。</p></div></div>
+            <div className="form-grid two">
+              <Field label="发电企业"><select value={generatorId} onChange={(event) => setGeneratorId(event.target.value)} autoFocus><option value="">请选择</option>{generators.map((item) => <option key={item.org_id} value={item.org_id}>{item.org_name}</option>)}</select></Field>
+              <Field label="售电企业"><select value={retailerId} onChange={(event) => setRetailerId(event.target.value)}><option value="">请选择</option>{retailers.map((item) => <option key={item.org_id} value={item.org_id}>{item.org_name}</option>)}</select></Field>
+            </div>
+            {generatorId && retailerId && generatorId === retailerId && <Notice tone="warning">发电主体与售电主体不能相同。</Notice>}
+          </div>}
+
+          {step === 2 && <div className="wizard-section">
+            <div className="section-title"><Database size={19} /><div><h2>数据准备</h2><p>按参与主体和交易批次核对数据引用。</p></div></div>
+            <div className="readiness-list">
+              <DataReadiness label="发电计量数据" organization={generator?.org_name} entry={generationData} />
+              <DataReadiness label="售电履约数据" organization={retailer?.org_name} entry={retailData} />
+            </div>
+            {!batch && <Notice tone="warning">请先填写交易批次，系统才能匹配数据。</Notice>}
+          </div>}
+
+          {step === 3 && <div className="wizard-section">
+            <div className="section-title"><Gavel size={19} /><div><h2>规则与计算</h2><p>选择已启用规则；执行边界将写入单笔回执。</p></div></div>
+            <div className="form-grid two">
+              <Field label="结算规则版本"><select value={ruleId} onChange={(event) => setRuleId(event.target.value)} autoFocus><option value="">请选择</option>{activeRules.map((item) => <option key={item.rule_id} value={item.rule_id}>{item.rule_version} · {item.rule_name}</option>)}</select></Field>
+              <Field label="计算方式"><select value="LOCAL_CONTROLLED" disabled><option value="LOCAL_CONTROLLED">本地受控计算</option></select></Field>
+              <Field label="输出范围"><select value="AGGREGATE_ONLY" disabled><option value="AGGREGATE_ONLY">聚合结算结果</option></select></Field>
+            </div>
+            <Notice>当前执行方式为应用进程内确定性计算；跨域隐私协议与远程可信执行证明未配置。</Notice>
+          </div>}
+
+          {step === 4 && <div className="wizard-section">
+            <div className="section-title"><Save size={19} /><div><h2>提交复核</h2><p>创建后进入任务详情继续处理。</p></div></div>
+            <dl className="review-grid">
+              <div><dt>任务名称</dt><dd>{taskName || "—"}</dd></div>
+              <div><dt>交易批次</dt><dd><IdText value={batch} /></dd></div>
+              <div><dt>结算周期</dt><dd>{periodStart} 至 {periodEnd}</dd></div>
+              <div><dt>发电企业</dt><dd>{generator?.org_name || "—"}</dd></div>
+              <div><dt>售电企业</dt><dd>{retailer?.org_name || "—"}</dd></div>
+              <div><dt>规则版本</dt><dd>{selectedRule ? `${selectedRule.rule_version} · ${selectedRule.rule_name}` : "—"}</dd></div>
+            </dl>
+            {preflightBlockers.length ? <div className="preflight-blockers"><strong>算前待办</strong><ul>{preflightBlockers.map((item) => <li key={item}>{item}</li>)}</ul><p>可以先创建待准备任务，补齐后再启动结算。</p></div> : <Notice tone="success">算前数据、主体和规则检查已通过。</Notice>}
+          </div>}
+
+          {error && <Notice tone="warning">{error}</Notice>}
+          <div className="wizard-actions">
+            <Button disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}><ArrowLeft size={16} />上一步</Button>
+            {step < steps.length - 1
+              ? <Button variant="primary" disabled={!canAdvance} onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>下一步<ArrowRight size={16} /></Button>
+              : <Button icon={Save} variant="primary" busy={busy} disabled={!canSubmit} onClick={submit}>{preflightBlockers.length ? "创建待准备任务" : "创建结算任务"}</Button>}
+          </div>
+        </Surface>
+      </div>
+    </>
+  );
+}
+
+function DataReadiness({ label, organization, entry }: { label: string; organization?: string; entry?: JsonRecord }) {
+  const ready = entry?.quality?.validation_status === "PASSED" && entry?.commitment_confirmed;
+  return (
+    <div className="readiness-item">
+      <div><strong>{label}</strong><span>{organization || "尚未选择主体"}</span></div>
+      <div><span>{entry?.label || "未匹配当前批次数据"}</span>{entry?.upload_id && <IdText value={entry.upload_id} />}</div>
+      <StatusTag value={ready ? "READY" : entry ? "UNCONFIRMED" : "NOT_CONFIGURED"} />
+    </div>
+  );
+}

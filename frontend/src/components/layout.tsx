@@ -21,7 +21,6 @@ import {
   Network,
   PanelLeftClose,
   PanelLeftOpen,
-  ShieldCheck,
   UserRound,
   UsersRound,
   Workflow,
@@ -41,6 +40,7 @@ import {
   type WorkspaceId,
 } from "../access";
 import { useAuth } from "../auth";
+import { BrandLockup, productDocumentTitle, useProductConfig } from "../branding";
 import { preloadRoute } from "../routes";
 import { ROLE_LABELS } from "../types";
 import { LoadingState } from "./ui";
@@ -91,10 +91,15 @@ export function AppShell() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem("hiddenchain_sidebar_collapsed") === "1");
+  const productConfig = useProductConfig();
 
   const currentWorkspace = session ? getWorkspaceForPath(location.pathname, session) : "business";
   const routePolicy = getRoutePolicy(location.pathname);
-  const title = routePolicy?.title || (location.pathname === "/403" ? "无权访问" : "页面状态");
+  const title = location.pathname === "/settlements/new"
+    ? "发起结算任务"
+    : /^\/settlements\/[^/]+$/.test(location.pathname)
+      ? "结算任务详情"
+      : routePolicy?.title || (location.pathname === "/403" ? "无权访问" : "页面状态");
   const availableWorkspaces = useMemo(() => session ? getAvailableWorkspaces(session) : [], [session]);
   const visibleRoutes = useMemo(() => session ? getVisibleRoutes(session, currentWorkspace) : [], [currentWorkspace, session]);
   const groups = NAVIGATION_GROUPS[currentWorkspace].map((group) => ({
@@ -104,9 +109,10 @@ export function AppShell() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    document.title = productDocumentTitle(productConfig, title);
     const closeTimer = window.setTimeout(() => setMobileOpen(false), 0);
     return () => window.clearTimeout(closeTimer);
-  }, [location.pathname]);
+  }, [location.pathname, productConfig, title]);
 
   if (!session) return null;
 
@@ -127,16 +133,14 @@ export function AppShell() {
   const workspaceHome = getDefaultPath(session, currentWorkspace);
   const roleLabel = ROLE_LABELS[session.user.role_code];
   const organization = String(session.org?.org_name || "当前组织");
-  const environment = import.meta.env.VITE_ENV_LABEL || "演示环境";
 
   return (
     <div className={`app-shell${collapsed ? " sidebar-collapsed" : ""}`}>
       <button className={`drawer-backdrop ${mobileOpen ? "show" : ""}`} type="button" aria-label="关闭导航" onClick={() => setMobileOpen(false)} />
       <aside className={`sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " open" : ""}`} aria-label={`${WORKSPACE_LABELS[currentWorkspace]}导航`}>
         <div className="brand">
-          <Link className="brand-home" to={workspaceHome} aria-label="隐链明算工作入口">
-            <span className="brand-mark"><ShieldCheck size={21} /></span>
-            <span className="brand-copy"><strong>隐链明算</strong><small>电力交易可信执行平台</small></span>
+          <Link className="brand-home" to={workspaceHome} aria-label={`${productConfig.productName}工作入口`}>
+            <BrandLockup compact={collapsed} />
           </Link>
           <button className="icon-button mobile-only" type="button" onClick={() => setMobileOpen(false)} aria-label="关闭导航"><X size={18} /></button>
         </div>
@@ -191,7 +195,7 @@ export function AppShell() {
 
           <div className="topbar-actions">
             {availableWorkspaces.length > 1 && <WorkspaceSwitcher current={currentWorkspace} onChange={switchWorkspace} />}
-            <span className="environment-tag">{environment}</span>
+            {productConfig.environmentName && <span className="environment-tag">{productConfig.environmentName}</span>}
             <div className="topbar-identity" title={`${organization} / ${roleLabel}`}>
               <Building2 size={15} />
               <span><strong>{organization}</strong><small>{roleLabel}</small></span>

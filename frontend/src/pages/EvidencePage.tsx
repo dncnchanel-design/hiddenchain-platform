@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Eye, Fingerprint, RefreshCw, SearchCheck, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eye, Fingerprint, RefreshCw, SearchCheck, XCircle } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button, DataTable, DateTimeText, DetailDrawer, ErrorState, FilterBar, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { EVIDENCE_TYPE_LABELS, STAGE_LABELS, type JsonRecord } from "../types";
 
 export function EvidencePage() {
-  const [taskId, setTaskId] = useState("");
+  const [searchParams] = useSearchParams();
+  const linkedTaskId = searchParams.get("task_id") || "";
+  const [taskId, setTaskId] = useState(linkedTaskId);
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [verifying, setVerifying] = useState("");
   const [verifyingAll, setVerifyingAll] = useState(false);
@@ -14,10 +17,10 @@ export function EvidencePage() {
   const [checks, setChecks] = useState<Record<string, JsonRecord>>({});
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
-    const [tasks, evidence] = await Promise.all([api<JsonRecord[]>("/settlement/tasks", request), api<JsonRecord[]>("/chain/evidence", request)]);
+    const [tasks, evidence] = await Promise.all([api<JsonRecord[]>("/settlement/tasks", request), api<JsonRecord[]>(linkedTaskId ? `/chain/evidence?task_id=${encodeURIComponent(linkedTaskId)}` : "/chain/evidence", request)]);
     return { tasks, evidence };
   };
-  const { data, loading, refreshing, error, reload } = useRemote(loader, []);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, [linkedTaskId]);
   const filtered = useMemo(() => taskId ? data?.evidence.filter((item) => item.task_id === taskId) || [] : data?.evidence || [], [data, taskId]);
 
   async function verifyRecord(item: JsonRecord, showRowBusy = true) {
@@ -63,9 +66,9 @@ export function EvidencePage() {
 
   return (
     <>
-      <PageHeader title="审计凭证" description="按验证任务查看各阶段凭证，并核验证据摘要与链上记录是否一致。" actions={<><Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length} onClick={verifyAll}>批量核验</Button></>} />
+      <PageHeader title="证据台账" actions={<>{linkedTaskId && <Link className="button button-secondary" to={`/settlements/${linkedTaskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button><Button icon={SearchCheck} variant="primary" busy={verifyingAll} disabled={!filtered.length} onClick={verifyAll}>批量核验</Button></>} />
       <FilterBar>
-        <label><span>验证任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.task_name || item.task_id}</option>)}</select></label>
+        <label><span>结算任务</span><select value={taskId} disabled={Boolean(linkedTaskId)} onChange={(event) => setTaskId(event.target.value)}><option value="">全部任务</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.task_name || item.task_id}</option>)}</select></label>
       </FilterBar>
       <div className="evidence-stages">
         {Object.entries(STAGE_LABELS).map(([stage, label]) => <div key={stage}><span>{label}</span><strong>{stageCounts[stage]} 项</strong></div>)}
@@ -78,9 +81,9 @@ export function EvidencePage() {
             { key: "block_height", label: "凭证序号", render: (row) => row.block_height === undefined ? "—" : `#${row.block_height}` },
             { key: "stage", label: "阶段", minWidth: 110, render: (row) => <StatusTag value={row.stage} label={STAGE_LABELS[row.stage] || row.stage} /> },
             { key: "biz_type", label: "证据类型", minWidth: 130, render: (row) => EVIDENCE_TYPE_LABELS[row.biz_type] || row.biz_type || "—" },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <IdText value={row.task_id} /> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} /></Link> },
             { key: "evidence_hash", label: "证据摘要", minWidth: 150, render: (row) => <IdText value={row.evidence_hash} /> },
-            { key: "tx_hash", label: "交易摘要", minWidth: 150, render: (row) => <IdText value={row.tx_hash} /> },
+            { key: "tx_hash", label: "台账记录摘要", minWidth: 150, render: (row) => <IdText value={row.tx_hash} /> },
             { key: "created_at", label: "生成时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
             { key: "verify", label: "核验结果", sortable: false, render: (row) => checks[row.evidence_id] ? checks[row.evidence_id].matched ? <span className="verify-ok"><CheckCircle2 size={16} />一致</span> : <span className="verify-bad"><XCircle size={16} />不一致</span> : <Button icon={Fingerprint} busy={verifying === row.evidence_id} disabled={verifyingAll} onClick={() => verifyOne(row)}>核验</Button> },
             { key: "view", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={Eye} onClick={() => setSelected(row)}>详情</Button> },
@@ -91,13 +94,14 @@ export function EvidencePage() {
       {selected && <DetailDrawer title="审计凭证详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
         <div className="detail-grid">
           <div><span>凭证编号</span><IdText value={selected.evidence_id} /></div>
-          <div><span>关联任务</span><IdText value={selected.task_id} /></div>
+          <div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div>
           <div><span>凭证序号</span><strong>{selected.block_height === undefined ? "—" : `#${selected.block_height}`}</strong></div>
           <div><span>证据阶段</span><StatusTag value={selected.stage} label={STAGE_LABELS[selected.stage] || selected.stage} /></div>
           <div><span>证据类型</span><strong>{EVIDENCE_TYPE_LABELS[selected.biz_type] || selected.biz_type || "—"}</strong></div>
           <div><span>状态</span><StatusTag value={selected.status} /></div>
           <div><span>证据摘要</span><IdText value={selected.evidence_hash} /></div>
-          <div><span>交易摘要</span><IdText value={selected.tx_hash} /></div>
+          <div><span>台账记录摘要</span><IdText value={selected.tx_hash} /></div>
+          <div><span>证据后端</span><strong>{selected.chain_code || "—"}</strong></div>
           <div><span>生成时间</span><DateTimeText value={selected.created_at} /></div>
         </div>
         {selected.payload_json && <details className="secondary-details"><summary>查看技术载荷</summary><pre className="json-view">{JSON.stringify(selected.payload_json, null, 2)}</pre></details>}

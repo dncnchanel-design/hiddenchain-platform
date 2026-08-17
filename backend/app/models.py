@@ -135,7 +135,7 @@ class DataContract(Base, TimestampMixin):
 class DataSpaceAgreement(Base, TimestampMixin):
     """Negotiated connector agreement kept separate from the legacy contract row.
 
-    Keeping the negotiation state in its own table lets existing MVP databases
+    Keeping the negotiation state in its own table lets existing databases
     upgrade without changing the original data-contract schema while still
     exposing the connector lifecycle required by a data space.
     """
@@ -169,7 +169,7 @@ class PrivacyComputeJob(Base, TimestampMixin):
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     task_id: Mapped[str] = mapped_column(String(36), index=True)
     algorithm_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    adapter_code: Mapped[str] = mapped_column(String(64), default="MOCK_SECRET_FLOW", nullable=False)
+    adapter_code: Mapped[str] = mapped_column(String(64), default="LOCAL_CONTROLLED_SETTLEMENT_V1", nullable=False)
     input_hashes_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
     output_hash: Mapped[str | None] = mapped_column(String(128))
     result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
@@ -216,15 +216,15 @@ class BlockchainEvidence(Base, TimestampMixin):
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     tx_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     block_height: Mapped[int] = mapped_column(Integer, nullable=False)
-    chain_code: Mapped[str] = mapped_column(String(32), default="MOCK_FISCO_BCOS", nullable=False)
+    chain_code: Mapped[str] = mapped_column(String(32), default="LOCAL_EVIDENCE_LEDGER_V1", nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="CONFIRMED", nullable=False)
 
 
 class TrustedExecutionReview(Base, TimestampMixin):
     """Human-reviewable accuracy record for a trusted execution result.
 
-    The stored result and source snapshot are already policy-safe aggregates;
-    raw node records remain in their provider domains.
+    The stored result and source snapshot contain only the values returned by
+    the configured adapter. Cross-domain non-export requires external proof.
     """
 
     __tablename__ = "trusted_execution_reviews"

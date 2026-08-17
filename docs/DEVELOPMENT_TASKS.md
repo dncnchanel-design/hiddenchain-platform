@@ -1,4 +1,6 @@
-# 开发任务与分工建议
+# 已归档：开发任务与分工建议
+
+> 本文件只保留历史规划，不描述当前生产能力。当前边界见 `TRUSTED_EXECUTION_MODEL.md` 与 `PRODUCTION_READINESS.md`。
 
 ## MVP 已完成
 

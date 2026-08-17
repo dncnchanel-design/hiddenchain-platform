@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..config import settings
 from ..security import sha256_json
 
 
@@ -67,7 +68,7 @@ class OpenDataContractAdapter:
                 {
                     "server": str(entry.get("endpoint") or f"connector://hiddenchain/products/{product_id}"),
                     "type": "custom",
-                    "environment": "demo",
+                    "environment": settings.app_env,
                 }
             ],
             "schema": [
