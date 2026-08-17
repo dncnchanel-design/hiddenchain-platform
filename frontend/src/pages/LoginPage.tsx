@@ -4,32 +4,14 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Button, Notice } from "../components/ui";
 
-const accounts = [
-  { label: "交易中心", username: "exchange", password: "exchange123" },
-  { label: "发电企业", username: "generator", password: "generator123" },
-  { label: "售电企业", username: "retailer", password: "retailer123" },
-  { label: "监管方", username: "regulator", password: "regulator123" },
-  { label: "平台维护", username: "admin", password: "admin123" },
-];
-
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [demoAccount, setDemoAccount] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  function chooseDemoAccount(value: string) {
-    setDemoAccount(value);
-    const account = accounts.find((item) => item.username === value);
-    if (!account) return;
-    setUsername(account.username);
-    setPassword(account.password);
-    setError("");
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,14 +70,6 @@ export function LoginPage() {
 
           {error && <Notice tone="warning">{error}</Notice>}
           <Button type="submit" variant="primary" busy={busy}>登录</Button>
-
-          <label className="demo-account-picker">
-            <span>演示账号</span>
-            <select aria-label="选择演示身份" value={demoAccount} onChange={(event) => chooseDemoAccount(event.target.value)}>
-              <option value="">请选择</option>
-              {accounts.map((account) => <option key={account.username} value={account.username}>{account.label}</option>)}
-            </select>
-          </label>
         </form>
       </section>
     </div>
