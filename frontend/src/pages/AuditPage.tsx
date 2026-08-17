@@ -1,79 +1,91 @@
-import { useEffect, useState } from "react";
-import { Blocks, FileSearch, MessageSquareText, RefreshCw, Send, ShieldCheck, Workflow } from "lucide-react";
-import { api, formatDate, post, shortHash } from "../api";
-import { Button, EmptyState, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
-import { useRemote } from "../hooks";
-import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS } from "../types";
-import type { JsonRecord } from "../types";
+import { useMemo, useState } from "react";
+import { FileSearch, RefreshCw, SearchCheck } from "lucide-react";
+import { api, post } from "../api";
+import { AuditTimeline, Button, DataTable, DateTimeText, ErrorState, FilterBar, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { TrustedExecutionReviewPanel } from "../components/TrustedExecutionReviewPanel";
+import { useRemote } from "../hooks";
+import { AGENT_LABELS, EVIDENCE_TYPE_LABELS, MESSAGE_TYPE_LABELS, STAGE_LABELS, type JsonRecord } from "../types";
 
-const kindIcons: Record<string, React.ElementType> = { AGENT_EVENT: Workflow, CHAIN_EVIDENCE: Blocks, ANOMALY: ShieldCheck };
+const checks = [
+  { code: "RULE_TRACE", label: "规则版本可追溯性", question: "规则版本能否追溯？" },
+  { code: "EVIDENCE_INTEGRITY", label: "证据一致性", question: "是否存在证据篡改？" },
+  { code: "RAW_BOUNDARY", label: "原始数据边界", question: "原始数据是否被读取？" },
+  { code: "SIGNATURE_COMPLETENESS", label: "多方签名完整性", question: "多方签名是否完整？" },
+] as const;
+
+const confidenceLabels: Record<string, string> = {
+  HIGH: "高",
+  MEDIUM: "中",
+  LOW: "低",
+};
+
+function eventTitle(event: JsonRecord) {
+  const title = String(event.title || "").split(" · ");
+  if (event.kind === "CHAIN_EVIDENCE") return `${STAGE_LABELS[title[0]] || title[0]} · ${EVIDENCE_TYPE_LABELS[title[1]] || title[1]}`;
+  if (event.kind === "AGENT_EVENT") return `${AGENT_LABELS[title[0]] || title[0]} · ${MESSAGE_TYPE_LABELS[title[1]] || title[1]}`;
+  return event.title || "审计事件";
+}
 
 export function AuditPage() {
   const [taskId, setTaskId] = useState("");
-  const [question, setQuestion] = useState("本次数据调用与隐私计算是否完整可信？");
+  const [checkCode, setCheckCode] = useState<(typeof checks)[number]["code"]>("RULE_TRACE");
   const [answer, setAnswer] = useState<JsonRecord | null>(null);
-  const [asking, setAsking] = useState(false);
-  const [askError, setAskError] = useState("");
-  const tasks = useRemote<JsonRecord[]>(() => api("/settlement/tasks"), []);
-  const timeline = useRemote<JsonRecord | null>(() => taskId ? api(`/audit/timeline/${taskId}`) : Promise.resolve(null), [taskId]);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const tasks = useRemote<JsonRecord[]>((signal) => api("/settlement/tasks", { signal, timeoutMs: 12000, cache: "no-store" }), []);
+  const effectiveTaskId = taskId || tasks.data?.[0]?.task_id || "";
+  const timeline = useRemote<JsonRecord | null>((signal) => effectiveTaskId ? api(`/audit/timeline/${effectiveTaskId}`, { signal, timeoutMs: 12000, cache: "no-store" }) : Promise.resolve(null), [effectiveTaskId]);
 
-  useEffect(() => {
-    if (!taskId && tasks.data?.length) setTaskId(tasks.data[0].task_id);
-  }, [taskId, tasks.data]);
+  const currentCheck = checks.find((item) => item.code === checkCode) || checks[0];
+  const events = useMemo(() => (timeline.data?.events || []).map((event: JsonRecord) => ({
+    id: String(event.reference || `${event.kind}-${event.time}`),
+    title: eventTitle(event),
+    time: <DateTimeText value={event.time} />,
+    status: event.status,
+    meta: <IdText value={event.reference} length={8} />,
+  })), [timeline.data]);
 
-  async function ask() {
-    if (!taskId || !question.trim()) {
-      setAskError("请选择审计对象并输入检索问题。");
-      return;
-    }
-    setAsking(true);
-    setAskError("");
+  async function runCheck() {
+    if (!effectiveTaskId) return;
+    setChecking(true);
+    setCheckError("");
+    setAnswer(null);
     try {
-      setAnswer(await post("/agent/query", { task_id: taskId, question }));
+      setAnswer(await post("/agent/query", { task_id: effectiveTaskId, question: currentCheck.question }));
     } catch (reason) {
-      setAskError(reason instanceof Error ? reason.message : "证据检索失败");
+      setCheckError(reason instanceof Error ? reason.message : "辅助解释生成失败");
     } finally {
-      setAsking(false);
+      setChecking(false);
     }
   }
 
-  if (tasks.loading) return <LoadingState />;
+  if (tasks.loading) return <LoadingState label="正在加载审计任务" variant="page" />;
   if (tasks.error || !tasks.data) return <ErrorState message={tasks.error || "任务加载失败"} retry={tasks.reload} />;
 
   return (
     <>
-      <PageHeader title="审计与复核" actions={<Button icon={RefreshCw} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button>} />
-      <div className="filter-bar">
-        <label><span>审计对象</span><select value={taskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
-        {timeline.data?.task && <><div><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div></>}
-      </div>
+      <PageHeader title="审计与复核" description="按任务核对事件链路、规则、数据边界、签名与计算结果。" actions={<Button icon={RefreshCw} busy={tasks.refreshing || timeline.refreshing} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button>} />
+      <FilterBar>
+        <label><span>审计对象</span><select value={effectiveTaskId} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        {timeline.data?.task && <><div className="filter-status"><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div className="filter-status"><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div></>}
+      </FilterBar>
+
       <div className="audit-layout">
-        <Surface title="事件时间线" meta={`${timeline.data?.events?.length || 0} 条`}>
-          {timeline.loading ? <LoadingState /> : timeline.error ? <ErrorState message={timeline.error} retry={timeline.reload} /> : (
-            (timeline.data?.events || []).length ? <div className="audit-timeline">
-              {(timeline.data?.events || []).map((event: JsonRecord) => {
-                const Icon = kindIcons[event.kind] || FileSearch;
-                const title = String(event.title || "").split(" · ");
-                const readableTitle = event.kind === "CHAIN_EVIDENCE"
-                  ? `${STAGE_LABELS[title[0]] || title[0]} · ${EVIDENCE_TYPE_LABELS[title[1]] || title[1]}`
-                  : event.kind === "AGENT_EVENT"
-                    ? `${AGENT_LABELS[title[0]] || title[0]} · ${MESSAGE_TYPE_LABELS[title[1]] || title[1]}`
-                    : event.title;
-                return <div key={event.reference}><div className={`timeline-icon kind-${event.kind.toLowerCase()}`}><Icon size={17} /></div><div><span>{formatDate(event.time)}</span><strong>{readableTitle}</strong><small className="mono-text">{shortHash(event.reference, 12)}</small></div><StatusTag value={event.status} /></div>;
-              })}
-            </div> : <EmptyState title="当前任务暂无可核验事件" />
-          )}
+        <Surface title="事件时间线" meta={`${events.length} 条`}>
+          {timeline.loading ? <LoadingState /> : timeline.error ? <ErrorState message={timeline.error} retry={timeline.reload} /> : <AuditTimeline events={events} />}
         </Surface>
-        <Surface title="证据检索">
-          <div className="agent-query">
-            <textarea aria-label="检索问题" value={question} maxLength={500} onChange={(event) => setQuestion(event.target.value)} rows={3} />
-            <div className="suggested-questions">
-              {["规则版本能否追溯？", "是否存在证据篡改？", "原始数据是否被读取？", "多方签名是否完整？"].map((item) => <button key={item} onClick={() => setQuestion(item)}>{item}</button>)}
-            </div>
-            <Button icon={Send} variant="primary" busy={asking} disabled={!taskId || !question.trim()} onClick={ask}>检索证据</Button>
-            {askError && <Notice tone="warning">{askError}</Notice>}
-            {answer && <div className="agent-answer"><div><MessageSquareText size={18} /><strong>核验摘要</strong></div><p>{answer.answer}</p><div className="citation-list">{answer.citations.map((item: JsonRecord) => <span key={item.evidence_id}><Blocks size={13} />{STAGE_LABELS[item.stage] || item.stage} · {shortHash(item.tx_hash, 8)}</span>)}</div></div>}
+        <Surface title="证据辅助解释">
+          <div className="structured-audit-check">
+            <label className="field"><span>解释主题</span><select value={checkCode} onChange={(event) => { setCheckCode(event.target.value as typeof checkCode); setAnswer(null); }}>{checks.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select></label>
+            <div className="audit-check-description"><FileSearch size={18} /><div><strong>{currentCheck.label}</strong><span>解释范围基于当前任务的规则、过程记录与审计凭证。</span></div></div>
+            <Notice tone="warning">该功能通过生成式能力或证据模板提供辅助说明，不构成确定性核验、审批或合规结论。请以事件链、签名和凭证核验结果为准。</Notice>
+            <Button icon={SearchCheck} variant="primary" busy={checking} disabled={!effectiveTaskId} onClick={runCheck}>生成辅助解释</Button>
+            {checkError && <Notice tone="warning">{checkError}</Notice>}
+            {answer && <div className="audit-check-result"><header><strong>辅助解释</strong><StatusTag value={answer.fallback ? "MEDIUM" : "INFO"} label={answer.fallback ? "模板降级" : "生成说明"} /></header><div className="audit-answer-meta"><div><span>置信度</span><strong>{confidenceLabels[String(answer.confidence || "")] || "未标注"}</strong></div><div><span>证据引用</span><strong>{answer.grounded ? "已关联" : "未关联"}</strong></div><div><span>生成方式</span><strong>{answer.fallback ? "结构化模板" : "生成式能力"}</strong></div></div><p>{answer.answer || "—"}</p>{answer.boundary && <div className="audit-answer-boundary"><strong>能力边界</strong><span>{String(answer.boundary)}</span></div>}<DataTable keyField="evidence_id" rows={answer.citations || []} empty="未引用具体凭证" label="辅助解释引用凭证" columns={[
+              { key: "stage", label: "阶段", render: (row) => STAGE_LABELS[row.stage] || row.stage || "—" },
+              { key: "evidence_id", label: "凭证编号", render: (row) => <IdText value={row.evidence_id} /> },
+              { key: "tx_hash", label: "交易摘要", render: (row) => <IdText value={row.tx_hash} /> },
+            ]} /></div>}
           </div>
         </Surface>
       </div>

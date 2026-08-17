@@ -1,33 +1,46 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2, Download, FileSignature, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, downloadBlob, formatDate, formatMoney, post, shortHash } from "../api";
+import { Eye, FileSignature, RefreshCw } from "lucide-react";
+import { api, formatMoney, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
-import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { AmountText, Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { RESULT_SCOPE_LABELS } from "../types";
-import type { JsonRecord } from "../types";
+import { RESULT_SCOPE_LABELS, type JsonRecord } from "../types";
+
+const amountDirectionLabels: Record<string, string> = {
+  RECEIVABLE: "应收",
+  PAYABLE: "应付",
+};
 
 export function ResultsPage() {
   const { session } = useAuth();
   const [selected, setSelected] = useState<JsonRecord | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<JsonRecord | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
-  const loader = async () => {
-    const [results, orgs] = await Promise.all([api<JsonRecord[]>("/settlement/results"), api<JsonRecord[]>("/system/organizations")]);
+  const loader = async (signal?: AbortSignal) => {
+    const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
+    const [results, orgs] = await Promise.all([api<JsonRecord[]>("/settlement/results", request), api<JsonRecord[]>("/system/organizations", request)]);
     return { results, orgs };
   };
-  const { data, loading, error, reload } = useRemote(loader, []);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, []);
   const totals = useMemo(() => {
     const orgRows = data?.results.filter((item) => item.result_scope === "ORG") || [];
-    return { rows: orgRows.length, amount: orgRows.reduce((sum, item) => sum + Number(item.result_json?.amount_yuan || 0), 0), confirmed: orgRows.filter((item) => item.confirm_status === "CONFIRMED").length };
+    const summaryRows = data?.results.filter((item) => item.result_scope === "SUMMARY") || [];
+    const amountRows = summaryRows.length ? summaryRows : orgRows;
+    return {
+      rows: orgRows.length,
+      amount: amountRows.reduce((sum, item) => sum + Number(item.result_json?.amount_yuan ?? item.result_json?.payable_amount_yuan ?? 0), 0),
+      amountLabel: summaryRows.length ? "任务结算金额" : "本主体结果金额",
+      confirmed: orgRows.filter((item) => item.confirm_status === "CONFIRMED").length,
+    };
   }, [data]);
 
   async function confirm(row: JsonRecord) {
     setBusy(row.result_id);
     setMessage("");
     try {
-      await post(`/results/${row.result_id}/confirm`, { opinion: "同意场景结果" });
-      setMessage("结果已签名确认。");
+      await post(`/results/${row.result_id}/confirm`, {});
+      setMessage("结果回执已签名确认。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "确认失败");
@@ -36,47 +49,57 @@ export function ResultsPage() {
     }
   }
 
-  function exportReceipt(row: JsonRecord) {
-    const blob = new Blob([JSON.stringify({ ...row, exported_raw_data: false }, null, 2)], { type: "application/json" });
-    downloadBlob(blob, `verification-receipt-${row.result_id}.json`);
-  }
-
-  if (loading) return <LoadingState />;
+  if (loading) return <LoadingState label="正在加载结果回执" variant="page" />;
   if (error || !data) return <ErrorState message={error || "结果回执加载失败"} retry={reload} />;
 
+  const canConfirm = ["GENERATOR", "RETAILER", "EXCHANGE"].includes(session!.user.role_code);
   return (
     <>
-      <PageHeader title="结果确认" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader title="结果确认" description="查看主体级与汇总级结果，并对当前权限范围内的回执进行签名确认；当前环境尚未开放经服务端审计的导出通道。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
       <div className="metrics-grid three">
-        <div className="metric"><span>结果数量</span><strong>{totals.rows}</strong></div>
-        <div className="metric metric-green"><span>已确认</span><strong>{totals.confirmed}</strong></div>
-        <div className="metric"><span>场景金额合计</span><strong>{formatMoney(totals.amount)}</strong></div>
+        <Metric label="主体结果" value={totals.rows} />
+        <Metric label="已确认" value={totals.confirmed} tone="green" />
+        <Metric label={totals.amountLabel} value={formatMoney(totals.amount)} />
       </div>
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
-      <Surface title="结果与回执">
+      <Surface title="结果与回执" meta={`${data.results.length} 项`}>
         <DataTable
-          keyField="result_id"
-          rows={data.results}
+          keyField="result_id" rows={data.results} label="结果与回执列表"
           columns={[
-            { key: "task_id", label: "验证任务", render: (row) => <button className="table-link mono-text" onClick={() => setSelected(row)}>{row.task_id}</button> },
-            { key: "org_id", label: "结果主体", render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || row.org_id : "平台汇总结果" },
-            { key: "result_scope", label: "结果类型", render: (row) => RESULT_SCOPE_LABELS[row.result_scope] || row.result_scope },
-            { key: "energy", label: "场景电量", render: (row) => `${row.result_json?.settlement_energy_mwh ?? "-"} MWh` },
-            { key: "amount", label: "场景金额", render: (row) => formatMoney(row.result_json?.amount_yuan ?? row.result_json?.payable_amount_yuan) },
-            { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
+            { key: "task_id", label: "验证任务", minWidth: 155, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}><IdText value={row.task_id} copyable={false} /></button> },
+            { key: "org_id", label: "结果主体", minWidth: 150, render: (row) => row.org_id ? data.orgs.find((item) => item.org_id === row.org_id)?.org_name || <IdText value={row.org_id} /> : "平台汇总结果" },
+            { key: "result_scope", label: "结果类型", render: (row) => RESULT_SCOPE_LABELS[row.result_scope] || row.result_scope || "—" },
+            { key: "energy", label: "场景电量", align: "right", render: (row) => row.result_json?.settlement_energy_mwh === undefined ? "—" : `${formatNumber(row.result_json.settlement_energy_mwh, 2)} MWh` },
+            { key: "amount", label: "场景金额", align: "right", minWidth: 130, render: (row) => <AmountText value={row.result_json?.amount_yuan ?? row.result_json?.payable_amount_yuan} /> },
+            { key: "amount_direction", label: "收付方向", render: (row) => row.result_scope === "SUMMARY" ? "任务汇总" : amountDirectionLabels[row.result_json?.amount_direction] || "未标注" },
+            { key: "result_hash", label: "结果摘要", minWidth: 155, render: (row) => <IdText value={row.result_hash} /> },
             { key: "confirm_status", label: "确认状态", render: (row) => <StatusTag value={row.confirm_status} /> },
-            { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
-            { key: "action", label: "操作", render: (row) => row.confirm_status !== "CONFIRMED" && ["GENERATOR", "RETAILER", "EXCHANGE"].includes(session!.user.role_code) ? <Button icon={FileSignature} busy={busy === row.result_id} onClick={() => confirm(row)}>签名确认</Button> : <Button icon={Download} onClick={() => exportReceipt(row)}>导出凭证</Button> },
+            { key: "created_at", label: "生成时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
+            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", minWidth: 96, render: (row) => <div className="inline-actions">{row.confirm_status !== "CONFIRMED" && canConfirm && <Button icon={FileSignature} busy={busy === row.result_id} onClick={() => setConfirmTarget(row)}>签名确认</Button>}<Button icon={Eye} onClick={() => setSelected(row)}>详情</Button></div> },
           ]}
         />
       </Surface>
-      {selected && <Surface title="结果凭证摘要" actions={<Button onClick={() => setSelected(null)}>收起</Button>}>
-        <div className="result-summary">
-          <div><ShieldCheck size={22} /><span>结果哈希</span><CodeValue>{selected.result_hash}</CodeValue></div>
-          <div><CheckCircle2 size={22} /><span>多方确认</span><StatusTag value={selected.confirm_status} /></div>
-          <div><FileSignature size={22} /><span>披露范围</span><strong>{RESULT_SCOPE_LABELS[selected.result_scope] || selected.result_scope}</strong></div>
+
+      {selected && <DetailDrawer title="结果回执详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
+        <div className="detail-grid">
+          <div><span>结果编号</span><IdText value={selected.result_id} /></div>
+          <div><span>关联任务</span><IdText value={selected.task_id} /></div>
+          <div><span>结果类型</span><strong>{RESULT_SCOPE_LABELS[selected.result_scope] || selected.result_scope || "—"}</strong></div>
+          <div><span>结果主体</span><strong>{selected.org_id ? data.orgs.find((item) => item.org_id === selected.org_id)?.org_name || "当前主体" : "平台汇总结果"}</strong></div>
+          <div><span>收付方向</span><strong>{selected.result_scope === "SUMMARY" ? "任务汇总" : amountDirectionLabels[selected.result_json?.amount_direction] || "未标注"}</strong></div>
+          <div><span>确认状态</span><StatusTag value={selected.confirm_status} /></div>
+          <div><span>结果摘要</span><IdText value={selected.result_hash} /></div>
+          <div><span>生成时间</span><DateTimeText value={selected.created_at} /></div>
         </div>
-      </Surface>}
+        <div className="detail-section"><h3>结果数据</h3><div className="parameter-grid">{Object.entries(selected.result_json || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{typeof value === "object" ? JSON.stringify(value) : String(value)}</strong></div>)}</div></div>
+      </DetailDrawer>}
+
+      <ConfirmDialog
+        open={Boolean(confirmTarget)} title="确认结果回执" objectName={confirmTarget?.result_id || "—"}
+        currentState={confirmTarget?.confirm_status} consequence="确认后将使用当前主体身份对结果摘要签名，并把确认意见写入审计记录。"
+        confirmLabel="签名确认" busy={Boolean(confirmTarget && busy === confirmTarget.result_id)} onCancel={() => setConfirmTarget(null)}
+        onConfirm={async () => { if (!confirmTarget) return; await confirm(confirmTarget); setConfirmTarget(null); }}
+      />
     </>
   );
 }

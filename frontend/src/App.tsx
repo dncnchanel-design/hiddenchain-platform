@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { canAccessRoute, getDefaultPath } from "./access";
 import { useAuth } from "./auth";
 import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
+import { ForbiddenPage, NotFoundPage, SessionExpiredPage, UnavailablePage } from "./pages/StatusPages";
 import { pages } from "./routes";
 
 const {
@@ -26,47 +28,64 @@ const {
 } = pages;
 
 function ProtectedShell() {
-  const { session, loading } = useAuth();
+  const { session, loading, sessionExpired, sessionError } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState label="正在验证身份" /></div>;
+  if (sessionExpired) return <Navigate to="/session-expired" replace />;
+  if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
   if (!session) return <Navigate to="/login" replace />;
   return <AppShell />;
 }
 
 function LoginGate() {
-  const { session, loading } = useAuth();
+  const { session, loading, sessionError } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
-  return session ? <Navigate to="/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
+  if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
 }
 
-function Allowed({ code, children }: { code: string; children: React.ReactNode }) {
+function Allowed({ path, children }: { path: string; children: React.ReactNode }) {
   const { session } = useAuth();
-  return session?.menus.some((item) => item.code === code) ? children : <Navigate to="/overview" replace />;
+  return session && canAccessRoute(session, path)
+    ? children
+    : <Navigate to={`/403?path=${encodeURIComponent(path)}`} replace state={{ deniedPath: path }} />;
+}
+
+function WorkspaceHome() {
+  const { session } = useAuth();
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : null;
+}
+
+function SessionExpiredGate() {
+  const { session } = useAuth();
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : <SessionExpiredPage />;
 }
 
 export default function App() {
   return (
     <Routes>
         <Route path="/login" element={<LoginGate />} />
+        <Route path="/session-expired" element={<SessionExpiredGate />} />
         <Route element={<ProtectedShell />}>
-          <Route index element={<Navigate to="/workbench" replace />} />
-          <Route path="/overview" element={<Allowed code="overview"><OverviewPage /></Allowed>} />
-          <Route path="/workbench" element={<Allowed code="workbench"><WorkbenchPage /></Allowed>} />
-          <Route path="/data/generation" element={<Allowed code="generation-data"><DataPage mode="generation" /></Allowed>} />
-          <Route path="/data/retail" element={<Allowed code="retail-data"><DataPage mode="retail" /></Allowed>} />
-          <Route path="/data-space" element={<Allowed code="data-space"><DataSpacePage /></Allowed>} />
-          <Route path="/rules" element={<Allowed code="rules"><RulesPage /></Allowed>} />
-          <Route path="/settlements" element={<Allowed code="settlements"><SettlementPage /></Allowed>} />
-          <Route path="/compute" element={<Allowed code="compute"><ComputePage /></Allowed>} />
-          <Route path="/results" element={<Allowed code="results"><ResultsPage /></Allowed>} />
-          <Route path="/evidence" element={<Allowed code="evidence"><EvidencePage /></Allowed>} />
-          <Route path="/audit" element={<Allowed code="audit"><AuditPage /></Allowed>} />
-          <Route path="/agents" element={<Allowed code="agents"><AgentsPage /></Allowed>} />
-          <Route path="/anomalies" element={<Allowed code="anomalies"><AnomaliesPage /></Allowed>} />
-          <Route path="/logs" element={<Allowed code="logs"><LogsPage /></Allowed>} />
-          <Route path="/system" element={<Allowed code="system"><SystemPage /></Allowed>} />
-          <Route path="/reports" element={<Allowed code="reports"><ReportsPage /></Allowed>} />
-          <Route path="/metrics" element={<Allowed code="metrics"><MetricsPage /></Allowed>} />
-          <Route path="*" element={<Navigate to="/overview" replace />} />
+          <Route index element={<WorkspaceHome />} />
+          <Route path="/403" element={<ForbiddenPage />} />
+          <Route path="/overview" element={<Allowed path="/overview"><OverviewPage /></Allowed>} />
+          <Route path="/workbench" element={<Allowed path="/workbench"><WorkbenchPage /></Allowed>} />
+          <Route path="/data/generation" element={<Allowed path="/data/generation"><DataPage mode="generation" /></Allowed>} />
+          <Route path="/data/retail" element={<Allowed path="/data/retail"><DataPage mode="retail" /></Allowed>} />
+          <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
+          <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
+          <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />
+          <Route path="/compute" element={<Allowed path="/compute"><ComputePage /></Allowed>} />
+          <Route path="/results" element={<Allowed path="/results"><ResultsPage /></Allowed>} />
+          <Route path="/evidence" element={<Allowed path="/evidence"><EvidencePage /></Allowed>} />
+          <Route path="/audit" element={<Allowed path="/audit"><AuditPage /></Allowed>} />
+          <Route path="/agents" element={<Allowed path="/agents"><AgentsPage /></Allowed>} />
+          <Route path="/anomalies" element={<Allowed path="/anomalies"><AnomaliesPage /></Allowed>} />
+          <Route path="/logs" element={<Allowed path="/logs"><LogsPage /></Allowed>} />
+          <Route path="/system" element={<Allowed path="/system"><SystemPage /></Allowed>} />
+          <Route path="/reports" element={<Allowed path="/reports"><ReportsPage /></Allowed>} />
+          <Route path="/metrics" element={<Allowed path="/metrics"><MetricsPage /></Allowed>} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
     </Routes>
   );

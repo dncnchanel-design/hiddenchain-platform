@@ -459,6 +459,23 @@ def test_result_confirmation_and_data_signing_are_idempotent(client, auth_header
     assert first_confirmation.json() == second_confirmation.json()
 
 
+def test_data_commitment_can_only_be_signed_by_its_owner(client, auth_headers):
+    upload = client.get(
+        "/api/data/uploads?asset_type=GENERATION_DATA", headers=auth_headers["admin"]
+    ).json()[0]
+
+    exchange_signature = client.post(
+        f"/api/data/{upload['upload_id']}/sign", headers=auth_headers["exchange"]
+    )
+    admin_signature = client.post(
+        f"/api/data/{upload['upload_id']}/sign", headers=auth_headers["admin"]
+    )
+
+    assert exchange_signature.status_code == 403
+    assert exchange_signature.json()["detail"] == "不能签署其他主体的数据"
+    assert admin_signature.status_code == 403
+
+
 def test_task_creation_rejects_invalid_participant_shape(client, auth_headers):
     rules = client.get("/api/rules", headers=auth_headers["exchange"])
     rule_id = rules.json()[0]["rule_id"]

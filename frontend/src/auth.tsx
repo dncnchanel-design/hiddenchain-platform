@@ -1,54 +1,81 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { api, invalidateApiCache, post } from "./api";
+import { ApiError, api, invalidateApiCache, post } from "./api";
 import type { SessionPayload } from "./types";
 
 interface AuthContextValue {
   session: SessionPayload | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  sessionExpired: boolean;
+  sessionError: string;
+  login: (username: string, password: string) => Promise<SessionPayload>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const TOKEN_KEY = "hiddenchain_token";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<SessionPayload | null>(null);
-  const [loading, setLoading] = useState(Boolean(localStorage.getItem("hiddenchain_token")));
+  const [loading, setLoading] = useState(Boolean(sessionStorage.getItem(TOKEN_KEY)));
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionError, setSessionError] = useState("");
 
   const logout = useCallback(() => {
-    localStorage.removeItem("hiddenchain_token");
+    sessionStorage.removeItem(TOKEN_KEY);
     invalidateApiCache();
     setSession(null);
+    setSessionExpired(false);
+    setSessionError("");
+    setLoading(false);
+  }, []);
+
+  const expireSession = useCallback(() => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    invalidateApiCache();
+    setSession(null);
+    setSessionExpired(true);
+    setSessionError("");
     setLoading(false);
   }, []);
 
   const loadSession = useCallback(async () => {
-    if (!localStorage.getItem("hiddenchain_token")) {
+    if (!sessionStorage.getItem(TOKEN_KEY)) {
       setLoading(false);
       return;
     }
     try {
+      setSessionError("");
       setSession(await api<SessionPayload>("/auth/me"));
-    } catch {
-      logout();
+      setSessionExpired(false);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) expireSession();
+      else setSessionError("暂时无法验证会话。有效凭证已保留，请检查服务或网络后重试。");
     } finally {
       setLoading(false);
     }
-  }, [logout]);
+  }, [expireSession]);
 
   useEffect(() => {
-    void loadSession();
-    window.addEventListener("hiddenchain:unauthorized", logout);
-    return () => window.removeEventListener("hiddenchain:unauthorized", logout);
-  }, [loadSession, logout]);
+    localStorage.removeItem(TOKEN_KEY);
+    const loadTimer = window.setTimeout(() => void loadSession(), 0);
+    window.addEventListener("hiddenchain:unauthorized", expireSession);
+    return () => {
+      window.clearTimeout(loadTimer);
+      window.removeEventListener("hiddenchain:unauthorized", expireSession);
+    };
+  }, [expireSession, loadSession]);
 
   const login = useCallback(async (username: string, password: string) => {
     const payload = await post<SessionPayload & { access_token: string }>("/auth/login", { username, password });
-    localStorage.setItem("hiddenchain_token", payload.access_token);
-    setSession(payload);
+    const { access_token: accessToken, ...safeSession } = payload;
+    sessionStorage.setItem(TOKEN_KEY, accessToken);
+    setSession(safeSession);
+    setSessionExpired(false);
+    setSessionError("");
+    return safeSession;
   }, []);
 
-  const value = useMemo(() => ({ session, loading, login, logout }), [session, loading, login, logout]);
+  const value = useMemo(() => ({ session, loading, sessionExpired, sessionError, login, logout }), [session, loading, sessionExpired, sessionError, login, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

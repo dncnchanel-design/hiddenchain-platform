@@ -32,12 +32,33 @@ function wait(ms: number) {
 
 export class ApiError extends Error {
   status: number;
+  traceId?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, traceId?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.traceId = traceId;
   }
+}
+
+function safeErrorMessage(value: unknown, status: number): string {
+  const defaults: Record<number, string> = {
+    400: "请求内容不符合要求，请检查后重试",
+    401: "会话已失效，请重新登录",
+    403: "当前账号无权执行此操作",
+    404: "请求的业务对象不存在",
+    408: "请求超时，请稍后重试",
+    409: "当前状态不允许执行此操作",
+    422: "提交内容未通过校验，请检查后重试",
+    429: "操作过于频繁，请稍后重试",
+  };
+  const fallback = defaults[status] || (status >= 500 ? "服务暂时不可用，请稍后重试" : `请求失败（${status}）`);
+  if (typeof value !== "string") return fallback;
+  const message = value.trim();
+  if (!message || message.length > 180) return fallback;
+  if (/traceback|exception|sql|select\s|insert\s|update\s|delete\s|\.py\b|node_modules|stack|password|token|secret/i.test(message)) return fallback;
+  return message;
 }
 
 export function invalidateApiCache() {
@@ -55,17 +76,19 @@ function storeCachedResponse(key: string, value: unknown, expiresAt: number) {
 }
 
 export async function api<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
-  const token = localStorage.getItem("hiddenchain_token");
+  const token = sessionStorage.getItem("hiddenchain_token");
   const method = (options.method || "GET").toUpperCase();
   const isGet = method === "GET";
   const ttl = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   const key = cacheKey(path, token);
   const requestVersion = cacheVersion;
-  if (isGet && ttl > 0 && options.cache !== "no-store") {
+  const cacheEnabled = isGet && ttl > 0 && options.cache !== "no-store";
+  const shareInFlight = cacheEnabled && !options.signal;
+  if (cacheEnabled) {
     const cached = GET_CACHE.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as T;
     if (cached) GET_CACHE.delete(key);
-    const inFlight = GET_IN_FLIGHT.get(key);
+    const inFlight = shareInFlight ? GET_IN_FLIGHT.get(key) : undefined;
     if (inFlight) return inFlight as Promise<T>;
   }
 
@@ -90,15 +113,16 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
             await wait(180 * (attempt + 1));
             continue;
           }
-          let message = `请求失败（${response.status}）`;
+          let body: Record<string, unknown> = {};
           try {
-            const body = await response.json();
-            message = body.detail || body.message || message;
+            body = await response.json();
           } catch {
-            // Keep the status-based message for non-JSON errors.
+            body = {};
           }
+          const traceId = response.headers.get("x-trace-id") || response.headers.get("x-request-id") || (typeof body.trace_id === "string" ? body.trace_id : undefined);
+          const message = safeErrorMessage(body.detail || body.message, response.status);
           if (response.status === 401) window.dispatchEvent(new Event("hiddenchain:unauthorized"));
-          throw new ApiError(message, response.status);
+          throw new ApiError(message, response.status, traceId || undefined);
         }
         if (response.status === 204) return undefined as T;
         const value = await response.json() as T;
@@ -126,7 +150,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
     }
   })();
 
-  if (isGet && ttl > 0 && options.cache !== "no-store") {
+  if (shareInFlight) {
     GET_IN_FLIGHT.set(key, request);
     request.finally(() => {
       if (GET_IN_FLIGHT.get(key) === request) GET_IN_FLIGHT.delete(key);
@@ -146,39 +170,31 @@ export function post<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  window.setTimeout(() => {
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }, 1000);
-}
-
 export function shortHash(value?: string | null, length = 10): string {
-  if (!value) return "-";
+  if (!value) return "—";
   if (value.length <= length * 2) return value;
   return `${value.slice(0, length)}…${value.slice(-6)}`;
 }
 
 export function formatDate(value?: string | null): string {
-  if (!value) return "-";
+  if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 export function formatMoney(value?: number | string | null): string {
-  const numeric = Number(value || 0);
-  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY" }).format(numeric);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "—";
+  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value));
+}
+
+export function formatNumber(value?: number | string | null, fractionDigits = 0): string {
+  if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "—";
+  return new Intl.NumberFormat("zh-CN", { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(Number(value));
+}
+
+export function formatPercent(value?: number | string | null, fractionDigits = 1): string {
+  const formatted = formatNumber(value, fractionDigits);
+  return formatted === "—" ? formatted : `${formatted}%`;
 }

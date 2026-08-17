@@ -221,13 +221,13 @@ def create_upload(
 @router.post("/{upload_id}/sign")
 def sign_upload(
     upload_id: str,
-    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE", "ADMIN")),
+    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE")),
     db: Session = Depends(get_db),
 ) -> dict:
     upload = db.get(DataUpload, upload_id)
     if upload is None:
         raise HTTPException(status_code=404, detail="数据记录不存在")
-    if user.role_code in {"GENERATOR", "RETAILER"} and upload.owner_org_id != user.org_id:
+    if upload.owner_org_id != user.org_id:
         raise HTTPException(status_code=403, detail="不能签署其他主体的数据")
     if upload.signature_value:
         existing = db.scalar(

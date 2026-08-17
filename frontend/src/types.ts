@@ -11,7 +11,6 @@ export interface UserProfile {
 }
 
 export interface SessionPayload {
-  access_token?: string;
   user: UserProfile;
   org: Record<string, unknown>;
   did: Record<string, unknown>;

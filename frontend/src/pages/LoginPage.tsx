@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
-import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { Eye, EyeOff, Info, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { getDefaultPath } from "../access";
 import { useAuth } from "../auth";
 import { Button, Notice } from "../components/ui";
 
@@ -12,16 +13,24 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [capsLock, setCapsLock] = useState(false);
+  const environment = import.meta.env.VITE_ENV_LABEL || "演示环境";
+  const version = import.meta.env.VITE_APP_VERSION || "0.1.0";
+  const organization = import.meta.env.VITE_ORGANIZATION_NAME || "";
+
+  function detectCapsLock(event: KeyboardEvent<HTMLInputElement>) {
+    setCapsLock(event.getModifierState("CapsLock"));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await login(username, password);
-      navigate("/workbench", { replace: true });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "登录失败，请检查账号和密码");
+      const session = await login(username, password);
+      navigate(getDefaultPath(session), { replace: true });
+    } catch {
+      setError("登录失败，请核对账号和密码后重试。");
     } finally {
       setBusy(false);
     }
@@ -29,49 +38,48 @@ export function LoginPage() {
 
   return (
     <div className="login-screen">
-      <section
-        className="login-identity"
-        aria-label="产品信息"
-        draggable={false}
-        onCopy={(event) => event.preventDefault()}
-        onDragStart={(event) => event.preventDefault()}
-      >
-        <div className="login-visual" aria-hidden="true">
-          <div className="login-visual-node node-one" />
-          <div className="login-visual-node node-two" />
-          <div className="login-visual-node node-three" />
+      <header className="login-brandbar">
+        <div className="login-brand">
+          <span className="login-product-mark"><ShieldCheck size={21} /></span>
+          <span><strong>隐链明算</strong><small>电力交易可信执行平台</small></span>
         </div>
-        <div className="login-identity-content">
-          <div className="login-product-mark"><ShieldCheck size={24} /></div>
-          <h1>隐链明算</h1>
-          <h2>电力交易可信执行平台</h2>
-        </div>
-      </section>
+        <div className="login-runtime"><span className="environment-tag">{environment}</span><span>版本 {version}</span></div>
+      </header>
 
-      <section className="login-form-area">
+      <main className="login-main">
         <form className="login-form" onSubmit={submit}>
           <div className="login-form-heading">
-            <h2>登录工作空间</h2>
+            <span className="login-form-icon" aria-hidden="true"><LockKeyhole size={20} /></span>
+            <div><h1>登录系统</h1><p>使用已授权账号进入工作空间</p></div>
           </div>
 
           <label className="field">
             <span>账号</span>
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="输入账号" required minLength={3} maxLength={64} />
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required minLength={3} maxLength={64} autoFocus />
           </label>
           <label className="field">
             <span>密码</span>
             <div className="password-field">
-              <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="输入密码" required minLength={6} maxLength={128} />
+              <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={detectCapsLock} onKeyUp={detectCapsLock} autoComplete="current-password" placeholder="请输入密码" aria-describedby={capsLock ? "caps-lock-hint" : undefined} required minLength={6} maxLength={128} />
               <button className="password-toggle" type="button" onClick={() => setShowPassword((value) => !value)} title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"}>
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
             </div>
           </label>
 
+          {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
           {error && <Notice tone="warning">{error}</Notice>}
           <Button type="submit" variant="primary" busy={busy}>登录</Button>
+
+          <div className="login-security-note"><ShieldCheck size={15} /><span>请使用授权账号登录，离开终端时及时退出系统。</span></div>
         </form>
-      </section>
+      </main>
+
+      <footer className="login-footer">
+        <span>隐链明算 · 电力交易可信执行平台</span>
+        {organization && <span>{organization}</span>}
+        <span>{environment} · 系统版本 {version}</span>
+      </footer>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { CheckCircle2, ChevronDown, Database, FileCheck2, RefreshCw, XCircle } from "lucide-react";
-import { api, formatDate, post, shortHash } from "../api";
+import { CheckCircle2, ChevronDown, CircleHelp, Database, FileCheck2, RefreshCw, XCircle } from "lucide-react";
+import { api, post, shortHash } from "../api";
 import { useAuth } from "../auth";
-import { Button, CodeValue, DataTable, ErrorState, LoadingState, Notice, StatusTag, Surface } from "./ui";
+import { Button, CodeValue, ConfirmDialog, DataTable, DateTimeText, ErrorState, IdText, LoadingState, Notice, StatusTag, Surface } from "./ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
 
@@ -62,17 +62,20 @@ function groupingLabel(value: unknown) {
   return values.map((item) => groupingLabels[String(item)] || String(item)).join("、");
 }
 
-function boolValue(value: unknown) {
-  return value === true || value === "true" || value === "PASSED";
+function checkValue(value: unknown): boolean | null {
+  if (value === true || value === "true" || value === "PASSED") return true;
+  if (value === false || value === "false" || value === "FAILED") return false;
+  return null;
 }
 
 function CheckItem({ label, value }: { label: string; value: unknown }) {
-  const passed = boolValue(value);
-  return <div className={`review-check-item ${passed ? "passed" : "failed"}`}><span>{passed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}</span><div><strong>{label}</strong><small>{passed ? "已通过" : "需复核"}</small></div></div>;
+  const state = checkValue(value);
+  const stateClass = state === true ? "passed" : state === false ? "failed" : "pending";
+  return <div className={`review-check-item ${stateClass}`}><span>{state === true ? <CheckCircle2 size={16} /> : state === false ? <XCircle size={16} /> : <CircleHelp size={16} />}</span><div><strong>{label}</strong><small>{state === true ? "已通过" : state === false ? "需复核" : "未核验"}</small></div></div>;
 }
 
 function EvidenceValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined || value === "") return <span>-</span>;
+  if (value === null || value === undefined || value === "") return <span>—</span>;
   if (typeof value === "object") return <CodeValue>{JSON.stringify(value)}</CodeValue>;
   const text = String(value);
   return <span>{balanceLabels[text] || targetLabels[text] || text}</span>;
@@ -85,7 +88,7 @@ export function TrustedExecutionReviewPanel() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const reviews = useRemote<JsonRecord[]>(
-    () => api(`/trusted-execution/reviews${reviewStatus ? `?review_status=${reviewStatus}` : ""}`, { cache: "no-store" }),
+    (signal) => api(`/trusted-execution/reviews${reviewStatus ? `?review_status=${reviewStatus}` : ""}`, { signal, timeoutMs: 12000, cache: "no-store" }),
     [reviewStatus],
   );
   const canConfirm = ["REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
@@ -94,7 +97,7 @@ export function TrustedExecutionReviewPanel() {
     setBusy(`inspect:${review.review_id}`);
     setMessage("");
     try {
-      setSelected(await api<JsonRecord>(`/trusted-execution/reviews/${review.request_id}`, { cache: "no-store" }));
+      setSelected(await api<JsonRecord>(`/trusted-execution/reviews/${review.request_id}`, { timeoutMs: 12000, cache: "no-store" }));
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "复核记录加载失败");
     } finally {
@@ -107,10 +110,7 @@ export function TrustedExecutionReviewPanel() {
     setBusy(`confirm:${selected.review_id}`);
     setMessage("");
     try {
-      await post(`/trusted-execution/reviews/${selected.request_id}/confirm`, {
-        opinion: "已核对来源汇总、平衡公式、结果哈希与执行计划，确认计算结果。",
-        accept: true,
-      });
+      await post(`/trusted-execution/reviews/${selected.request_id}/confirm`, { accept: true });
       setMessage("计算结果已确认。");
       setSelected(null);
       setReviewStatus("CONFIRMED");
@@ -136,12 +136,12 @@ export function TrustedExecutionReviewPanel() {
           rows={reviews.data}
           empty={reviewStatus === "PENDING" ? "暂无待确认结果" : "暂无结果"}
           columns={[
-            { key: "request_id", label: "请求", render: (row) => <CodeValue title={row.request_id}>{shortHash(row.request_id, 10)}</CodeValue> },
+            { key: "request_id", label: "请求编号", minWidth: 150, render: (row) => <IdText value={row.request_id} /> },
             { key: "target_data", label: "数据目标", render: (row) => (Array.isArray(row.target_data) ? row.target_data : []).map(targetLabel).join(" · ") || "受控聚合" },
             { key: "automatic_status", label: "自动核验", render: (row) => <StatusTag value={row.automatic_status} /> },
-            { key: "result_hash", label: "结果哈希", render: (row) => <CodeValue title={row.result_hash}>{shortHash(row.result_hash)}</CodeValue> },
-            { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
-            { key: "action", label: "操作", render: (row) => <Button icon={FileCheck2} busy={busy === `inspect:${row.review_id}`} onClick={() => inspect(row)}>打开复核</Button> },
+            { key: "result_hash", label: "结果摘要", minWidth: 150, render: (row) => <IdText value={row.result_hash} /> },
+            { key: "created_at", label: "生成时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
+            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={FileCheck2} busy={busy === `inspect:${row.review_id}`} onClick={() => inspect(row)}>打开复核</Button> },
           ]}
         />
       </Surface>
@@ -151,14 +151,15 @@ export function TrustedExecutionReviewPanel() {
 }
 
 function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { selected: JsonRecord; canConfirm: boolean; busy: string; onClose: () => void; onConfirm: () => Promise<void>; }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const checks = (selected.checks?.checks || {}) as JsonRecord;
   const result = (selected.result || {}) as JsonRecord;
   const snapshots = Array.isArray(selected.source_snapshot) ? selected.source_snapshot as JsonRecord[] : [];
   const series = Array.isArray(result.series) ? result.series as JsonRecord[] : [];
   const policyHits = Array.isArray(selected.policy_hits) ? selected.policy_hits as JsonRecord[] : [];
-  const sourceReconciliation = checks.source_aggregate_reconciliation === true && checks.source_result_mapping === true;
-  const hashRecorded = typeof selected.result_hash === "string" && selected.result_hash.length > 0;
-  const hashCheck = typeof checks.result_hash === "boolean" ? checks.result_hash : hashRecorded;
+  const sourceCheckValues = [checkValue(checks.source_aggregate_reconciliation), checkValue(checks.source_result_mapping)];
+  const sourceReconciliation = sourceCheckValues.includes(false) ? false : sourceCheckValues.every((value) => value === true) ? true : null;
+  const hashCheck = typeof checks.result_hash === "boolean" ? checks.result_hash : null;
   return (
     <Surface
       title="计算准确性复核"
@@ -185,8 +186,9 @@ function ReviewInspector({ selected, canConfirm, busy, onClose, onConfirm }: { s
         <div className="review-evidence-card"><div className="review-evidence-heading"><FileCheck2 size={17} /><strong>结果摘要</strong><span>{series.length} 条结果</span></div><div className="review-evidence-list">{series.slice(0, 6).map((item, index) => <div key={`series-${index}`}><span>{item.period || item.date || `结果 ${index + 1}`}</span><strong><EvidenceValue value={item.balance_status || item.trend || item.thermal_output_mwh || item.value} /></strong><small>输出范围：{item.raw_data_exposed === false || result.raw_data_returned === false ? "聚合/趋势" : "待复核"}</small></div>)}</div></div>
       </div>
       <details className="review-raw-details"><summary>查看复核数据 <ChevronDown size={15} /></summary><pre className="json-view">{JSON.stringify({ checks: selected.checks, target_data: selected.target_data, source_snapshot: snapshots, series }, null, 2)}</pre></details>
-      {selected.verification_status === "PENDING" && canConfirm && <div className="review-confirm-bar"><strong>确认计算结果</strong><Button icon={CheckCircle2} variant="primary" busy={busy === `confirm:${selected.review_id}`} onClick={onConfirm}>确认</Button></div>}
+      {selected.verification_status === "PENDING" && canConfirm && <div className="review-confirm-bar"><strong>确认计算结果</strong><Button icon={CheckCircle2} variant="primary" busy={busy === `confirm:${selected.review_id}`} onClick={() => setConfirmOpen(true)}>确认</Button></div>}
       {selected.verification_status === "PENDING" && !canConfirm && <Notice tone="warning">当前角色可以查看复核材料，但只有监管方或系统管理员可以确认计算结果。</Notice>}
+      <ConfirmDialog open={confirmOpen} title="确认计算复核结果" objectName={selected.request_id || "—"} currentState={selected.verification_status} consequence="确认后将记录当前复核主体、确认意见和签名，结果状态将更新为已确认。" confirmLabel="确认结果" busy={busy === `confirm:${selected.review_id}`} onCancel={() => setConfirmOpen(false)} onConfirm={onConfirm} />
     </Surface>
   );
 }
@@ -220,9 +222,9 @@ function ReviewMathStrip({ series, checks }: { series: JsonRecord[]; checks: Jso
       <div className="review-math-heading"><strong>复算口径</strong><span>{checks.source_rows_checked || series.length} 个来源行</span></div>
       <div className="review-math-grid">
         <div><span>核对公式</span><strong>火电出力 - 电网负荷</strong></div>
-        <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "-"}</strong></div>
-        <div><span>电网负荷合计</span><strong>{rows.length ? `${format(loadTotal)} MWh` : "-"}</strong></div>
-        <div><span>平衡差合计</span><strong>{rows.length ? `${format(margin)} MWh` : "-"}</strong><small>{rows.length ? `总体状态：${margin >= 0 ? "有余量" : "存在缺口"}` : "待计算"}</small></div>
+        <div><span>火电出力合计</span><strong>{rows.length ? `${format(thermalTotal)} MWh` : "—"}</strong></div>
+        <div><span>电网负荷合计</span><strong>{rows.length ? `${format(loadTotal)} MWh` : "—"}</strong></div>
+        <div><span>平衡差合计</span><strong>{rows.length ? `${format(margin)} MWh` : "—"}</strong><small>{rows.length ? `总体状态：${margin >= 0 ? "有余量" : "存在缺口"}` : "待计算"}</small></div>
       </div>
     </div>
   );
@@ -234,7 +236,7 @@ function ReviewTrend({ series }: { series: JsonRecord[] }) {
     region: regionLabels[String(item.region || "")] || String(item.region || ""),
     thermal: Number(item.thermal_output_mwh || 0),
     load: Number(item.grid_load_mwh || 0),
-    status: String(item.balance_status || "-")
+    status: String(item.balance_status || "—")
   }));
   const maxValue = Math.max(1, ...rows.flatMap((row) => [row.thermal, row.load]));
   return (

@@ -1,33 +1,34 @@
 import { useMemo, useState } from "react";
-import { Download, Eye, FileCheck2, FilePlus2, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, downloadBlob, formatDate, post, shortHash } from "../api";
+import { Eye, FilePlus2, RefreshCw } from "lucide-react";
+import { api, post } from "../api";
 import { useAuth } from "../auth";
-import { Button, CodeValue, DataTable, ErrorState, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { REPORT_TEMPLATE_LABELS } from "../types";
-import type { JsonRecord } from "../types";
+import { REPORT_TEMPLATE_LABELS, type JsonRecord } from "../types";
 
 export function ReportsPage() {
   const { session } = useAuth();
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [taskId, setTaskId] = useState("");
+  const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const canGenerate = ["REGULATOR", "ADMIN"].includes(session!.user.role_code);
-  const loader = async () => {
-    const [reports, tasks] = await Promise.all([api<JsonRecord[]>("/audit/reports"), api<JsonRecord[]>("/settlement/tasks")]);
+  const loader = async (signal?: AbortSignal) => {
+    const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
+    const [reports, tasks] = await Promise.all([api<JsonRecord[]>("/audit/reports", request), api<JsonRecord[]>("/settlement/tasks", request)]);
     return { reports, tasks };
   };
-  const { data, loading, error, reload } = useRemote(loader, []);
+  const { data, loading, refreshing, error, reload } = useRemote(loader, []);
   const audited = useMemo(() => data?.tasks.filter((item) => item.status === "AUDITED") || [], [data]);
+  const selectedTask = audited.find((item) => item.task_id === taskId);
 
   async function generate() {
-    const id = taskId || audited[0]?.task_id;
-    if (!id) return;
+    if (!taskId) return;
     setBusy(true);
     setMessage("");
     try {
-      await post("/audit/reports", { task_id: id, template_code: "REGULATORY_AUDIT_V1" });
+      await post("/audit/reports", { task_id: taskId, template_code: "REGULATORY_AUDIT_V1" });
       setMessage("审计报告已生成。");
       await reload();
     } catch (reason) {
@@ -37,42 +38,43 @@ export function ReportsPage() {
     }
   }
 
-  function exportReport(report: JsonRecord) {
-    const blob = new Blob([report.report_content], { type: "text/markdown;charset=utf-8" });
-    downloadBlob(blob, `${report.report_title}.md`);
-  }
-
-  if (loading) return <LoadingState />;
+  if (loading) return <LoadingState label="正在加载审计报告" variant="page" />;
   if (error || !data) return <ErrorState message={error || "报告加载失败"} retry={reload} />;
 
   return (
     <>
-      <PageHeader title="审计报告" actions={<Button icon={RefreshCw} onClick={reload}>刷新</Button>} />
+      <PageHeader title="审计报告" description="基于已完成任务的证据引用生成和查看审计报告；当前环境尚未开放经服务端审计的导出通道。" actions={<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>} />
       {canGenerate && <Surface title="生成审计报告">
-        <div className="report-generator"><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">选择已审计任务</option>{audited.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select><Button icon={FilePlus2} variant="primary" busy={busy} disabled={!taskId && !audited.length} onClick={generate}>生成报告</Button></div>
+        <div className="report-generator"><label className="field"><span>已审计任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">请选择</option>{audited.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label><Button icon={FilePlus2} variant="primary" busy={busy} disabled={!taskId} onClick={() => setConfirmGenerate(true)}>生成报告</Button></div>
       </Surface>}
       {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
       <Surface title="报告列表" meta={`${data.reports.length} 份`}>
         <DataTable
-          keyField="report_id"
-          rows={data.reports}
+          keyField="report_id" rows={data.reports} label="审计报告列表"
           columns={[
-            { key: "report_title", label: "报告名称" },
-            { key: "task_id", label: "关联任务", render: (row) => <span className="mono-text">{row.task_id}</span> },
-            { key: "template_code", label: "模板", render: (row) => REPORT_TEMPLATE_LABELS[row.template_code] || row.template_code },
-            { key: "evidence_refs_json", label: "证据引用", render: (row) => `${row.evidence_refs_json?.length || 0} 项` },
-            { key: "report_hash", label: "报告哈希", render: (row) => <CodeValue title={row.report_hash}>{shortHash(row.report_hash)}</CodeValue> },
+            { key: "report_title", label: "报告名称", minWidth: 220, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.report_title || "—"}</button> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <IdText value={row.task_id} /> },
+            { key: "template_code", label: "报告模板", minWidth: 140, render: (row) => REPORT_TEMPLATE_LABELS[row.template_code] || row.template_code || "—" },
+            { key: "evidence_refs_json", label: "证据引用", align: "right", render: (row) => `${row.evidence_refs_json?.length ?? 0} 项` },
+            { key: "report_hash", label: "报告摘要", minWidth: 150, render: (row) => <IdText value={row.report_hash} /> },
             { key: "risk_level", label: "风险结论", render: (row) => <StatusTag value={row.risk_level} /> },
-            { key: "created_at", label: "生成时间", render: (row) => formatDate(row.created_at) },
-            { key: "action", label: "操作", render: (row) => <div className="inline-actions"><button className="icon-button" title="查看报告" onClick={() => setSelected(row)}><Eye size={17} /></button><button className="icon-button" title="导出报告" onClick={() => exportReport(row)}><Download size={17} /></button></div> },
+            { key: "created_at", label: "生成时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
+            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={Eye} onClick={() => setSelected(row)}>查看</Button> },
           ]}
         />
       </Surface>
-      {selected && <Modal title={selected.report_title} onClose={() => setSelected(null)} footer={<><Button icon={Download} onClick={() => exportReport(selected)}>导出报告</Button><Button onClick={() => setSelected(null)}>关闭</Button></>}>
-        <div className="report-proof"><ShieldCheck size={20} /><div><span>ReportHash</span><CodeValue>{selected.report_hash}</CodeValue></div><StatusTag value={selected.risk_level} label={selected.risk_level === "LOW" ? "审计通过" : "需要复核"} /></div>
-        <pre className="report-content">{selected.report_content}</pre>
-        <div className="citation-list">{(selected.evidence_refs_json || []).map((item: string) => <span key={item}><FileCheck2 size={13} />{shortHash(item, 9)}</span>)}</div>
-      </Modal>}
+
+      {selected && <DetailDrawer title={selected.report_title || "审计报告"} onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
+        <div className="detail-grid"><div><span>报告编号</span><IdText value={selected.report_id} /></div><div><span>关联任务</span><IdText value={selected.task_id} /></div><div><span>报告摘要</span><IdText value={selected.report_hash} /></div><div><span>风险结论</span><StatusTag value={selected.risk_level} /></div><div><span>生成时间</span><DateTimeText value={selected.created_at} /></div><div><span>证据引用</span><strong>{selected.evidence_refs_json?.length ?? 0} 项</strong></div></div>
+        <div className="detail-section"><h3>报告正文</h3><pre className="report-content">{selected.report_content || "—"}</pre></div>
+        <details className="secondary-details"><summary>查看证据引用</summary><ul className="plain-list">{(selected.evidence_refs_json || []).map((item: string) => <li key={item}><IdText value={item} /></li>)}</ul></details>
+      </DetailDrawer>}
+
+      <ConfirmDialog
+        open={confirmGenerate} title="生成审计报告" objectName={selectedTask?.task_name || selectedTask?.task_id || "—"} currentState={selectedTask?.status}
+        consequence="系统将基于该任务当前保存的证据引用生成一份新的监管审计报告并写入报告记录。"
+        confirmLabel="确认生成" busy={busy} onCancel={() => setConfirmGenerate(false)} onConfirm={async () => { await generate(); setConfirmGenerate(false); }}
+      />
     </>
   );
 }
