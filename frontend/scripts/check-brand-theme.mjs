@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +87,7 @@ const retiredThemeSources = [
   join(repoRoot, ".impeccable", "design.json"),
 ];
 for (const path of retiredThemeSources) {
+  if (!existsSync(path)) continue;
   const source = readFileSync(path, "utf8").toLowerCase();
   for (const color of retiredBrandColors) {
     if (source.includes(color)) findings.push(`仍存在旧品牌绿色 ${color}：${path.slice(repoRoot.length + 1)}`);
