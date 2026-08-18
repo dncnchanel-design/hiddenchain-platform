@@ -84,7 +84,7 @@ class Settings:
     logo_compact: str = os.getenv("PRODUCT_LOGO_COMPACT", "")
     favicon: str = os.getenv("PRODUCT_FAVICON", "")
     brand_theme_id: str = os.getenv("BRAND_THEME_ID", "power-grid-green")
-    brand_primary: str = os.getenv("BRAND_PRIMARY", "#006A56")
+    brand_primary: str = os.getenv("BRAND_PRIMARY", "#00524B")
     customer_name: str = os.getenv("CUSTOMER_NAME", "")
     operator_name: str = os.getenv("OPERATOR_NAME", "")
     builder_name: str = os.getenv("BUILDER_NAME", "")

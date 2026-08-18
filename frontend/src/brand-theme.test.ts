@@ -26,10 +26,16 @@ describe("deployment brand theme", () => {
       "--brand-border": POWER_GRID_GREEN_TOKENS.border,
       "--brand-focus-ring": POWER_GRID_GREEN_TOKENS.focusRing,
       "--brand-text-on-primary": POWER_GRID_GREEN_TOKENS.textOnPrimary,
+      "--brand-primary-soft": POWER_GRID_GREEN_TOKENS.bgSoft,
+      "--brand-primary-subtle": POWER_GRID_GREEN_TOKENS.bgSubtle,
+      "--brand-primary-selected": POWER_GRID_GREEN_TOKENS.bgSelected,
+      "--brand-primary-border": POWER_GRID_GREEN_TOKENS.border,
+      "--brand-primary-focus": POWER_GRID_GREEN_TOKENS.focusRing,
     });
     expect(contrastRatio(variables["--brand-on-primary"], variables["--brand-primary"])).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(variables["--brand-primary-text"], "#FFFFFF")).toBeGreaterThanOrEqual(4.5);
-    expect(variables["--brand-border"]).toBe("#B8D4CC");
+    expect(variables["--brand-primary"]).toBe("#00524B");
+    expect(variables["--brand-border"]).toBe("#A8C5C1");
   });
 
   it("rebuilds every primitive and semantic token from a neutral blue deployment override", () => {
@@ -44,7 +50,7 @@ describe("deployment brand theme", () => {
   it("sanitizes untrusted theme metadata and rejects invalid color input", () => {
     expect(normalizeBrandTheme({ themeId: " Client Theme / 01 ", primary: "not-a-color" })).toEqual({
       themeId: "client-theme-01",
-      primary: "#006A56",
+      primary: "#00524B",
     });
   });
 });
