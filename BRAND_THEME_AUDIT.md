@@ -4,19 +4,19 @@
 
 默认主题：`power-grid-green`
 
-默认视觉基准：`#006A56`（部署可替换的默认电力行业品牌色，不声明为任何客户授权色值）
+默认视觉基准：`#00524B`（部署可替换的默认电力行业品牌色，不声明为任何客户授权色值）
 
 ## 结论
 
-本轮已将偏亮青绿色收敛为稳重深绿白标主题。业务组件只读取语义 Token，品牌配置由唯一 `ProductBrandConfig` / Provider 注入；界面仍以白、浅灰和深灰文字为主体，并保留蓝色处理中、橙色待处理、红色异常及独立成功色语义。
+本轮已将 `#006A56` 及更早的偏亮青绿色收敛为以 `#00524B` 为唯一基准的稳重深绿白标主题。业务组件只读取语义 Token，品牌配置由唯一 `ProductBrandConfig` / Provider 注入；界面仍以白、浅灰和深灰文字为主体，并保留蓝色处理中、橙色待处理、红色异常及独立成功色语义。
 
 ## 必查项
 
-- [x] 旧品牌绿色已清理：自动扫描覆盖上一版 `#149376`、`#007D68`、`#00705D`、`#005F50` 及更早旧绿，业务样式未残留。
+- [x] 旧品牌绿色已清理：自动扫描覆盖 `#006A56`、`#005B4A`、`#004C3E`、`#149376`、`#008E78`、`#009688`、`#00A58C` 等旧绿，活动主题与业务样式未残留。
 - [x] 存在统一绿色色阶：已定义 `50 / 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 900 / 950` 十一级色阶。
-- [x] 已建立语义 Token：`brand-primary`、`brand-primary-hover`、`brand-primary-active`、`brand-bg-soft`、`brand-bg-subtle`、`brand-bg-selected`、`brand-border`、`brand-focus-ring`、`brand-text-on-primary` 均与原始色阶分离。
+- [x] 已建立语义 Token：`brand-primary`、`brand-primary-hover`、`brand-primary-active`、`brand-primary-soft`、`brand-primary-subtle`、`brand-primary-selected`、`brand-primary-border`、`brand-primary-focus`、`brand-text-on-primary` 均与原始色阶分离；旧命名只保留为兼容别名。
 - [x] 组件不存在品牌色硬编码：自动扫描业务 `.ts/.tsx` 文件，未发现散落 HEX；CSS 组件区未直接消费原始品牌色阶。
-- [x] 主按钮对比度已检查：默认按钮 `#006A56` 配白字为 `6.57:1`；品牌文字在 `#EAF4F1` 浅品牌背景上为 `5.85:1`，满足 WCAG AA 普通文本要求。
+- [x] 主按钮对比度已检查：默认按钮 `#00524B` 配白字为 `9.10:1`；品牌文字在 `#E7F0EF` 浅品牌背景上为 `7.84:1`，满足 WCAG AA 普通文本要求。
 - [x] 导航激活色统一：顶部一级导航使用品牌文字与 2–3px 底线，不使用绿色胶囊或整条高饱和背景。
 - [x] 下拉菜单 Hover 统一：白底、灰边、轻阴影，Hover 使用极浅品牌背景；当前项使用品牌文字及左侧细标识。
 - [x] Tab 激活色统一：所有业务 Tab 读取品牌语义 Token。
@@ -44,7 +44,7 @@
 | `pnpm lint` | 通过，0 warning |
 | `pnpm test` | 5 个测试文件、18 项测试全部通过 |
 | `python -m pytest -q` | 后端完整测试通过 |
-| Impeccable detector | 0 项告警 |
+| Impeccable detector | 无品牌主题阻断项；15 项 advisory 均为既有预览配置中的中性色、语义色或字号示例 |
 | Render Blueprint 校验 | `valid: true` |
 | 三档视觉回归 | 63 个页面、9 个权限检查、6 个特殊状态、0 个失败 |
 
