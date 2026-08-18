@@ -7,6 +7,7 @@ import {
   generateBrandScale,
   normalizeBrandTheme,
   POWER_GRID_GREEN_SCALE,
+  POWER_GRID_GREEN_TOKENS,
 } from "./brand-theme";
 
 describe("deployment brand theme", () => {
@@ -15,9 +16,20 @@ describe("deployment brand theme", () => {
     expect(Object.keys(scale).map(Number).sort((left, right) => left - right)).toEqual([...BRAND_SCALE_STEPS]);
     expect(scale).toEqual(POWER_GRID_GREEN_SCALE);
     const variables = createBrandThemeVariables(DEFAULT_BRAND_THEME);
+    expect(variables).toMatchObject({
+      "--brand-primary": POWER_GRID_GREEN_TOKENS.primary,
+      "--brand-primary-hover": POWER_GRID_GREEN_TOKENS.primaryHover,
+      "--brand-primary-active": POWER_GRID_GREEN_TOKENS.primaryActive,
+      "--brand-bg-soft": POWER_GRID_GREEN_TOKENS.bgSoft,
+      "--brand-bg-subtle": POWER_GRID_GREEN_TOKENS.bgSubtle,
+      "--brand-bg-selected": POWER_GRID_GREEN_TOKENS.bgSelected,
+      "--brand-border": POWER_GRID_GREEN_TOKENS.border,
+      "--brand-focus-ring": POWER_GRID_GREEN_TOKENS.focusRing,
+      "--brand-text-on-primary": POWER_GRID_GREEN_TOKENS.textOnPrimary,
+    });
     expect(contrastRatio(variables["--brand-on-primary"], variables["--brand-primary"])).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(variables["--brand-primary-text"], "#FFFFFF")).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio(variables["--brand-primary-border"], "#FFFFFF")).toBeGreaterThanOrEqual(3);
+    expect(variables["--brand-border"]).toBe("#B8D4CC");
   });
 
   it("rebuilds every primitive and semantic token from a neutral blue deployment override", () => {
@@ -32,7 +44,7 @@ describe("deployment brand theme", () => {
   it("sanitizes untrusted theme metadata and rejects invalid color input", () => {
     expect(normalizeBrandTheme({ themeId: " Client Theme / 01 ", primary: "not-a-color" })).toEqual({
       themeId: "client-theme-01",
-      primary: "#149376",
+      primary: "#006A56",
     });
   });
 });

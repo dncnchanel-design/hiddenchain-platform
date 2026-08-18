@@ -20,6 +20,11 @@ for (const token of [
   "primary",
   "primary-hover",
   "primary-active",
+  "bg-soft",
+  "bg-subtle",
+  "bg-selected",
+  "border",
+  "text-on-primary",
   "primary-text",
   "primary-border",
   "primary-border-subtle",
@@ -40,7 +45,12 @@ if (!rootBoundary || rootBoundary.index === undefined) {
   if (primitiveUsage.length) findings.push(`业务样式仍直接读取品牌原始色阶：${[...new Set(primitiveUsage)].join("、")}`);
 }
 
-const retiredBrandColors = ["#30474c", "#327556", "#448a68", "#5b9b7a", "#dcebe3", "#eff6f2"];
+const retiredBrandColors = [
+  "#30474c", "#327556", "#448a68", "#5b9b7a", "#dcebe3", "#eff6f2",
+  "#003e35", "#004d41", "#005f50", "#00705d", "#007d68", "#149376",
+  "#3da88d", "#79c4b2", "#b7e0d5", "#ddf1ec", "#f1f8f6",
+  "#008e78", "#0a9b84", "#0f8f7b", "#00a58c",
+];
 for (const color of retiredBrandColors) {
   if (styles.toLowerCase().includes(color)) findings.push(`仍存在旧品牌绿色 ${color}`);
 }

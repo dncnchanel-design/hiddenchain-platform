@@ -3,26 +3,26 @@ name: 隐链明算
 description: 面向电力交易可信执行的高密度结算台账界面
 colors:
   system-charcoal: "#26363d"
-  grid-green-950: "#003e35"
-  grid-green-900: "#004d41"
-  grid-green-800: "#005f50"
-  grid-green-700: "#00705d"
-  grid-green-600: "#007d68"
-  grid-green-500: "#149376"
-  grid-green-400: "#3da88d"
-  grid-green-300: "#79c4b2"
-  grid-green-200: "#b7e0d5"
-  grid-green-100: "#ddf1ec"
-  grid-green-50: "#f1f8f6"
-  brand-primary: "#007d68"
-  brand-primary-hover: "#00705d"
-  brand-primary-active: "#005f50"
-  brand-primary-text: "#007d68"
-  brand-primary-border: "#149376"
-  brand-primary-border-subtle: "#b7e0d5"
-  brand-primary-bg: "#f1f8f6"
-  brand-primary-bg-hover: "#ddf1ec"
-  brand-focus-ring: "#007d68"
+  grid-green-950: "#002f27"
+  grid-green-900: "#003d32"
+  grid-green-800: "#004c3e"
+  grid-green-700: "#005b4a"
+  grid-green-600: "#006a56"
+  grid-green-500: "#006a56"
+  grid-green-400: "#6fa99a"
+  grid-green-300: "#b8d4cc"
+  grid-green-200: "#ddefea"
+  grid-green-100: "#eaf4f1"
+  grid-green-50: "#f5faf8"
+  brand-primary: "#006a56"
+  brand-primary-hover: "#005b4a"
+  brand-primary-active: "#004c3e"
+  brand-bg-soft: "#eaf4f1"
+  brand-bg-subtle: "#f5faf8"
+  brand-bg-selected: "#ddefea"
+  brand-border: "#b8d4cc"
+  brand-focus-ring: "rgba(0, 106, 86, 0.18)"
+  brand-text-on-primary: "#ffffff"
   canvas: "#f2f4f5"
   surface: "#ffffff"
   ink: "#202b30"
@@ -164,9 +164,10 @@ components:
 
 ### Primary
 
-- **完整原始色阶**（`grid-green-50` 至 `grid-green-950`）：500 是默认品牌视觉基准；白字主按钮根据对比度使用 600 或更深色阶。
-- **品牌语义层**（`brand-primary*`）：一级栏目当前态、主按钮、链接、焦点、可信链当前节点和标题细线只能读取语义 Token，不直接读取原始色阶。
-- **浅绿结构层**（`brand-primary-bg` / `brand-primary-bg-hover`）：轻选中、菜单悬停、当前步骤与局部结构提示；不得扩展成大面积彩色卡片。
+- **完整原始色阶**（`grid-green-50` 至 `grid-green-950`）：默认品牌基准与主操作统一为 `#006A56`，仅供主题生成器使用。
+- **品牌操作层**（`brand-primary` / `brand-primary-hover` / `brand-primary-active`）：主按钮、链接、导航高亮和操作反馈只能读取语义 Token，不直接读取原始色阶。
+- **品牌结构层**（`brand-bg-soft` / `brand-bg-subtle` / `brand-bg-selected` / `brand-border`）：分别承担悬停、轻装饰、选中和品牌描边，禁止混用为业务成功状态。
+- **焦点与反白层**（`brand-focus-ring` / `brand-text-on-primary`）：焦点环统一为 `rgba(0, 106, 86, 0.18)`，主色表面文字统一为白色。
 
 ### Neutral
 

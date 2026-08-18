@@ -32,35 +32,40 @@
   background: var(--canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --brand-950: #003e35;
-  --brand-900: #004d41;
-  --brand-800: #005f50;
-  --brand-700: #00705d;
-  --brand-600: #007d68;
-  --brand-500: #149376;
-  --brand-400: #3da88d;
-  --brand-300: #79c4b2;
-  --brand-200: #b7e0d5;
-  --brand-100: #ddf1ec;
-  --brand-50: #f1f8f6;
-  --brand-accent: var(--brand-500);
-  --brand-primary: var(--brand-600);
-  --brand-primary-strong: var(--brand-600);
-  --brand-primary-hover: var(--brand-700);
-  --brand-primary-active: var(--brand-800);
-  --brand-primary-text: var(--brand-600);
-  --brand-primary-border: var(--brand-500);
-  --brand-primary-border-subtle: var(--brand-200);
-  --brand-primary-bg: var(--brand-50);
-  --brand-primary-bg-hover: var(--brand-100);
-  --brand-primary-bg-subtle: var(--brand-50);
-  --brand-primary-soft: var(--brand-100);
-  --brand-primary-softer: var(--brand-50);
-  --brand-primary-dark: var(--brand-800);
+  --brand-950: #002f27;
+  --brand-900: #003d32;
+  --brand-800: #004c3e;
+  --brand-700: #005b4a;
+  --brand-600: #006a56;
+  --brand-500: #006a56;
+  --brand-400: #6fa99a;
+  --brand-300: #b8d4cc;
+  --brand-200: #ddefea;
+  --brand-100: #eaf4f1;
+  --brand-50: #f5faf8;
+  --brand-accent: #006a56;
+  --brand-primary: #006a56;
+  --brand-primary-hover: #005b4a;
+  --brand-primary-active: #004c3e;
+  --brand-bg-soft: #eaf4f1;
+  --brand-bg-subtle: #f5faf8;
+  --brand-bg-selected: #ddefea;
+  --brand-border: #b8d4cc;
+  --brand-focus-ring: rgba(0, 106, 86, 0.18);
+  --brand-text-on-primary: #ffffff;
+  --brand-primary-strong: var(--brand-primary);
+  --brand-primary-text: var(--brand-primary);
+  --brand-primary-border: var(--brand-border);
+  --brand-primary-border-subtle: var(--brand-border);
+  --brand-primary-bg: var(--brand-bg-soft);
+  --brand-primary-bg-hover: var(--brand-bg-selected);
+  --brand-primary-bg-subtle: var(--brand-bg-subtle);
+  --brand-primary-soft: var(--brand-bg-soft);
+  --brand-primary-softer: var(--brand-bg-subtle);
+  --brand-primary-dark: var(--brand-primary-active);
   --brand-primary-darker: var(--brand-900);
-  --brand-focus-ring: var(--brand-600);
-  --brand-focus-ring-soft: var(--brand-100);
-  --brand-on-primary: #ffffff;
+  --brand-focus-ring-soft: var(--brand-focus-ring);
+  --brand-on-primary: var(--brand-text-on-primary);
   --chrome-900: #26363d;
   --chrome-800: #30434a;
   --sidebar: #26363d;
@@ -153,8 +158,9 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--brand-focus-ring);
+  outline: 2px solid var(--brand-primary);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--brand-focus-ring);
 }
 
 a {
@@ -763,7 +769,7 @@ b {
 }
 
 .button-primary {
-  color: #fff;
+  color: var(--brand-text-on-primary);
   border-color: var(--brand-primary);
   background: var(--brand-primary);
 }
@@ -773,16 +779,27 @@ b {
   background: var(--brand-primary-hover);
 }
 
+.button-primary:active:not(:disabled) {
+  border-color: var(--brand-primary-active);
+  background: var(--brand-primary-active);
+}
+
 .button-secondary {
-  color: var(--text-secondary);
-  border-color: #b8c4d0;
-  background: #fff;
+  color: var(--brand-primary);
+  border-color: var(--brand-border);
+  background: var(--surface);
 }
 
 .button-secondary:hover:not(:disabled) {
-  color: var(--ink);
-  border-color: var(--brand-primary-border);
-  background: var(--brand-primary-bg);
+  color: var(--brand-primary-hover);
+  border-color: var(--brand-primary-hover);
+  background: var(--brand-bg-soft);
+}
+
+.button-secondary:active:not(:disabled) {
+  color: var(--brand-primary-active);
+  border-color: var(--brand-primary-active);
+  background: var(--brand-bg-selected);
 }
 
 .button-danger {
@@ -801,7 +818,12 @@ b {
 }
 
 .button-ghost:hover:not(:disabled) {
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-soft);
+}
+
+.button-ghost:active:not(:disabled) {
+  color: var(--brand-primary-active);
+  background: var(--brand-bg-selected);
 }
 
 .button:disabled {
@@ -825,8 +847,8 @@ b {
 
 .icon-button:hover {
   color: var(--brand-primary);
-  border-color: var(--brand-primary-border);
-  background: var(--brand-primary-bg);
+  border-color: var(--brand-border);
+  background: var(--brand-bg-soft);
 }
 
 .menu-button,
@@ -1038,7 +1060,7 @@ table tbody tr:last-child td {
 }
 
 table tbody tr:hover {
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-soft);
 }
 
 .table-link,
@@ -1136,7 +1158,7 @@ table tbody tr:hover {
 .agent-query textarea:focus,
 .report-generator select:focus {
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 2px var(--brand-focus-ring-soft);
+  box-shadow: 0 0 0 3px var(--brand-focus-ring);
 }
 
 .form-grid {
@@ -1188,13 +1210,14 @@ table tbody tr:hover {
 }
 
 .segmented button:hover {
-  color: var(--ink);
+  color: var(--brand-primary);
+  background: var(--brand-bg-soft);
 }
 
 .segmented button.active {
-  color: var(--ink);
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(16, 42, 70, 0.12);
+  color: var(--brand-primary);
+  background: var(--brand-bg-selected);
+  box-shadow: none;
   font-weight: 650;
 }
 
@@ -1650,7 +1673,7 @@ table tbody tr:hover {
 
 .task-list button.active {
   border-color: var(--brand-primary-border);
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-selected);
   box-shadow: inset 3px 0 0 var(--brand-primary);
 }
 
@@ -3011,6 +3034,11 @@ html {
   margin-right: auto;
 }
 
+.table-pagination > div > span {
+  color: var(--brand-primary);
+  font-weight: 650;
+}
+
 .table-pagination label,
 .table-pagination > div {
   display: flex;
@@ -3037,6 +3065,12 @@ html {
   width: 28px;
   padding: 0;
   place-items: center;
+}
+
+.table-pagination button:hover:not(:disabled) {
+  color: var(--brand-primary);
+  border-color: var(--brand-border);
+  background: var(--brand-bg-soft);
 }
 
 .table-pagination button:disabled {
@@ -3814,7 +3848,7 @@ time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .task-tabs button:hover,
 .task-tabs button.active {
-  color: var(--ink);
+  color: var(--brand-primary);
 }
 
 .task-tabs button.active {
@@ -3837,7 +3871,7 @@ time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .task-tabs button.active strong {
   color: var(--brand-primary-hover);
-  background: var(--brand-primary-bg-hover);
+  background: var(--brand-bg-selected);
 }
 
 .task-center-surface > .surface-body {
@@ -3957,8 +3991,8 @@ time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 }
 
 .wizard-steps button.active {
-  color: var(--ink);
-  background: var(--brand-primary-bg);
+  color: var(--brand-primary);
+  background: var(--brand-bg-selected);
 }
 
 .wizard-steps button.active > span {
@@ -4267,7 +4301,7 @@ time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chain-current .chain-index {
   color: var(--brand-primary-text);
   border-color: var(--brand-primary);
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-selected);
   box-shadow: none;
 }
 
@@ -4338,9 +4372,9 @@ time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .detail-view-tabs button.active {
   margin-bottom: -1px;
-  color: var(--ink);
-  border-color: var(--line);
-  background: var(--surface);
+  color: var(--brand-primary);
+  border-color: var(--brand-border);
+  background: var(--brand-bg-selected);
   font-weight: 650;
 }
 
@@ -4600,6 +4634,11 @@ textarea {
   caret-color: var(--brand-primary);
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--brand-primary);
+}
+
 body {
   overflow-x: hidden;
 }
@@ -4610,7 +4649,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
-  outline-color: var(--brand-focus-ring);
+  outline-color: var(--brand-primary);
 }
 
 .application-header {
@@ -4940,8 +4979,8 @@ summary:focus-visible {
 
 .primary-navigation-menu > a.active {
   color: var(--brand-primary);
-  background: var(--brand-primary-bg);
-  box-shadow: inset 3px 0 0 var(--brand-primary-border);
+  background: var(--brand-bg-selected);
+  box-shadow: inset 3px 0 0 var(--brand-primary);
   font-weight: 650;
 }
 
@@ -5064,6 +5103,11 @@ summary:focus-visible {
   background: var(--brand-primary-hover);
 }
 
+.button-primary:active:not(:disabled) {
+  border-color: var(--brand-primary-active);
+  background: var(--brand-primary-active);
+}
+
 .data-table thead th,
 .data-table thead .table-sticky-column {
   background: #f1f3f3;
@@ -5071,7 +5115,14 @@ summary:focus-visible {
 
 .data-table tbody tr:hover td,
 .data-table tbody tr:hover .table-sticky-column {
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-soft);
+}
+
+.data-table tbody tr[aria-selected="true"] td,
+.data-table tbody tr.selected td,
+.data-table tbody tr[aria-selected="true"] .table-sticky-column,
+.data-table tbody tr.selected .table-sticky-column {
+  background: var(--brand-bg-selected);
 }
 
 .workbench-kpis {
@@ -5128,7 +5179,7 @@ summary:focus-visible {
 .chain-current .chain-index {
   color: var(--brand-primary-text);
   border-color: var(--brand-primary);
-  background: var(--brand-primary-bg);
+  background: var(--brand-bg-selected);
   box-shadow: none;
 }
 
@@ -5291,7 +5342,7 @@ summary:focus-visible {
 
   .primary-navigation-link.active,
   .primary-navigation-group.active > .primary-navigation-trigger {
-    background: var(--brand-primary-bg);
+    background: var(--brand-bg-selected);
   }
 
   .primary-navigation-menu {
