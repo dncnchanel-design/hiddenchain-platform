@@ -18,7 +18,7 @@ services:
       - key: BRAND_THEME_ID
         value: power-grid-green
       - key: BRAND_PRIMARY
-        value: "#149376"
+        value: "#006A56"
       - key: TEST_FIXTURE_SEED
         value: "true"
       - key: TEST_COMPUTE_DELAY_MS

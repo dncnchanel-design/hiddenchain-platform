@@ -10,8 +10,20 @@ export interface BrandThemeConfig {
 
 export const DEFAULT_BRAND_THEME: BrandThemeConfig = {
   themeId: "power-grid-green",
-  primary: "#149376",
+  primary: "#006A56",
 };
+
+export const POWER_GRID_GREEN_TOKENS = {
+  primary: "#006A56",
+  primaryHover: "#005B4A",
+  primaryActive: "#004C3E",
+  bgSoft: "#EAF4F1",
+  bgSubtle: "#F5FAF8",
+  bgSelected: "#DDEFEA",
+  border: "#B8D4CC",
+  focusRing: "rgba(0, 106, 86, 0.18)",
+  textOnPrimary: "#FFFFFF",
+} as const;
 
 /**
  * Curated starting ramp for the neutral technical theme named above. These are
@@ -20,17 +32,17 @@ export const DEFAULT_BRAND_THEME: BrandThemeConfig = {
  * generator below.
  */
 export const POWER_GRID_GREEN_SCALE: BrandScale = {
-  50: "#F1F8F6",
-  100: "#DDF1EC",
-  200: "#B7E0D5",
-  300: "#79C4B2",
-  400: "#3DA88D",
-  500: "#149376",
-  600: "#007D68",
-  700: "#00705D",
-  800: "#005F50",
-  900: "#004D41",
-  950: "#003E35",
+  50: POWER_GRID_GREEN_TOKENS.bgSubtle,
+  100: POWER_GRID_GREEN_TOKENS.bgSoft,
+  200: POWER_GRID_GREEN_TOKENS.bgSelected,
+  300: POWER_GRID_GREEN_TOKENS.border,
+  400: "#6FA99A",
+  500: POWER_GRID_GREEN_TOKENS.primary,
+  600: POWER_GRID_GREEN_TOKENS.primary,
+  700: POWER_GRID_GREEN_TOKENS.primaryHover,
+  800: POWER_GRID_GREEN_TOKENS.primaryActive,
+  900: "#003D32",
+  950: "#002F27",
 };
 
 type Oklch = { l: number; c: number; h: number };
@@ -153,6 +165,11 @@ function relativeLuminance(value: string): number {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
+function hexToRgba(value: string, alpha: number): string {
+  const [red, green, blue] = hexToRgb(value).map((channel) => Math.round(channel * 255)) as [number, number, number];
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 export function contrastRatio(foreground: string, background: string): number {
   const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
   const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
@@ -161,35 +178,53 @@ export function contrastRatio(foreground: string, background: string): number {
 
 export function createBrandThemeVariables(theme: BrandThemeConfig): Record<string, string> {
   const scale = generateBrandScale(theme.primary);
+  const isDefaultTheme = normalizeHex(theme.primary) === DEFAULT_BRAND_THEME.primary;
   const actionSteps = [600, 700, 800, 900, 950] as const;
   const actionIndex = Math.max(0, actionSteps.findIndex((step) => contrastRatio("#FFFFFF", scale[step]) >= 4.5));
   const primaryStep = actionSteps[actionIndex];
   const hoverStep = actionSteps[Math.min(actionIndex + 1, actionSteps.length - 1)];
   const activeStep = actionSteps[Math.min(actionIndex + 2, actionSteps.length - 1)];
-  const focus = contrastRatio(scale[600], "#FFFFFF") >= 3 ? scale[600] : scale[primaryStep];
+  const semantic = isDefaultTheme
+    ? POWER_GRID_GREEN_TOKENS
+    : {
+        primary: scale[primaryStep],
+        primaryHover: scale[hoverStep],
+        primaryActive: scale[activeStep],
+        bgSoft: scale[100],
+        bgSubtle: scale[50],
+        bgSelected: scale[200],
+        border: scale[300],
+        focusRing: hexToRgba(scale[primaryStep], 0.18),
+        textOnPrimary: "#FFFFFF",
+      };
   const variables: Record<string, string> = {};
 
   for (const step of BRAND_SCALE_STEPS) variables[`--brand-${step}`] = scale[step];
   Object.assign(variables, {
-    "--brand-accent": scale[500],
-    "--brand-primary": scale[primaryStep],
-    "--brand-primary-strong": scale[primaryStep],
-    "--brand-primary-hover": scale[hoverStep],
-    "--brand-primary-active": scale[activeStep],
-    "--brand-primary-text": scale[primaryStep],
-    "--brand-primary-border": scale[500],
-    "--brand-primary-border-subtle": scale[200],
-    "--brand-primary-bg": scale[50],
-    "--brand-primary-bg-hover": scale[100],
-    "--brand-primary-bg-subtle": scale[50],
-    "--brand-primary-soft": scale[100],
-    "--brand-primary-softer": scale[50],
-    "--brand-primary-dark": scale[800],
+    "--brand-accent": semantic.primary,
+    "--brand-primary": semantic.primary,
+    "--brand-primary-hover": semantic.primaryHover,
+    "--brand-primary-active": semantic.primaryActive,
+    "--brand-bg-soft": semantic.bgSoft,
+    "--brand-bg-subtle": semantic.bgSubtle,
+    "--brand-bg-selected": semantic.bgSelected,
+    "--brand-border": semantic.border,
+    "--brand-focus-ring": semantic.focusRing,
+    "--brand-text-on-primary": semantic.textOnPrimary,
+    "--brand-primary-strong": semantic.primary,
+    "--brand-primary-text": semantic.primary,
+    "--brand-primary-border": semantic.border,
+    "--brand-primary-border-subtle": semantic.border,
+    "--brand-primary-bg": semantic.bgSoft,
+    "--brand-primary-bg-hover": semantic.bgSelected,
+    "--brand-primary-bg-subtle": semantic.bgSubtle,
+    "--brand-primary-soft": semantic.bgSoft,
+    "--brand-primary-softer": semantic.bgSubtle,
+    "--brand-primary-dark": semantic.primaryActive,
     "--brand-primary-darker": scale[900],
-    "--brand-focus-ring": focus,
-    "--brand-focus-ring-soft": scale[100],
-    "--brand-on-primary": "#FFFFFF",
-    "--chart-series-brand": scale[primaryStep],
+    "--brand-focus-ring-soft": semantic.focusRing,
+    "--brand-on-primary": semantic.textOnPrimary,
+    "--chart-series-brand": semantic.primary,
   });
   return variables;
 }
