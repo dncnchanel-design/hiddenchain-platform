@@ -20,6 +20,7 @@ def test_login_response_never_exposes_password_hash(client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == "bearer"
+    assert any(item["code"] == "trusted-execution" for item in payload["menus"])
     assert "password_hash" not in payload["user"]
     assert "password" not in str(payload["user"]).lower()
 
@@ -726,6 +727,41 @@ def test_dynamic_policy_engine_supports_all_five_actions(tmp_path):
     }
     assert decisions["TEST_PROHIBIT"].permitted is False
     assert decisions["TEST_AGGREGATE"].group_by == ("region",)
+    assert decisions["TEST_ALLOW"].execution_method == "DIRECT_CONTROLLED_API"
+    assert decisions["TEST_COMPUTE"].execution_method == "LOCAL_CONTROLLED_COMPUTE"
+    assert decisions["TEST_COMPUTE"].candidate_methods == ("PSI_MPC", "TEE_CONFIDENTIAL_COMPUTE")
+
+
+def test_policy_uses_requested_granularity_and_spatial_scope():
+    orchestrator = AgenticQueryOrchestrator()
+    intent = orchestrator.resolve(
+        {
+            "question": "查询区域内15分钟级负荷趋势",
+            "consumer_role": "ENERGY_BUREAU",
+            "purpose": "ENERGY_ANALYSIS",
+            "requested_granularity": "15_MINUTE",
+            "spatial_scope": "REGION",
+            "target_data_types": ["GRID_LOAD"],
+        }
+    )
+    decision = DynamicPolicyEngine().decide(intent, "GRID_LOAD")
+    assert intent.requested_granularity == "15_MINUTE"
+    assert intent.spatial_scope == "REGION"
+    assert decision.action.value == "COMPUTE_ONLY"
+    assert decision.requires_external_runtime is True
+
+    precise_intent = orchestrator.resolve(
+        {
+            "question": "查询计量点负荷",
+            "consumer_role": "ENERGY_BUREAU",
+            "purpose": "ENERGY_ANALYSIS",
+            "spatial_scope": "METER_POINT",
+            "target_data_types": ["GRID_LOAD"],
+        }
+    )
+    precise_decision = DynamicPolicyEngine().decide(precise_intent, "GRID_LOAD")
+    assert precise_decision.action.value == "PROHIBIT"
+    assert precise_decision.permitted is False
 
 
 def test_electricity_node_sums_multiple_same_period_commitments(monkeypatch):
@@ -902,6 +938,10 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
     assert result["privacy_controls"]["compute_environment"] == "APPLICATION_PROCESS"
     assert result["privacy_controls"]["cross_domain_non_export_verified"] is False
     assert result["privacy_controls"]["topology_coordinate_offset"]["coordinates_returned"] is False
+    assert result["execution_routing"]["actual_runtime"] == "APPLICATION_PROCESS"
+    assert result["execution_routing"]["actual_method"] == "LOCAL_CONTROLLED_COMPUTE"
+    assert result["execution_routing"]["implementation_status"] == "TEST_FIXTURE_ONLY"
+    assert result["execution_routing"]["external_runtime_required"] is False
     assert any("coal_inventory_tons" in item for item in result["series"])
     assert any("thermal_output_mwh" in item and "grid_load_mwh" in item for item in result["series"])
     assert all(item["raw_data_exposed"] is False for item in result["sources"])

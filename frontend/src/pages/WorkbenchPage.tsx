@@ -34,6 +34,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     actions: [
       { title: "查看结算任务", path: "/settlements", icon: Network },
       { title: "维护授权规则", path: "/rules", icon: Gavel },
+      { title: "运行受控查询", path: "/trusted-execution", icon: ShieldCheck },
       { title: "查看计算任务", path: "/compute", icon: Network },
     ],
   },
@@ -41,6 +42,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     title: "监管审计工作台", nextStep: "查看审计事项", nextPath: "/audit",
     actions: [
       { title: "查看调用审计", path: "/audit", icon: ShieldCheck },
+      { title: "复核受控执行", path: "/trusted-execution", icon: LockKeyhole },
       { title: "处置风险事件", path: "/anomalies", icon: BarChart3 },
       { title: "查看审计报告", path: "/reports", icon: FileCheck2 },
     ],
@@ -50,6 +52,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
     actions: [
       { title: "查看结算任务", path: "/settlements", icon: Network },
       { title: "查看授权规则", path: "/rules", icon: Gavel },
+      { title: "查看受控执行", path: "/trusted-execution", icon: ShieldCheck },
       { title: "查看风险事件", path: "/anomalies", icon: ShieldCheck },
     ],
   },

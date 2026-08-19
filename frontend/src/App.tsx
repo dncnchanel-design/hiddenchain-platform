@@ -26,6 +26,7 @@ const {
   settlementCreate: SettlementCreatePage,
   settlementDetail: SettlementDetailPage,
   system: SystemPage,
+  trustedExecution: TrustedExecutionPage,
   workbench: WorkbenchPage,
 } = pages;
 
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/anomalies" element={<Allowed path="/anomalies"><AnomaliesPage /></Allowed>} />
           <Route path="/logs" element={<Allowed path="/logs"><LogsPage /></Allowed>} />
           <Route path="/system" element={<Allowed path="/system"><SystemPage /></Allowed>} />
+          <Route path="/trusted-execution" element={<Allowed path="/trusted-execution"><TrustedExecutionPage /></Allowed>} />
           <Route path="/reports" element={<Allowed path="/reports"><ReportsPage /></Allowed>} />
           <Route path="/metrics" element={<Allowed path="/metrics"><MetricsPage /></Allowed>} />
           <Route path="*" element={<NotFoundPage />} />

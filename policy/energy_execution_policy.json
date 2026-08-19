@@ -3,6 +3,15 @@
   "default_action": "PROHIBIT",
   "rules": [
     {
+      "id": "precise-spatial-scope-prohibit",
+      "description": "精确到计量点的空间范围禁止直接进入跨主体查询",
+      "priority": 4,
+      "action": "PROHIBIT",
+      "match": {
+        "spatial_scope": ["METER_POINT"]
+      }
+    },
+    {
       "id": "unauthorized-field-prohibit",
       "description": "请求包含原始明细或精确定位字段时禁止提供",
       "priority": 5,
@@ -16,6 +25,18 @@
           "exact_coordinates"
         ]
       }
+    },
+    {
+      "id": "fine-grain-compute-only",
+      "description": "日内细粒度请求只能在受控计算路径生成结果",
+      "priority": 15,
+      "action": "COMPUTE_ONLY",
+      "match": {
+        "requested_granularity": ["15_MINUTE", "DETAIL"],
+        "consumer_roles": ["ENERGY_BUREAU", "REGULATOR"]
+      },
+      "output_fields": ["trend", "statistics", "chart"],
+      "candidate_methods": ["PSI_MPC", "TEE_CONFIDENTIAL_COMPUTE"]
     },
     {
       "id": "public-open-data",

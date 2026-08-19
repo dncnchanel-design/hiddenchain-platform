@@ -19,6 +19,7 @@ export type RouteCode =
   | "overview"
   | "system"
   | "agents"
+  | "trusted-execution"
   | "metrics"
   | "logs";
 
@@ -68,6 +69,7 @@ export const ROUTE_POLICIES: readonly RoutePolicy[] = [
   { code: "overview", path: "/overview", title: "管理总览", workspace: "admin", group: "manage", roles: ["ADMIN"] },
   { code: "system", path: "/system", title: "组织与权限", workspace: "admin", group: "manage", roles: ["ADMIN"] },
   { code: "agents", path: "/agents", title: "能力与服务", workspace: "admin", group: "manage", roles: ["ADMIN"] },
+  { code: "trusted-execution", path: "/trusted-execution", title: "受控数据使用", workspace: "business", group: "data", roles: REVIEW_ROLES },
   { code: "metrics", path: "/metrics", title: "运行监控", workspace: "admin", group: "manage", roles: ["ADMIN"] },
   { code: "logs", path: "/logs", title: "系统日志", workspace: "admin", group: "manage", roles: ["ADMIN"] },
 ] as const;
@@ -144,6 +146,7 @@ export function getPrimaryNavigation(session: SessionPayload): PrimaryNavigation
 
   const dataItems = compact([
     item("data-space", "数据目录"),
+    item("trusted-execution", "受控数据使用"),
     item("generation-data", "发电侧数据"),
     item("retail-data", "用电侧数据"),
     item("data-space", "数据授权记录", "/data-space#data-authorizations"),
