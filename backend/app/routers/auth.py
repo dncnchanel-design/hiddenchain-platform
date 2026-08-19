@@ -23,6 +23,7 @@ MODULES = [
     {"code": "generation-data", "path": "/data/generation", "roles": ["GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "retail-data", "path": "/data/retail", "roles": ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "data-space", "path": "/data-space", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "trusted-execution", "path": "/trusted-execution", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "rules", "path": "/rules", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "settlements", "path": "/settlements", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "compute", "path": "/compute", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},

@@ -182,6 +182,8 @@ class TrustedExecutionRequest(StrictModel):
     target_data_types: list[str] = Field(default_factory=list, max_length=12)
     group_by: list[str] = Field(default_factory=lambda: ["region", "period"], max_length=8)
     requested_fields: list[str] = Field(default_factory=list, max_length=24)
+    requested_granularity: Literal["MONTH", "DAY", "15_MINUTE", "DETAIL"] | None = None
+    spatial_scope: Literal["REGION", "ORGANIZATION", "METER_POINT"] = "REGION"
     output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"] = "SUMMARY"
 
 

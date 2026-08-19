@@ -37,6 +37,70 @@ SENSITIVITY_RANK = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
 METRIC_QUANTUM = Decimal("0.0001")
 
 
+def _execution_profile(action: PolicyAction, permitted: bool, rule: dict[str, Any]) -> dict[str, Any]:
+    """Map a usage decision to an honest execution profile.
+
+    The local adapter can aggregate and reconcile synthetic/test-node data, but
+    it cannot prove cross-domain non-export. COMPUTE_ONLY therefore records the
+    local fallback and the external protocols required before a production claim.
+    """
+    if not permitted:
+        return {
+            "execution_method": "BLOCKED",
+            "implementation_status": "NOT_EXECUTED",
+            "requires_external_runtime": False,
+            "candidate_methods": [],
+        }
+
+    explicit_method = str(rule.get("execution_method", "")).strip()
+    if explicit_method:
+        return {
+            "execution_method": explicit_method,
+            "implementation_status": str(rule.get("implementation_status", "NOT_CONFIGURED")),
+            "requires_external_runtime": bool(rule.get("requires_external_runtime", True)),
+            "candidate_methods": [str(item) for item in rule.get("candidate_methods", [])],
+        }
+
+    profiles: dict[PolicyAction, dict[str, Any]] = {
+        PolicyAction.ALLOW: {
+            "execution_method": "DIRECT_CONTROLLED_API",
+            "implementation_status": "AVAILABLE_IN_LOCAL_ADAPTER",
+            "requires_external_runtime": False,
+            "candidate_methods": [],
+        },
+        PolicyAction.DELAY: {
+            "execution_method": "DELAYED_CONTROLLED_RELEASE",
+            "implementation_status": "AVAILABLE_IN_LOCAL_ADAPTER",
+            "requires_external_runtime": False,
+            "candidate_methods": [],
+        },
+        PolicyAction.AGGREGATE: {
+            "execution_method": "LOCAL_CONTROLLED_AGGREGATION",
+            "implementation_status": "AVAILABLE_IN_LOCAL_ADAPTER",
+            "requires_external_runtime": False,
+            "candidate_methods": [],
+        },
+        PolicyAction.COMPUTE_ONLY: {
+            "execution_method": "LOCAL_CONTROLLED_COMPUTE",
+            "implementation_status": "TEST_FIXTURE_ONLY",
+            "requires_external_runtime": True,
+            "candidate_methods": ["PSI_MPC", "TEE_CONFIDENTIAL_COMPUTE"],
+        },
+        PolicyAction.PROHIBIT: {
+            "execution_method": "BLOCKED",
+            "implementation_status": "NOT_EXECUTED",
+            "requires_external_runtime": False,
+            "candidate_methods": [],
+        },
+    }
+    profile = dict(profiles[action])
+    if rule.get("candidate_methods"):
+        profile["candidate_methods"] = [str(item) for item in rule["candidate_methods"]]
+    if "requires_external_runtime" in rule:
+        profile["requires_external_runtime"] = bool(rule["requires_external_runtime"])
+    return profile
+
+
 def _round_metric(value: float | Decimal) -> float:
     """Use a documented decimal rounding rule and reject non-finite metrics."""
     numeric = float(value)
@@ -129,6 +193,8 @@ class QueryIntent:
     requested_fields: tuple[str, ...]
     statistics: tuple[str, ...]
     output_mode: str
+    requested_granularity: str
+    spatial_scope: str
 
     def context_for(self, target_type: str) -> dict[str, Any]:
         target = TARGET_CATALOG.get(target_type, {})
@@ -144,6 +210,8 @@ class QueryIntent:
             "period_end": self.period_end.isoformat(),
             "group_by": list(self.group_by),
             "requested_fields": list(self.requested_fields),
+            "requested_granularity": self.requested_granularity,
+            "spatial_scope": self.spatial_scope,
         }
 
 
@@ -204,6 +272,10 @@ class PolicyDecision:
     delay_days: int = 0
     release_at: str | None = None
     min_group_size: int = 1
+    execution_method: str = "BLOCKED"
+    implementation_status: str = "NOT_EXECUTED"
+    requires_external_runtime: bool = False
+    candidate_methods: tuple[str, ...] = ()
 
     @property
     def release_mode(self) -> str:
@@ -232,6 +304,10 @@ class PolicyDecision:
             "release_at": self.release_at,
             "release_mode": self.release_mode,
             "min_group_size": self.min_group_size,
+            "execution_method": self.execution_method,
+            "implementation_status": self.implementation_status,
+            "requires_external_runtime": self.requires_external_runtime,
+            "candidate_methods": list(self.candidate_methods),
         }
 
 
@@ -341,6 +417,7 @@ class DynamicPolicyEngine:
                 reason = f"数据需延迟 {delay_days} 天，最早可用时间为 {release_at}"
             else:
                 reason = f"已达到延迟窗口 {delay_days} 天，允许以延迟结果交付"
+        execution_profile = _execution_profile(action, permitted, rule)
         return PolicyDecision(
             target_type=target_type,
             action=action,
@@ -354,6 +431,10 @@ class DynamicPolicyEngine:
             delay_days=delay_days,
             release_at=release_at,
             min_group_size=int(rule.get("min_group_size", 1)),
+            execution_method=str(execution_profile["execution_method"]),
+            implementation_status=str(execution_profile["implementation_status"]),
+            requires_external_runtime=bool(execution_profile["requires_external_runtime"]),
+            candidate_methods=tuple(execution_profile["candidate_methods"]),
         )
 
     def catalog(self) -> dict[str, Any]:
@@ -421,6 +502,17 @@ class AgenticQueryOrchestrator:
             statistics.append("BALANCE")
         if not statistics:
             statistics.append("SUMMARY")
+        requested_granularity = str(payload.get("requested_granularity") or "").strip().upper()
+        if not requested_granularity:
+            if "15分钟" in question or "15 分钟" in question:
+                requested_granularity = "15_MINUTE"
+            elif "日" in question:
+                requested_granularity = "DAY"
+            elif "明细" in question or "原始" in question:
+                requested_granularity = "DETAIL"
+            else:
+                requested_granularity = "MONTH"
+        spatial_scope = str(payload.get("spatial_scope") or "REGION").strip().upper()
         return QueryIntent(
             question=question,
             purpose=purpose,
@@ -432,6 +524,8 @@ class AgenticQueryOrchestrator:
             requested_fields=requested_fields,
             statistics=tuple(dict.fromkeys(statistics)),
             output_mode=str(payload.get("output_mode") or "SUMMARY"),
+            requested_granularity=requested_granularity,
+            spatial_scope=spatial_scope,
         )
 
     @staticmethod
@@ -448,6 +542,12 @@ class AgenticQueryOrchestrator:
                     "release_mode": decision.release_mode,
                     "group_by": list(decision.group_by),
                     "output_fields": list(decision.output_fields),
+                    "requested_granularity": intent.requested_granularity,
+                    "spatial_scope": intent.spatial_scope,
+                    "execution_method": decision.execution_method,
+                    "implementation_status": decision.implementation_status,
+                    "requires_external_runtime": decision.requires_external_runtime,
+                    "candidate_methods": list(decision.candidate_methods),
                     "raw_data_allowed": False,
                 }
             )
@@ -456,6 +556,8 @@ class AgenticQueryOrchestrator:
             "purpose": intent.purpose,
             "period": {"start": intent.period_start.isoformat(), "end": intent.period_end.isoformat()},
             "statistics": list(intent.statistics),
+            "requested_granularity": intent.requested_granularity,
+            "spatial_scope": intent.spatial_scope,
             "items": items,
             "raw_data_allowed": False,
         }
@@ -1127,6 +1229,24 @@ class TrustworthyExecutionController:
                     "raw_data_exposed": False,
                 }
             )
+        selected_methods = [
+            {
+                "target_data_type": decision.target_type,
+                "action": decision.action.value,
+                "method": decision.execution_method,
+                "implementation_status": decision.implementation_status,
+                "requires_external_runtime": decision.requires_external_runtime,
+                "candidate_methods": list(decision.candidate_methods),
+            }
+            for decision in decisions
+        ]
+        candidate_methods = sorted(
+            {
+                method
+                for decision in decisions
+                for method in decision.candidate_methods
+            }
+        )
         return {
             "purpose": intent.purpose,
             "period": {"start": intent.period_start.isoformat(), "end": intent.period_end.isoformat()},
@@ -1158,6 +1278,17 @@ class TrustworthyExecutionController:
                     "status": "APPLIED_WHEN_TOPOLOGY_FIELDS_ARE_REQUESTED",
                     "coordinates_returned": False,
                 },
+            },
+            "execution_routing": {
+                "policy_driven": True,
+                "selected_methods": selected_methods,
+                "actual_runtime": "APPLICATION_PROCESS",
+                "actual_method": "LOCAL_CONTROLLED_COMPUTE",
+                "implementation_status": "TEST_FIXTURE_ONLY",
+                "candidate_methods": candidate_methods,
+                "external_runtime_required": bool(candidate_methods),
+                "cross_domain_non_export_verified": False,
+                "raw_data_returned": False,
             },
             "raw_data_returned": False,
         }
