@@ -240,7 +240,7 @@ export function TrustedExecutionPage() {
       </div>
 
       {result && <TrustedExecutionResult result={result} resultStatus={resultStatus} resultBody={resultBody} routing={routing} policyHits={policyHits} steps={steps} series={series} />}
-      {canReview && <TrustedExecutionReviewPanel />}
+      {canReview && <TrustedExecutionReviewPanel refreshKey={result?.request_id ? String(result.request_id) : null} />}
     </>
   );
 }
