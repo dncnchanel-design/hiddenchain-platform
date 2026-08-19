@@ -81,7 +81,7 @@ function EvidenceValue({ value }: { value: unknown }) {
   return <span>{balanceLabels[text] || targetLabels[text] || text}</span>;
 }
 
-export function TrustedExecutionReviewPanel() {
+export function TrustedExecutionReviewPanel({ refreshKey }: { refreshKey?: string | null }) {
   const { session } = useAuth();
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [reviewStatus, setReviewStatus] = useState("PENDING");
@@ -89,7 +89,7 @@ export function TrustedExecutionReviewPanel() {
   const [message, setMessage] = useState("");
   const reviews = useRemote<JsonRecord[]>(
     (signal) => api(`/trusted-execution/reviews${reviewStatus ? `?review_status=${reviewStatus}` : ""}`, { signal, timeoutMs: 12000, cache: "no-store" }),
-    [reviewStatus],
+    [reviewStatus, refreshKey],
   );
   const canConfirm = ["REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
 
