@@ -45,7 +45,7 @@ The current `0.2.0` working tree closes the repository-local portions of the gap
 - `/api/version`, liveness and dependency-aware readiness endpoints expose version `0.2.0`, build identity and truthful capability state.
 - Frontend integration consumes authoritative state/actions and evidence metadata without redesigning navigation, layout, colors, typography or visual hierarchy.
 
-These are working-tree facts, not a release declaration. Final test evidence, commit, push, remote SHA verification and Render state remain `PENDING` until the main coordinator records them.
+These are working-tree facts, not a production declaration. Local verification, commit, non-force push and remote SHA verification are now recorded by the main coordinator; Render state remains `PENDING_EXTERNAL_ACCESS`.
 
 ## Remaining environment constraints
 

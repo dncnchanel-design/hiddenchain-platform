@@ -2,7 +2,7 @@
 
 适用版本：`0.2.0`。
 
-当前总体结论：本地实现、验证、实现提交与远端分叉合并 `PASS`，正式生产验收仍为 `BLOCKED`。实现提交为 `71de395bf658fa34c8d271705ace130d9abf0e24`，非快进远端历史已安全合并；合并候选推送挂起后中断，远端 SHA 仍未核验，尚无生产基础设施或线上冒烟证据。`render.yaml` 仅为 review/test，不是生产环境。
+当前总体结论：本地实现、验证、实现提交、远端分叉合并、非强制推送与远端 SHA 核验均 `PASS`，正式生产验收仍为 `BLOCKED`。当前代码/文档发布候选为 `794a6899a1267ee214091cc238388de4c4482173`，GitHub 分支已核验为同一 SHA；Render 尚无可用 CLI、服务 URL 或 API 凭证，未声明部署或线上冒烟结果。`render.yaml` 仅为 review/test，不是生产环境。
 
 ## 自动门禁
 
@@ -29,8 +29,8 @@ cd ..\backend
 | 前端 lint/typecheck/test/build | `PASS` | ESLint、TypeScript、46 项 Vitest、生产/品牌守卫及 Vite 构建通过 |
 | API 合同/黄金路径 | `PASS` | OpenAPI 0.2.0 可序列化，69 个 path；3 条显式端到端黄金路径通过 |
 | 安全/失败/越权检查 | `PASS` | TTC 绕过、Agent 越权、Vault/算法/证据篡改、Outbox 重试/死信及跨组织访问回归通过 |
-| commit/push/远程 SHA | `PARTIAL/BLOCKED` | 本地实现提交与非快进远端合并已完成；elevated push 挂起后中断，`ls-remote` 连接重置，远程 SHA 未知 |
-| Render 部署/健康/在线冒烟 | `BLOCKED` | 需先成功推送并核验远端 SHA；当前清单即使可部署也仅允许 review/test |
+| commit/push/远程 SHA | `PASS` | 非强制推送成功，远端 `ls-remote` 核验为 `794a6899a1267ee214091cc238388de4c4482173`，与本地一致 |
+| Render 部署/健康/在线冒烟 | `BLOCKED` | 当前主机无 Render CLI、服务 URL 或 API 凭证；即使可部署也仅允许 review/test |
 | 生产外部基础设施 | `BLOCKED` | 需 PostgreSQL、共享限流/队列、持久对象存储、可观测性和高可用部署证据 |
 
 ## 发布前人工检查

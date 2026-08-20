@@ -49,4 +49,4 @@ Required endpoint checks:
 5. Confirm Render's deployed commit SHA equals local/GitHub SHA.
 6. Record any unavailable credential, deploy identity, health failure or SHA mismatch as `BLOCKED`/not released.
 
-Commit, push, deployment, health, online smoke and SHA convergence are currently `PENDING`; this runbook does not predeclare their outcome.
+Commit, push and remote SHA verification are `PASS` for release candidate `794a6899a1267ee214091cc238388de4c4482173`. Render deployment, health, online smoke and deployed-SHA convergence remain `PENDING_EXTERNAL_ACCESS`; this runbook does not infer them without an authorized Render service/API path.
