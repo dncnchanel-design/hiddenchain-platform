@@ -1,6 +1,6 @@
 # Acceptance Report
 
-Status: `LOCAL_IMPLEMENTATION_VERIFICATION_COMMIT_AND_MERGE_PASS_RELEASE_PENDING`.
+Status: `LOCAL_IMPLEMENTATION_VERIFICATION_COMMIT_AND_MERGE_PASS_RELEASE_BLOCKED_AT_PUSH`.
 
 Applicable version: `0.2.0`.
 
@@ -32,6 +32,6 @@ Applicable version: `0.2.0`.
 
 ## Verification conclusion
 
-Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created and remote history was safely merged as `562f762`; GitHub push, remote SHA, Render health/smoke and deployed SHA remain pending release-stage evidence and are not inferred here.
+Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created and remote history was safely merged as `562f762`; the merged push hung and was interrupted, so GitHub push, remote SHA, Render health/smoke and deployed SHA remain blocked release-stage evidence and are not inferred here.
 
 Overall formal production acceptance remains `BLOCKED` until all applicable verification gates pass and external production infrastructure, credentials, operational controls and online evidence exist.

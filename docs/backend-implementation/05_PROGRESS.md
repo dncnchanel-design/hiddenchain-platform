@@ -20,11 +20,11 @@
 - Closed independent review blockers for state-machine artifact gates, organization/DID authorization, audit approval, algorithm/build binding, Vault input integrity, Merkle batch replay verification and anchor receipt validation.
 - Passed 117 backend tests, 79% fixed-seed backend branch coverage, 46 frontend tests, explicit golden paths, OpenAPI serialization, production/brand guards, Python/TypeScript compilation, ESLint and Vite production build.
 - Completed final cached-diff, protected-asset boundary and high-confidence secret scans, then created implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24`.
-- Reconciled the newly observed remote commits with a no-conflict non-fast-forward merge `562f762`; post-merge golden paths passed.
+- Reconciled the newly observed remote commits with a no-conflict non-fast-forward merge `562f762`; post-merge golden paths passed. The candidate push then hung and was safely interrupted; an elevated `ls-remote` check was reset, so remote convergence remains unverified.
 
 ### Current release state
 
-- `READY_FOR_GITHUB_PUSH_AFTER_SAFE_MERGE`. The remote ref was fetched with authorized elevated access, the two equivalent remote commits were merged without conflicts, and the merged candidate is ready for a non-force push.
+- `BLOCKED_AT_GITHUB_PUSH_AFTER_SAFE_MERGE`. The remote ref was fetched and merged without conflicts, but the non-force push hung for roughly four minutes and was interrupted; follow-up remote SHA verification was reset. No force-push or bypass was attempted.
 
 ### Pending release evidence
 
@@ -36,8 +36,8 @@
 - Eclipse EDC remains `ADAPTER`; TEE and cross-domain production MPC remain `BLOCKED`; blockchain consensus remains `DEMO` only.
 - PostgreSQL, Redis, MinIO, Milvus and production high-availability infrastructure are unavailable or unverified.
 - The available Render manifest is review/test only and cannot satisfy production acceptance.
-- Normal sandbox egress remains unavailable, but authorized elevated Git access succeeded for fetch; push still must be verified before Render can be attempted.
+- Normal sandbox egress remains unavailable; elevated fetch succeeded once, while push and subsequent remote SHA verification were unstable. Render cannot be attempted before verified push convergence.
 
 ### Next step
 
-- Push the merged candidate non-force, verify the remote SHA, then continue the Render review/test sequence without calling it “production.”
+- When GitHub transport is stable, retry the merged candidate non-force, verify the remote SHA, then continue the Render review/test sequence without calling it “production.”

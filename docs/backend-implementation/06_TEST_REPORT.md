@@ -3,7 +3,7 @@
 Date: 2026-08-20
 Version: `0.2.0`
 Overall local status: `PASS`
-Remote release status: `PENDING_AFTER_SAFE_MERGE`
+Remote release status: `BLOCKED_AFTER_PUSH_HANG`
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ Remote release status: `PENDING_AFTER_SAFE_MERGE`
 | Frontend regression | PASS | ESLint, TypeScript, 46 tests, production guard, brand guard and bundle passed; no CSS, routes, navigation or visual-system redesign |
 | Local implementation commit | PASS | `71de395bf658fa34c8d271705ace130d9abf0e24`; cached scope 70 files, protected assets excluded |
 | Remote-history reconciliation | PASS | Remote ref fetched; equivalent duplicate history merged without conflicts as `562f762`; post-merge golden paths passed |
-| GitHub push | PENDING | Merged candidate is ready for non-force push; remote SHA is not yet verified |
+| GitHub push | BLOCKED | Elevated non-force push hung for roughly four minutes and was interrupted; follow-up `ls-remote` returned connection reset |
 
 ## Commands and observations
 
@@ -59,8 +59,8 @@ YAML parsing: render.yaml, docker-compose.production.yml and all three modified 
 | --- | --- | --- |
 | Real PostgreSQL migration/advisory-lock run | BLOCKED | No PostgreSQL instance is available; dialect SQL and migration behavior are covered locally |
 | Docker production image build | BLOCKED | Docker is not installed on this host; source and production guards passed and CI retains the image/security gates |
-| Browser/Render online smoke | PENDING | Must follow a successful push and verified remote SHA |
-| GitHub Python 3.12 coverage replay | PENDING | `backend-tests.yml` runs on `agent/**`; requires successful push and GitHub Actions access |
+| Browser/Render online smoke | BLOCKED | Must follow a successful push and verified remote SHA |
+| GitHub Python 3.12 coverage replay | BLOCKED | `backend-tests.yml` runs on `agent/**`, but remote CI cannot be reached until push convergence is verified |
 | External EDC, TEE, chain consensus and cross-domain MPC | BLOCKED | External runtimes, credentials, independent nodes and proof infrastructure are not present |
 
 The Starlette/httpx compatibility deprecation warning is known and non-failing. It does not change the verification result.
