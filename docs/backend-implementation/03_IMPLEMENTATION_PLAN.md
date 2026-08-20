@@ -1,6 +1,6 @@
 # Implementation Plan
 
-Implementation snapshot: repository-local development for stages 0–4, local verification, implementation commit, safe non-fast-forward merge and verified non-force GitHub push are complete for `0.2.0`. Render review/test deployment remains pending external access.
+Implementation snapshot: repository-local development for stages 0–4, local verification, implementation commit, safe non-fast-forward merge, hardened non-root container images, verified non-force GitHub push and hosted CI are complete for `0.2.0`. Render review/test deployment remains unavailable because the configured service has no active server route.
 
 ## Stage 0: governance and baseline
 
@@ -45,11 +45,11 @@ Status: `IMPLEMENTED_LOCALLY`.
 
 ## Stage 5: verification and release
 
-Status: `LOCAL_AND_GITHUB_CODE_SYNC_PASS_RENDER_PENDING`.
+Status: `LOCAL_AND_GITHUB_CI_PASS_RENDER_NO_SERVER`.
 
 - Build, unit, integration, security, failure, contract, service E2E and golden-path gates passed.
-- The fixed-seed branch-coverage replay passed at 79% against a 75% floor; the feature-branch CI trigger will repeat it on Python 3.12 after push.
+- The fixed-seed branch-coverage replay passed at 79% against a 75% floor; the GitHub Python 3.12 branch-coverage task also passed.
 - Frontend lint, typecheck, 46 tests, production/brand guards and production bundle passed without visual-system changes.
-- Diff/untracked-boundary review, explicit staging and implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` completed. The remote non-fast-forward history was fetched and merged without conflicts as `562f762`; the final release candidate `794a6899a1267ee214091cc238388de4c4482173` was pushed non-force and verified with `ls-remote`.
+- Diff/untracked-boundary review, explicit staging and implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` completed. The remote non-fast-forward history was fetched and merged without conflicts as `562f762`; container runtime hardening was committed as `fa04fdc`, pushed non-force and verified with `ls-remote`. All hosted CI workflows passed.
 
 Render in this stage means review/test deployment only under the current manifest. It cannot satisfy production acceptance. External EDC, TEE, blockchain consensus, PostgreSQL, Redis, MinIO, Milvus and high-availability infrastructure remain outside the implemented local boundary.

@@ -4,7 +4,8 @@ Date: 2026-08-20
 Version: `0.2.0`
 Overall local status: `PASS`
 Remote code release status: `PASS`
-Render review/test status: `PENDING_EXTERNAL_ACCESS`
+Hosted CI status: `PASS`
+Render review/test status: `BLOCKED_NO_SERVER`
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -24,7 +25,8 @@ Render review/test status: `PENDING_EXTERNAL_ACCESS`
 | Frontend regression | PASS | ESLint, TypeScript, 46 tests, production guard, brand guard and bundle passed; no CSS, routes, navigation or visual-system redesign |
 | Local implementation commit | PASS | `71de395bf658fa34c8d271705ace130d9abf0e24`; cached scope 70 files, protected assets excluded |
 | Remote-history reconciliation | PASS | Remote ref fetched; equivalent duplicate history merged without conflicts as `562f762`; post-merge golden paths passed |
-| GitHub push and remote SHA | PASS | Non-force push completed; `ls-remote` returned `794a6899a1267ee214091cc238388de4c4482173`, matching local HEAD |
+| GitHub push and remote SHA | PASS | Non-force push completed; `ls-remote` returned `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`, matching local HEAD |
+| Hosted GitHub CI | PASS | Backend/API contract, frontend, Trivy, SBOM, OPA, SHACL, security and coverage workflows passed |
 
 ## Commands and observations
 
@@ -60,8 +62,8 @@ YAML parsing: render.yaml, docker-compose.production.yml and all three modified 
 | --- | --- | --- |
 | Real PostgreSQL migration/advisory-lock run | BLOCKED | No PostgreSQL instance is available; dialect SQL and migration behavior are covered locally |
 | Docker production image build | BLOCKED | Docker is not installed on this host; source and production guards passed and CI retains the image/security gates |
-| Browser/Render online smoke | BLOCKED | No Render CLI, service URL or API credential is available on this host; review/test deployment was not claimed |
-| GitHub Python 3.12 coverage replay | PENDING | Workflow now runs on `agent/**`; local 79% replay passed, while hosted CI evidence remains pending |
+| Browser/Render online smoke | BLOCKED | Derived service URL returns Render `x-render-routing: no-server` / HTTP 404; no deployed instance exists to probe |
+| GitHub Python 3.12 coverage replay | PASS | `backend-tests` workflow passed on the pushed branch |
 | External EDC, TEE, chain consensus and cross-domain MPC | BLOCKED | External runtimes, credentials, independent nodes and proof infrastructure are not present |
 
 The Starlette/httpx compatibility deprecation warning is known and non-failing. It does not change the verification result.

@@ -1,6 +1,6 @@
 # Acceptance Report
 
-Status: `LOCAL_IMPLEMENTATION_VERIFICATION_AND_GITHUB_CODE_SYNC_PASS_RENDER_PENDING`.
+Status: `LOCAL_IMPLEMENTATION_VERIFICATION_AND_GITHUB_CI_PASS_RENDER_NO_SERVER`.
 
 Applicable version: `0.2.0`.
 
@@ -28,10 +28,10 @@ Applicable version: `0.2.0`.
 | TEE/remote attestation | `BLOCKED` |
 | Blockchain consensus/finality | `DEMO` local receipt only; production claim rejected |
 | PostgreSQL/Redis/MinIO/Milvus and HA operations | `BLOCKED`/unverified external infrastructure |
-| Render | `REVIEW_TEST_ONLY`; deployment result `PENDING` |
+| Render | `REVIEW_TEST_ONLY`; deployment result `BLOCKED_NO_SERVER` |
 
 ## Verification conclusion
 
-Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created, remote history was safely merged as `562f762`, and release candidate `794a6899a1267ee214091cc238388de4c4482173` was pushed non-force and verified remotely. Render health/smoke and deployed SHA remain pending because this host has no Render access, and are not inferred here.
+Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created, remote history was safely merged as `562f762`, container hardening was committed as `fa04fdc`, and that release candidate was pushed non-force, verified remotely and passed hosted CI. Render health/smoke and deployed SHA remain unavailable because the service route returns `no-server/404`; they are not inferred here.
 
 Overall formal production acceptance remains `BLOCKED` until all applicable verification gates pass and external production infrastructure, credentials, operational controls and online evidence exist.

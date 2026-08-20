@@ -20,15 +20,15 @@
 - Closed independent review blockers for state-machine artifact gates, organization/DID authorization, audit approval, algorithm/build binding, Vault input integrity, Merkle batch replay verification and anchor receipt validation.
 - Passed 117 backend tests, 79% fixed-seed backend branch coverage, 46 frontend tests, explicit golden paths, OpenAPI serialization, production/brand guards, Python/TypeScript compilation, ESLint and Vite production build.
 - Completed final cached-diff, protected-asset boundary and high-confidence secret scans, then created implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24`.
-- Reconciled the newly observed remote commits with a no-conflict non-fast-forward merge `562f762`; post-merge golden paths passed. Release candidate `794a689` was then pushed non-force and verified with `ls-remote` as the remote branch SHA.
+- Reconciled the newly observed remote commits with a no-conflict non-fast-forward merge `562f762`; post-merge golden paths passed. Release candidate `fa04fdc` added non-root container hardening, was pushed non-force and verified with `ls-remote`; all hosted CI workflows passed.
 
 ### Current release state
 
-- `GITHUB_CODE_SYNC_PASS_RENDER_EXTERNAL_ACCESS_PENDING`. The non-force push and remote SHA verification succeeded; no force-push or bypass was used.
+- `GITHUB_CI_PASS_RENDER_NO_SERVER`. The non-force push, remote SHA verification and hosted CI succeeded; no force-push or bypass was used.
 
 ### Pending release evidence
 
-- Render review/test deployment, online health/smoke and deployed SHA verification.
+- Render review/test deployment, online health/smoke and deployed SHA verification; the derived service URL currently returns `no-server/404`.
 - Local Docker image build and real PostgreSQL migration/concurrency validation remain unavailable on this host.
 
 ### Known blockers
@@ -36,8 +36,8 @@
 - Eclipse EDC remains `ADAPTER`; TEE and cross-domain production MPC remain `BLOCKED`; blockchain consensus remains `DEMO` only.
 - PostgreSQL, Redis, MinIO, Milvus and production high-availability infrastructure are unavailable or unverified.
 - The available Render manifest is review/test only and cannot satisfy production acceptance.
-- Git transport is now verified for the release branch. Render remains unavailable on this host because no Render CLI, service URL or API credential is configured.
+- Git transport and hosted CI are verified for the release branch. Render's derived service URL resolves but has no active server route; the API requires a credential and no Render CLI/token is configured.
 
 ### Next step
 
-- If Render access is authorized and configured, deploy the verified GitHub SHA as review/test only, then check health, smoke and deployed SHA without calling it “production.”
+- Restore or create the Render review/test service route, then deploy the verified GitHub SHA and check health, smoke and deployed SHA without calling it “production.”
