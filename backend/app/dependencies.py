@@ -8,7 +8,7 @@ from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import User
+from .models import Organization, User
 from .security import decode_access_token
 
 
@@ -28,6 +28,9 @@ def get_current_user(
     user = db.get(User, payload.get("sub"))
     if user is None or user.status != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不可用")
+    organization = db.get(Organization, user.org_id)
+    if organization is None or organization.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="所属组织不可用")
     return user
 
 

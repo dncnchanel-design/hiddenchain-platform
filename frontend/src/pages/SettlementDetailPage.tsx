@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Database, FileCheck2, Gavel, Network, Play, RefreshCw, ShieldCheck, UsersRound } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { api, post } from "../api";
+import { api, post, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../api";
 import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DateTimeText, EmptyState, ErrorState, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { taskNextAction, taskStatusLabel, trustedChain } from "../settlement-model";
-import { ALGORITHM_LABELS, type JsonRecord } from "../types";
+import { ALGORITHM_LABELS, type JsonRecord, type ResultConfirmationCommand } from "../types";
 
 type DetailData = {
   task: JsonRecord;
@@ -26,13 +26,22 @@ export function SettlementDetailPage() {
   const role = session!.user.role_code;
   const orgId = session!.user.org_id;
   const canReview = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(role);
+  const locationState = location.state as { created?: boolean; etag?: string } | null;
+  const taskEtagRef = useRef<string | undefined>(locationState?.etag);
+  const commandKeysRef = useRef<Record<string, IdempotencyKeyRecord>>({});
   const [view, setView] = useState<"business" | "technical">("business");
   const [confirmAction, setConfirmAction] = useState<"run" | "confirm" | null>(null);
   const [actionError, setActionError] = useState("");
   const { data, loading, refreshing, error, reload } = useRemote(async (signal): Promise<DetailData> => {
     const options = { signal, cache: "no-store" as RequestCache };
+    const taskOptions = {
+      ...options,
+      onResponseMetadata: (metadata: { etag?: string }) => {
+        if (metadata.etag) taskEtagRef.current = metadata.etag;
+      },
+    };
     const [task, uploads, agreements, jobs, results, evidence, reports, timeline] = await Promise.all([
-      api<JsonRecord>(`/settlement/tasks/${taskId}`, options),
+      api<JsonRecord>(`/settlement/tasks/${taskId}`, taskOptions),
       api<JsonRecord[]>(`/data/uploads?task_id=${encodeURIComponent(taskId)}`, options),
       api<JsonRecord[]>(`/data/agreements?task_id=${encodeURIComponent(taskId)}`, options),
       api<JsonRecord[]>(`/privacy/jobs?task_id=${encodeURIComponent(taskId)}`, options),
@@ -50,8 +59,13 @@ export function SettlementDetailPage() {
 
   const task = data.task;
   const nextAction = taskNextAction(task, role, orgId);
-  const chain = trustedChain(task, data);
-  const canRun = role === "EXCHANGE" && task.status === "READY" && task.readiness?.preflight_passed;
+  const chain = trustedChain(task, { ...data, viewerRole: role });
+  const ttcState = String(task.ttc?.state || task.ttc_state || "");
+  const cannotRunTtc = ["REJECTED", "CANCELLED", "EXPIRED", "ARCHIVED"].includes(ttcState);
+  const allowedActions = Array.isArray(task.allowed_actions) ? task.allowed_actions : [];
+  const backendAllowsRun = !task.ttc?.authoritative || allowedActions.some((action: string) => ["RUN_SETTLEMENT", "RETRY_SETTLEMENT"].includes(action));
+  const runnableBusinessState = task.status === "READY" || allowedActions.includes("RUN_SETTLEMENT");
+  const canRun = role === "EXCHANGE" && runnableBusinessState && task.readiness?.preflight_passed && !cannotRunTtc && backendAllowsRun;
   const canConfirm = ["GENERATOR", "RETAILER"].includes(role) && ownResult?.confirm_status === "UNCONFIRMED";
   const verification = task.verification_profile || {};
   const summaryResult = data.results.find((item) => item.result_scope === "SUMMARY");
@@ -60,9 +74,27 @@ export function SettlementDetailPage() {
     setActionError("");
     try {
       if (confirmAction === "run") {
-        await post(`/settlement/tasks/${taskId}/run`, { compute_mode: "LOCAL_CONTROLLED", algorithm_code: "CONTROLLED_SETTLEMENT_V1" });
+        const payload = { compute_mode: "LOCAL_CONTROLLED", algorithm_code: "CONTROLLED_SETTLEMENT_V1" };
+        const fingerprint = JSON.stringify({ taskId, payload, etag: taskEtagRef.current });
+        commandKeysRef.current.run = prepareIdempotencyKey(commandKeysRef.current.run, `settlement-run:${taskId}`, fingerprint);
+        await post(`/settlement/tasks/${taskId}/run`, payload, {
+          idempotencyKey: commandKeysRef.current.run.key,
+          ifMatch: taskEtagRef.current,
+          onResponseMetadata: (metadata) => {
+            if (metadata.etag) taskEtagRef.current = metadata.etag;
+          },
+        });
       } else if (confirmAction === "confirm" && ownResult) {
-        await post(`/results/${ownResult.result_id}/confirm`, { opinion: "同意结算结果" });
+        const payload: ResultConfirmationCommand = { decision: "APPROVE", opinion: "同意结算结果" };
+        const fingerprint = JSON.stringify({ resultId: ownResult.result_id, resultHash: ownResult.result_hash, payload, etag: taskEtagRef.current });
+        commandKeysRef.current.confirm = prepareIdempotencyKey(commandKeysRef.current.confirm, `result-confirm:${ownResult.result_id}`, fingerprint);
+        await post(`/results/${ownResult.result_id}/confirm`, payload, {
+          idempotencyKey: commandKeysRef.current.confirm.key,
+          ifMatch: taskEtagRef.current,
+          onResponseMetadata: (metadata) => {
+            if (metadata.etag) taskEtagRef.current = metadata.etag;
+          },
+        });
       }
       setConfirmAction(null);
       await reload();
@@ -84,7 +116,7 @@ export function SettlementDetailPage() {
         </>}
       />
 
-      {Boolean((location.state as JsonRecord | null)?.created) && <Notice tone="success">结算任务已创建，当前状态与待办如下。</Notice>}
+      {Boolean(locationState?.created) && <Notice tone="success">结算任务已创建，当前状态与待办如下。</Notice>}
       {actionError && <Notice tone="warning">{actionError}</Notice>}
 
       <Surface className="task-identity-surface">

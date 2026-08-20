@@ -4,7 +4,18 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -107,6 +118,23 @@ class SettlementTask(Base, TimestampMixin):
     risk_level: Mapped[str] = mapped_column(String(16), default="LOW", nullable=False)
     current_stage: Mapped[str] = mapped_column(String(64), default="任务创建", nullable=False)
     verification_profile_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # Compatibility fields for the formal Trusted Transaction Capsule (TTC)
+    # lifecycle.  The legacy business ``status`` remains available to the
+    # existing frontend while ``ttc_state`` is the authoritative security
+    # state used by the transition service.
+    request_idempotency_key: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True
+    )
+    request_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    ttc_state: Mapped[str] = mapped_column(
+        String(32), default="INIT", nullable=False, index=True
+    )
+    current_attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    execution_snapshot_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    execution_snapshot_hash: Mapped[str | None] = mapped_column(String(128))
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    last_transition_at: Mapped[datetime | None] = mapped_column(DateTime)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class TaskParticipant(Base, TimestampMixin):
@@ -130,6 +158,9 @@ class DataContract(Base, TimestampMixin):
     policy_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     policy_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    external_negotiation_id: Mapped[str | None] = mapped_column(String(128), index=True)
 
 
 class DataSpaceAgreement(Base, TimestampMixin):
@@ -179,12 +210,18 @@ class PrivacyComputeJob(Base, TimestampMixin):
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     logs_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
     privacy_guarantees_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    attempt_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    execution_snapshot_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
 
 class SettlementResult(Base, TimestampMixin):
     __tablename__ = "settlement_results"
     result_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     task_id: Mapped[str] = mapped_column(ForeignKey("settlement_tasks.task_id"), index=True)
+    # Nullable only for compatibility with records created before formal TTC
+    # attempts existed.  New trusted results must always bind to one attempt;
+    # NULL rows are historical and cannot satisfy current-attempt gates.
+    attempt_id: Mapped[str | None] = mapped_column(String(36), index=True)
     org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.org_id"), index=True)
     result_scope: Mapped[str] = mapped_column(String(24), nullable=False)
     result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
@@ -194,6 +231,15 @@ class SettlementResult(Base, TimestampMixin):
 
 class Signature(Base, TimestampMixin):
     __tablename__ = "signatures"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_type",
+            "target_id",
+            "signer_org_id",
+            "target_hash",
+            name="uq_signature_business_confirmation",
+        ),
+    )
     signature_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     task_id: Mapped[str | None] = mapped_column(String(36), index=True)
     signer_org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.org_id"), index=True)
@@ -285,6 +331,9 @@ class AuditReport(Base, TimestampMixin):
     __tablename__ = "audit_reports"
     report_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     task_id: Mapped[str] = mapped_column(String(36), index=True)
+    # See SettlementResult.attempt_id.  Legacy NULL reports remain readable
+    # history but are never accepted as the current audit decision.
+    attempt_id: Mapped[str | None] = mapped_column(String(36), index=True)
     template_code: Mapped[str] = mapped_column(String(48), nullable=False)
     report_title: Mapped[str] = mapped_column(String(160), nullable=False)
     report_content: Mapped[str] = mapped_column(Text, nullable=False)

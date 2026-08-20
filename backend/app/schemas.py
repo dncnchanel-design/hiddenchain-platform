@@ -4,7 +4,7 @@ from datetime import date, datetime
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -158,12 +158,34 @@ class UsageControlCheckRequest(StrictModel):
 
 
 class ResultConfirmRequest(StrictModel):
-    opinion: str = "同意结算结果"
+    decision: Literal["APPROVE", "REJECT"]
+    opinion: str = Field(min_length=1, max_length=500)
+
+    @field_validator("opinion")
+    @classmethod
+    def require_non_blank_opinion(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("opinion must not be blank")
+        return normalized
 
 
 class AuditReportCreate(StrictModel):
     task_id: str = Field(min_length=1, max_length=64)
     template_code: str = Field(default="REGULATORY_AUDIT_V1", min_length=1, max_length=48)
+
+
+class AuditReportDecisionRequest(StrictModel):
+    decision: Literal["APPROVE", "REJECT"]
+    opinion: str = Field(min_length=1, max_length=500)
+
+    @field_validator("opinion")
+    @classmethod
+    def require_non_blank_opinion(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("opinion must not be blank")
+        return normalized
 
 
 class AgentQueryRequest(StrictModel):

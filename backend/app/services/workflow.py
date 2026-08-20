@@ -25,8 +25,9 @@ from ..models import (
     Signature,
     TaskParticipant,
     User,
+    utc_now,
 )
-from ..security import sha256_json, sign_value
+from ..security import sha256_json, sign_value, verify_signature
 from .adapters import (
     AGENT_DEFINITIONS,
     AdaptivePrivacyRouter,
@@ -40,6 +41,22 @@ from .adapters import (
 from .common import add_audit_log, model_dict, trace_id
 from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
+from .trust_domain import authorize_agent_tool
+from ..trust_models import (
+    AgentPermission,
+    AgentToolCall,
+    DataCapsule,
+    ExecutionSnapshot,
+    TtcAttempt,
+)
+from .algorithm_registry import AlgorithmRegistry
+from .trust_domain import (
+    ExecutionSnapshotService,
+    SnapshotIntegrityError,
+    TTCState,
+    TtcStateMachine,
+    verify_active_identity,
+)
 
 
 def _agent_definition(code: str) -> dict[str, Any]:
@@ -56,11 +73,15 @@ def _agent_event(
     input_value: Any,
     output_value: Any,
     details: dict[str, Any],
+    authorized_permission: AgentPermission | None = None,
 ) -> AgentEvent:
     sequence = db.scalar(
         select(func.max(AgentEvent.sequence_no)).where(AgentEvent.task_id == task_id)
     ) or 0
     definition = _agent_definition(agent_code)
+    permission = authorized_permission or authorize_agent_tool(
+        db, definition["did"], tool_name, task_id=task_id
+    )
     input_hash = sha256_json(input_value)
     output_hash = sha256_json(output_value)
     signed_call_payload = {
@@ -85,8 +106,40 @@ def _agent_event(
         details_json=details,
     )
     db.add(event)
+    db.add(
+        AgentToolCall(
+            tool_id=permission.tool_id,
+            permission_id=permission.permission_id,
+            task_id=task_id,
+            agent_did=definition["did"],
+            operation="INVOKE",
+            input_hash=input_hash,
+            output_hash=output_hash,
+            status="SUCCESS",
+            trace_id=str(details.get("trace_id") or trace_id()),
+            completed_at=utc_now(),
+        )
+    )
     db.flush()
     return event
+
+
+def _authorize_agent_operation(
+    db: Session,
+    *,
+    task_id: str,
+    agent_code: str,
+    tool_name: str,
+) -> AgentPermission:
+    """Authorize a Tool before any data access, compute, or external call."""
+
+    definition = _agent_definition(agent_code)
+    return authorize_agent_tool(
+        db,
+        definition["did"],
+        tool_name,
+        task_id=task_id,
+    )
 
 
 def _scoped_task_allowed(db: Session, task: SettlementTask, user: User) -> bool:
@@ -100,7 +153,178 @@ def _scoped_task_allowed(db: Session, task: SettlementTask, user: User) -> bool:
     ) > 0
 
 
-def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
+def _verify_frozen_compute_inputs(
+    db: Session,
+    snapshot: ExecutionSnapshot,
+    uploads: list[DataUpload],
+) -> None:
+    """Re-verify snapshot binding and participant signatures before Vault reads."""
+
+    ExecutionSnapshotService.verify(snapshot)
+    try:
+        canonical_data_refs = snapshot.canonical_payload_json["data"]
+        canonical_algorithm = snapshot.canonical_payload_json["algorithm"]
+        canonical_parameters = snapshot.canonical_payload_json["parameters"]["algorithm"]
+        canonical_units = snapshot.canonical_payload_json["units"]
+    except (KeyError, TypeError) as exc:
+        raise SnapshotIntegrityError(
+            "EXECUTION_SNAPSHOT_BINDING_INCOMPLETE",
+            "Frozen execution snapshot lacks complete data or algorithm bindings",
+        ) from exc
+    if canonical_data_refs != snapshot.data_refs_json:
+        raise SnapshotIntegrityError(
+            "EXECUTION_SNAPSHOT_DATA_REFS_MISMATCH",
+            "Frozen data references differ from the canonical execution snapshot",
+        )
+
+    if not isinstance(canonical_algorithm, dict):
+        raise SnapshotIntegrityError(
+            "ALGORITHM_DESCRIPTOR_RUNTIME_MISMATCH",
+            "Frozen algorithm descriptor is not a canonical object",
+        )
+    frozen_algorithm = dict(canonical_algorithm)
+    frozen_algorithm.setdefault("parameters", canonical_parameters)
+    frozen_algorithm.setdefault("units", canonical_units)
+    registered_algorithm = AlgorithmRegistry.execution_descriptor(snapshot.algorithm_code)
+    if frozen_algorithm != registered_algorithm:
+        raise SnapshotIntegrityError(
+            "ALGORITHM_DESCRIPTOR_RUNTIME_MISMATCH",
+            "Frozen algorithm descriptor no longer matches the repository registry",
+        )
+    actual_adapter_code = LocalControlledComputeAdapter.code
+    if registered_algorithm.get("adapter_code") != actual_adapter_code:
+        raise SnapshotIntegrityError(
+            "ALGORITHM_ADAPTER_RUNTIME_MISMATCH",
+            "Frozen algorithm adapter does not match the runtime compute adapter",
+        )
+
+    frozen_refs = {
+        str(item.get("upload_id")): item
+        for item in canonical_data_refs
+        if isinstance(item, dict) and item.get("upload_id")
+    }
+    supplied_ids = {item.upload_id for item in uploads}
+    if set(frozen_refs) != supplied_ids:
+        raise SnapshotIntegrityError(
+            "FROZEN_INPUT_SET_MISMATCH",
+            "Execution inputs do not exactly match the frozen snapshot",
+        )
+    for upload in uploads:
+        frozen = frozen_refs[upload.upload_id]
+        expected = {
+            "asset_type": upload.asset_type,
+            "owner_org_id": upload.owner_org_id,
+            "trade_batch_no": upload.trade_batch_no,
+            "data_hash": upload.data_hash,
+            "commitment": upload.commitment,
+            "schema_version": upload.schema_version,
+            "validation_status": upload.validation_status,
+        }
+        if any(frozen.get(key) != value for key, value in expected.items()):
+            raise SnapshotIntegrityError(
+                "FROZEN_INPUT_METADATA_MISMATCH",
+                f"Frozen input metadata mismatch for {upload.upload_id}",
+            )
+        identity = db.scalar(
+            select(DidIdentity)
+            .where(
+                DidIdentity.owner_id == upload.owner_org_id,
+                DidIdentity.owner_type == "ORG",
+            )
+            .order_by(DidIdentity.created_at.desc())
+        )
+        if identity is None:
+            raise ValueError(f"Input owner DID is missing for {upload.upload_id}")
+        verify_active_identity(db, identity.did_id)
+        signature = db.scalar(
+            select(Signature)
+            .where(
+                Signature.target_type == "DATA_UPLOAD",
+                Signature.target_id == upload.upload_id,
+                Signature.target_hash == upload.data_hash,
+                Signature.signer_org_id == upload.owner_org_id,
+                Signature.signer_did == identity.did_id,
+                Signature.verify_status == "VALID",
+            )
+            .order_by(Signature.created_at.desc())
+        )
+        if signature is None or signature.signature_value != upload.signature_value:
+            raise ValueError(f"Verified input signature is missing for {upload.upload_id}")
+        valid_signature = verify_signature(
+            {"upload_id": upload.upload_id, "data_hash": upload.data_hash},
+            signature.signature_value,
+            identity.did_id,
+        ) or verify_signature(
+            {"data_hash": upload.data_hash},
+            signature.signature_value,
+            identity.did_id,
+        )
+        if not valid_signature:
+            raise ValueError(f"Input signature mismatch for {upload.upload_id}")
+
+
+def _active_did_for_owner(db: Session, owner_id: str) -> str:
+    identity = db.scalar(
+        select(DidIdentity)
+        .where(DidIdentity.owner_id == owner_id)
+        .order_by(DidIdentity.created_at.desc())
+    )
+    if identity is None:
+        raise ValueError(f"DID/VC verification failed for {owner_id}")
+    return verify_active_identity(db, identity.did_id).did_id
+
+
+def ensure_data_capsule(db: Session, task: SettlementTask) -> DataCapsule:
+    capsule = db.get(DataCapsule, task.capsule_id)
+    if capsule is not None:
+        return capsule
+    payload = {
+        "capsule_id": task.capsule_id,
+        "task_id": task.task_id,
+        "owner_org_id": task.creator_org_id,
+        "purpose": "POWER_SETTLEMENT",
+        "sensitivity_level": "L4",
+    }
+    capsule = DataCapsule(
+        capsule_id=task.capsule_id,
+        task_id=task.task_id,
+        owner_org_id=task.creator_org_id,
+        purpose="POWER_SETTLEMENT",
+        sensitivity_level="L4",
+        asset_version_refs_json=[],
+        policy_version_refs_json=[],
+        contract_refs_json=[],
+        status=task.ttc_state,
+        capsule_hash=sha256_json(payload),
+    )
+    db.add(capsule)
+    db.flush()
+    return capsule
+
+
+def _authoritative_attempt(db: Session, task: SettlementTask) -> TtcAttempt | None:
+    """Resolve the task's declared current Attempt, never a historical latest row."""
+
+    attempt_no = int(getattr(task, "current_attempt", 0) or 0)
+    if attempt_no < 1:
+        return None
+    return db.scalar(
+        select(TtcAttempt).where(
+            TtcAttempt.task_id == task.task_id,
+            TtcAttempt.attempt_no == attempt_no,
+        )
+    )
+
+
+def task_summary(
+    db: Session,
+    task: SettlementTask,
+    viewer: User | None = None,
+) -> dict[str, Any]:
+    authoritative_attempt = _authoritative_attempt(db, task)
+    current_attempt_id = (
+        authoritative_attempt.attempt_id if authoritative_attempt is not None else None
+    )
     participants = db.scalars(
         select(TaskParticipant).where(TaskParticipant.task_id == task.task_id)
     ).all()
@@ -144,9 +368,16 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
                 ),
             }
         )
-    results = db.scalars(
-        select(SettlementResult).where(SettlementResult.task_id == task.task_id)
-    ).all()
+    results = (
+        db.scalars(
+            select(SettlementResult).where(
+                SettlementResult.task_id == task.task_id,
+                SettlementResult.attempt_id == current_attempt_id,
+            )
+        ).all()
+        if current_attempt_id is not None
+        else []
+    )
     summary_result = next((item for item in results if item.result_scope == "SUMMARY"), None)
     scoped_results = [item for item in results if item.result_scope == "ORG"]
     confirmed_results = [item for item in scoped_results if item.confirm_status == "CONFIRMED"]
@@ -158,15 +389,29 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
     authorized_agreements = [
         item for item in agreements if item.state in {"NEGOTIATED", "ACTIVE", "CONSUMED"}
     ]
-    latest_job = db.scalar(
-        select(PrivacyComputeJob)
-        .where(PrivacyComputeJob.task_id == task.task_id)
-        .order_by(PrivacyComputeJob.created_at.desc())
+    latest_job = (
+        db.scalar(
+            select(PrivacyComputeJob)
+            .where(
+                PrivacyComputeJob.task_id == task.task_id,
+                PrivacyComputeJob.attempt_id == current_attempt_id,
+            )
+            .order_by(PrivacyComputeJob.created_at.desc())
+        )
+        if current_attempt_id is not None
+        else None
     )
-    latest_report = db.scalar(
-        select(AuditReport)
-        .where(AuditReport.task_id == task.task_id)
-        .order_by(AuditReport.created_at.desc())
+    latest_report = (
+        db.scalar(
+            select(AuditReport)
+            .where(
+                AuditReport.task_id == task.task_id,
+                AuditReport.attempt_id == current_attempt_id,
+            )
+            .order_by(AuditReport.created_at.desc())
+        )
+        if current_attempt_id is not None
+        else None
     )
     rule = db.get(SettlementRule, task.rule_id)
     if rule is None:
@@ -191,9 +436,166 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
         )
     ) or 0
     task_payload = model_dict(task)
-    if task.status == "DRAFT" and not preflight_blockers:
+    ttc_state_value = str(getattr(task, "ttc_state", "INIT") or "INIT")
+    if (
+        task.status == "DRAFT"
+        and ttc_state_value == TTCState.INIT.value
+        and not preflight_blockers
+    ):
         task_payload["status"] = "READY"
         task_payload["current_stage"] = "待启动结算"
+    effective_status = str(task_payload["status"])
+    viewer_role = viewer.role_code if viewer is not None else None
+    viewer_org_id = viewer.org_id if viewer is not None else None
+    own_result = next(
+        (item for item in scoped_results if item.org_id == viewer_org_id),
+        None,
+    )
+    hard_blockers = list(preflight_blockers)
+    if open_anomaly_count:
+        hard_blockers.append(f"仍有 {open_anomaly_count} 个风险事件待处置")
+    if effective_status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and not hard_blockers:
+        if (
+            viewer_role in {"GENERATOR", "RETAILER"}
+            and own_result is not None
+            and own_result.confirm_status != "CONFIRMED"
+        ):
+            allowed_actions = ["CONFIRM_OWN_RESULT"]
+            next_action = {
+                "code": "CONFIRM_OWN_RESULT",
+                "label": "确认本方结算结果",
+                "responsible": "发电企业" if viewer_role == "GENERATOR" else "售电企业",
+                "blocked": False,
+                "reasons": [],
+            }
+        else:
+            allowed_actions = []
+            next_action = {
+                "code": "WAIT_FOR_CONFIRMATION",
+                "label": "等待其余参与主体确认",
+                "responsible": "未确认参与方",
+                "blocked": False,
+                "reasons": [],
+            }
+    elif hard_blockers:
+        allowed_actions: list[str] = []
+        next_action = {
+            "code": "RESOLVE_BLOCKING_CONDITIONS",
+            "label": "处理阻断条件",
+            "responsible": "交易中心 / 监管方",
+            "blocked": True,
+            "reasons": hard_blockers,
+        }
+    elif effective_status == "READY":
+        if viewer_role == "EXCHANGE":
+            allowed_actions = ["RUN_SETTLEMENT"]
+            next_action = {
+                "code": "RUN_SETTLEMENT",
+                "label": "启动可信结算",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
+        else:
+            allowed_actions = []
+            next_action = {
+                "code": "WAIT_FOR_RUN",
+                "label": "等待交易中心启动",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
+    elif ttc_state_value == TTCState.FAILED.value or effective_status == "EXCEPTION":
+        if viewer_role == "EXCHANGE":
+            allowed_actions = ["RUN_SETTLEMENT"]
+            next_action = {
+                "code": "RETRY_SETTLEMENT",
+                "label": "复核失败原因后重试",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
+        else:
+            allowed_actions = []
+            next_action = {
+                "code": "WAIT_FOR_FAILURE_REVIEW",
+                "label": "等待交易中心复核失败原因",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
+    elif effective_status == "AUDITED":
+        allowed_actions = []
+        next_action = {
+            "code": "COMPLETE",
+            "label": "可信结算已完成",
+            "responsible": "已完成",
+            "blocked": False,
+            "reasons": [],
+        }
+    elif effective_status == "RUNNING":
+        allowed_actions = []
+        next_action = {
+            "code": "WAIT_FOR_EXECUTION",
+            "label": "可信执行进行中",
+            "responsible": "平台可信执行服务",
+            "blocked": False,
+            "reasons": [],
+        }
+    else:
+        allowed_actions = []
+        next_action = {
+            "code": "COMPLETE_PREFLIGHT",
+            "label": "完成算前准备",
+            "responsible": "数据提供方 / 交易中心",
+            "blocked": False,
+            "reasons": [],
+        }
+
+    from ..trust_models import EvidenceBatch, EvidenceOutbox, TtcStateTransition
+
+    attempts = db.scalars(
+        select(TtcAttempt).where(TtcAttempt.task_id == task.task_id)
+    ).all()
+    attempt_numbers = {item.attempt_id: item.attempt_no for item in attempts}
+
+    persisted_transitions = db.scalars(
+        select(TtcStateTransition)
+        .where(TtcStateTransition.task_id == task.task_id)
+        .order_by(TtcStateTransition.occurred_at, TtcStateTransition.sequence_no)
+    ).all()
+    trusted_chain = [
+        {
+            "attempt_id": item.attempt_id,
+            "attempt_no": attempt_numbers.get(item.attempt_id),
+            "sequence_no": item.sequence_no,
+            "from_state": item.from_state,
+            "to_state": item.to_state,
+            "trigger_code": item.trigger_code,
+            "actor_did": item.actor_did,
+            "agent_did": item.agent_did,
+            "reason": item.reason,
+            "trace_id": item.trace_id,
+            "evidence_refs": [],
+            "transition_hash": item.transition_hash,
+            "occurred_at": item.occurred_at.isoformat(),
+        }
+        for item in persisted_transitions
+    ]
+    latest_evidence_batch = db.scalar(
+        select(EvidenceBatch)
+        .where(EvidenceBatch.task_id == task.task_id)
+        .order_by(EvidenceBatch.sealed_at.desc())
+    )
+    latest_evidence_outbox = (
+        db.scalar(
+            select(EvidenceOutbox).where(
+                EvidenceOutbox.batch_id == latest_evidence_batch.batch_id
+            )
+        )
+        if latest_evidence_batch
+        else None
+    )
     return {
         **task_payload,
         "verification_profile": task.verification_profile_json or {},
@@ -252,9 +654,37 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
             else None
         ),
         "blocking_conditions": blocking_conditions,
+        "allowed_actions": allowed_actions,
+        "next_action": next_action,
+        "ttc": {
+            "capsule_id": task.capsule_id,
+            "state": task.ttc_state,
+            "state_version": task.state_version,
+            "current_attempt": task.current_attempt,
+            "execution_snapshot_id": task.execution_snapshot_id,
+            "execution_snapshot_hash": task.execution_snapshot_hash,
+            "authoritative": ttc_state_value != "LEGACY_UNMIGRATED",
+            "migration_required": ttc_state_value == "LEGACY_UNMIGRATED",
+        },
+        "trusted_chain": trusted_chain,
         "open_anomaly_count": open_anomaly_count,
         "result_count": len(results),
         "evidence_count": evidence_count,
+        "formal_evidence": (
+            {
+                "batch_id": latest_evidence_batch.batch_id,
+                "batch_type": latest_evidence_batch.batch_type,
+                "merkle_root": latest_evidence_batch.merkle_root,
+                "leaf_count": latest_evidence_batch.leaf_count,
+                "batch_status": latest_evidence_batch.status,
+                "outbox_status": (
+                    latest_evidence_outbox.status if latest_evidence_outbox else None
+                ),
+                "anchor_capability": "DEMO_NO_CONSENSUS",
+            }
+            if latest_evidence_batch
+            else None
+        ),
         "agent_event_count": db.scalar(
             select(func.count(AgentEvent.event_id)).where(AgentEvent.task_id == task.task_id)
         ) or 0,
@@ -265,27 +695,56 @@ def task_summary(db: Session, task: SettlementTask) -> dict[str, Any]:
     }
 
 
-def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
+def workflow_bundle(
+    db: Session,
+    task: SettlementTask,
+    viewer: User | None = None,
+) -> dict[str, Any]:
     """Return the workflow outcome without ever embedding enterprise raw records."""
-    job = db.scalar(
-        select(PrivacyComputeJob)
-        .where(PrivacyComputeJob.task_id == task.task_id)
-        .order_by(PrivacyComputeJob.created_at.desc())
+    authoritative_attempt = _authoritative_attempt(db, task)
+    current_attempt_id = (
+        authoritative_attempt.attempt_id if authoritative_attempt is not None else None
     )
-    results = db.scalars(
-        select(SettlementResult)
-        .where(SettlementResult.task_id == task.task_id)
-        .order_by(SettlementResult.created_at)
-    ).all()
+    job = (
+        db.scalar(
+            select(PrivacyComputeJob)
+            .where(
+                PrivacyComputeJob.task_id == task.task_id,
+                PrivacyComputeJob.attempt_id == current_attempt_id,
+            )
+            .order_by(PrivacyComputeJob.created_at.desc())
+        )
+        if current_attempt_id is not None
+        else None
+    )
+    results = (
+        db.scalars(
+            select(SettlementResult)
+            .where(
+                SettlementResult.task_id == task.task_id,
+                SettlementResult.attempt_id == current_attempt_id,
+            )
+            .order_by(SettlementResult.created_at)
+        ).all()
+        if current_attempt_id is not None
+        else []
+    )
     evidence = db.scalars(
         select(BlockchainEvidence)
         .where(BlockchainEvidence.task_id == task.task_id)
         .order_by(BlockchainEvidence.block_height)
     ).all()
-    report = db.scalar(
-        select(AuditReport)
-        .where(AuditReport.task_id == task.task_id)
-        .order_by(AuditReport.created_at.desc())
+    report = (
+        db.scalar(
+            select(AuditReport)
+            .where(
+                AuditReport.task_id == task.task_id,
+                AuditReport.attempt_id == current_attempt_id,
+            )
+            .order_by(AuditReport.created_at.desc())
+        )
+        if current_attempt_id is not None
+        else None
     )
     agreements = db.scalars(
         select(DataSpaceAgreement)
@@ -299,7 +758,7 @@ def workflow_bundle(db: Session, task: SettlementTask) -> dict[str, Any]:
     if report_payload is not None:
         report_payload["conclusion"] = "PASS" if report.risk_level == "LOW" else "REVIEW_REQUIRED"
     return {
-        "task": task_summary(db, task),
+        "task": task_summary(db, task, viewer),
         "compute_job": job_payload,
         "results": [model_dict(item) for item in results],
         "evidence": [model_dict(item) for item in evidence],
@@ -327,6 +786,8 @@ def run_settlement_workflow(
     actor: User | None,
     compute_mode: str = "LOCAL_CONTROLLED",
     algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
+    request_idempotency_key: str | None = None,
+    request_fingerprint: str | None = None,
     commit: bool = True,
 ) -> dict[str, Any]:
     task = db.get(SettlementTask, task_id)
@@ -335,11 +796,37 @@ def run_settlement_workflow(
     if actor and not _scoped_task_allowed(db, task, actor):
         raise PermissionError("Task is outside the current user's scope")
     if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"}:
-        return workflow_bundle(db, task)
+        return workflow_bundle(db, task, actor)
     if task.status == "RUNNING":
         raise ValueError("Settlement task is already running")
 
+    required_agent_tools = (
+        ("ORCHESTRATOR", "WorkflowEngine"),
+        ("DATA_ACCESS", "EDCAdapter+OPAAdapter"),
+        ("RULE_CONTRACT", "RuleRAG+DSLValidator+SigningGate"),
+        ("AUDIT_RISK", "GridBoundaryAdapter+SecurityGate"),
+        (
+            "SECURE_SETTLEMENT",
+            "CommitmentJoin+LocalControlledCompute+DeterministicEngine",
+        ),
+        ("AUDIT_RISK", "EvidenceGraph+LocalEvidenceLedger+RiskRuleEngine"),
+        ("REPORT_EXPLAIN", "ReportTemplate+CitationRAG+CredentialService"),
+    )
+    authorized_tools = {
+        (agent_code, tool_name): _authorize_agent_operation(
+            db,
+            task_id=task.task_id,
+            agent_code=agent_code,
+            tool_name=tool_name,
+        )
+        for agent_code, tool_name in required_agent_tools
+    }
+
     run_trace = trace_id()
+    actor_did = _active_did_for_owner(
+        db,
+        actor.org_id if actor is not None else task.creator_org_id,
+    )
     rule = db.get(SettlementRule, task.rule_id)
     if rule is None or rule.status != "ACTIVE":
         raise ValueError("Task must bind an active RulePackage")
@@ -350,9 +837,61 @@ def run_settlement_workflow(
         raise ValueError("Settlement requires generator and retailer participants")
     orgs = {item.org_id: db.get(Organization, item.org_id) for item in participants}
 
+    identity_proofs = [IdentityCredentialAdapter.verify_owner(db, item.org_id) for item in participants]
+    for proof in identity_proofs:
+        verify_active_identity(db, str(proof["did"]))
+    ensure_data_capsule(db, task)
+    current_ttc_state = TTCState(task.ttc_state)
+    if current_ttc_state == TTCState.FAILED:
+        TtcStateMachine.transition(
+            db,
+            task,
+            TTCState.REWORK,
+            actor_did,
+            "RETRY_REQUESTED",
+            "Authorized operator requested a new immutable execution attempt",
+            agent_did="did:hiddenchain:agent:orchestrator",
+            trace_id=run_trace,
+        )
+    elif current_ttc_state == TTCState.INIT:
+        TtcStateMachine.transition(
+            db,
+            task,
+            TTCState.IDENTITY_VERIFIED,
+            actor_did,
+            "IDENTITY_GATE_PASSED",
+            "All task participant and operator DID records are active",
+            agent_did="did:hiddenchain:agent:orchestrator",
+            trace_id=run_trace,
+        )
+    elif current_ttc_state not in {
+        TTCState.IDENTITY_VERIFIED,
+        TTCState.DATA_AUTHORIZED,
+        TTCState.RULE_FROZEN,
+        TTCState.REWORK,
+    }:
+        raise ValueError(f"TTC state does not permit execution: {task.ttc_state}")
+
     task.status = "RUNNING"
     task.current_stage = "身份认证与任务编排"
-    identity_proofs = [IdentityCredentialAdapter.verify_owner(db, item.org_id) for item in participants]
+    active_attempt = db.scalar(
+        select(TtcAttempt)
+        .where(TtcAttempt.task_id == task.task_id)
+        .order_by(TtcAttempt.attempt_no.desc())
+    )
+    if (
+        request_idempotency_key
+        and active_attempt is not None
+        and active_attempt.status == "ACTIVE"
+    ):
+        if active_attempt.request_idempotency_key not in {
+            None,
+            request_idempotency_key,
+        }:
+            raise ValueError("TTC attempt already uses another Idempotency-Key")
+        active_attempt.request_idempotency_key = request_idempotency_key
+        if hasattr(active_attempt, "request_fingerprint"):
+            active_attempt.request_fingerprint = request_fingerprint
     orchestrator = _agent_definition("ORCHESTRATOR")
     capability = IdentityCredentialAdapter.issue_capability(
         orchestrator["did"], orchestrator["tools"], task.capsule_id
@@ -373,7 +912,12 @@ def run_settlement_workflow(
         input_value={"request": "POWER_SETTLEMENT", "task_id": task.task_id},
         output_value=task_context,
         details={"capability_token": capability, "dag": [item["code"] for item in AGENT_DEFINITIONS]},
+        authorized_permission=authorized_tools[("ORCHESTRATOR", "WorkflowEngine")],
     )
+    if commit:
+        # Persist the Attempt and identity gate before touching the execution
+        # plane so a later failure remains auditable after rollback.
+        db.commit()
 
     uploads_by_role: dict[str, DataUpload] = {}
     scenario_uploads: dict[str, DataUpload] = {}
@@ -517,6 +1061,18 @@ def run_settlement_workflow(
             f"Usage control denied before compute: {', '.join(denied.get('reasons', []))}"
         )
 
+    if TTCState(task.ttc_state) == TTCState.IDENTITY_VERIFIED:
+        TtcStateMachine.transition(
+            db,
+            task,
+            TTCState.DATA_AUTHORIZED,
+            actor_did,
+            "DATA_AUTHORIZATION_PASSED",
+            "Active contracts and usage-control decisions permit aggregate settlement",
+            agent_did="did:hiddenchain:agent:data-access",
+            trace_id=run_trace,
+        )
+
     data_permit = {
         "capsule_id": task.capsule_id,
         "protocol_version": DataSpaceConnectorAdapter.protocol_version,
@@ -556,6 +1112,7 @@ def run_settlement_workflow(
             "policy_decisions": policy_decisions,
             "usage_control": "PEP_PDP_ENFORCED",
         },
+        authorized_permission=authorized_tools[("DATA_ACCESS", "EDCAdapter+OPAAdapter")],
     )
 
     rule_package = RulePackageAdapter.build(rule)
@@ -572,7 +1129,43 @@ def run_settlement_workflow(
             "human_gate": "approved",
             "source_refs": rule.source_refs_json,
         },
+        authorized_permission=authorized_tools[
+            ("RULE_CONTRACT", "RuleRAG+DSLValidator+SigningGate")
+        ],
     )
+
+    registered_algorithm = AlgorithmRegistry.execution_descriptor(algorithm_code)
+    snapshot = ExecutionSnapshotService.freeze(
+        db,
+        task,
+        rule,
+        contracts,
+        [*uploads_by_role.values(), *scenario_uploads.values()],
+        registered_algorithm,
+        actor_did,
+        run_trace,
+    )
+    task.execution_snapshot_id = snapshot.snapshot_id
+    task.execution_snapshot_hash = snapshot.snapshot_hash
+    snapshot_attempt = db.get(TtcAttempt, snapshot.attempt_id)
+    if request_idempotency_key and snapshot_attempt is not None:
+        if snapshot_attempt.request_idempotency_key not in {
+            None,
+            request_idempotency_key,
+        }:
+            raise ValueError("TTC attempt already uses another Idempotency-Key")
+        snapshot_attempt.request_idempotency_key = request_idempotency_key
+        if hasattr(snapshot_attempt, "request_fingerprint"):
+            snapshot_attempt.request_fingerprint = request_fingerprint
+    capsule = ensure_data_capsule(db, task)
+    capsule.contract_refs_json = [item.contract_id for item in contracts]
+    capsule.asset_version_refs_json = [item.upload_id for item in [*uploads_by_role.values(), *scenario_uploads.values()]]
+    capsule.policy_version_refs_json = [item.policy_hash for item in contracts]
+    if commit:
+        # Rule Freeze is the execution-plane boundary.  Committing it before
+        # compute guarantees a failed calculation cannot erase its Attempt,
+        # authorizations, or immutable snapshot.
+        db.commit()
 
     chain = LocalEvidenceLedgerAdapter()
     pre_evidence = chain.anchor(
@@ -610,9 +1203,28 @@ def run_settlement_workflow(
         input_value={"trade_batch_no": task.trade_batch_no, "data_permit": data_permit},
         output_value=grid_gate_context,
         details={"gate_status": "ARMED", "raw_boundary_accessed_by_agent": False},
+        authorized_permission=authorized_tools[
+            ("AUDIT_RISK", "GridBoundaryAdapter+SecurityGate")
+        ],
     )
 
+    _verify_frozen_compute_inputs(
+        db,
+        snapshot,
+        [*uploads_by_role.values(), *scenario_uploads.values()],
+    )
     task.current_stage = "隐私计算与场景结果生成"
+    TtcStateMachine.transition(
+        db,
+        task,
+        TTCState.COMPUTE_EXEC,
+        actor_did,
+        "COMPUTE_STARTED",
+        "Frozen rule, policy, contract, data, algorithm, parameter and unit references accepted",
+        agent_did="did:hiddenchain:agent:secure-settlement",
+        trace_id=run_trace,
+        attempt_id=snapshot.attempt_id,
+    )
     compute_strategy = AdaptivePrivacyRouter.recommend(
         "MARKET_SETTLEMENT",
         sensitivity_level="L4",
@@ -631,6 +1243,8 @@ def run_settlement_workflow(
             "Input commitments loaded for participant-period matching",
             f"Execution plan recorded: {compute_strategy['primary']}",
         ],
+        attempt_id=snapshot.attempt_id,
+        execution_snapshot_id=snapshot.snapshot_id,
     )
     db.add(job)
     db.flush()
@@ -691,6 +1305,7 @@ def run_settlement_workflow(
 
     summary_result = SettlementResult(
         task_id=task.task_id,
+        attempt_id=snapshot.attempt_id,
         org_id=None,
         result_scope="SUMMARY",
         result_json=result_value,
@@ -711,6 +1326,7 @@ def run_settlement_workflow(
         }
         scoped_result = SettlementResult(
             task_id=task.task_id,
+            attempt_id=snapshot.attempt_id,
             org_id=participant.org_id,
             result_scope="ORG",
             result_json=role_result,
@@ -719,6 +1335,18 @@ def run_settlement_workflow(
         )
         db.add(scoped_result)
         participant.confirm_status = "PENDING"
+
+    TtcStateMachine.transition(
+        db,
+        task,
+        TTCState.RESULT_CONFIRM,
+        actor_did,
+        "COMPUTE_RESULT_PERSISTED",
+        "Deterministic aggregate result and scoped confirmation records were persisted",
+        agent_did="did:hiddenchain:agent:secure-settlement",
+        trace_id=run_trace,
+        attempt_id=snapshot.attempt_id,
+    )
 
     _agent_event(
         db,
@@ -734,6 +1362,12 @@ def run_settlement_workflow(
             "logs": compute_logs,
             "data_space": receipt["data_space"],
         },
+        authorized_permission=authorized_tools[
+            (
+                "SECURE_SETTLEMENT",
+                "CommitmentJoin+LocalControlledCompute+DeterministicEngine",
+            )
+        ],
     )
     during_evidence = chain.anchor(
         db,
@@ -807,6 +1441,9 @@ def run_settlement_workflow(
         input_value={"evidence_ids": [item.evidence_id for item in evidence_items]},
         output_value=audit_bundle,
         details={"checks": verification, "raw_data_accessed": False},
+        authorized_permission=authorized_tools[
+            ("AUDIT_RISK", "EvidenceGraph+LocalEvidenceLedger+RiskRuleEngine")
+        ],
     )
 
     report_content = (
@@ -825,6 +1462,7 @@ def run_settlement_workflow(
     report_hash = sha256_json({"content": report_content, "audit_bundle": audit_bundle})
     report = AuditReport(
         task_id=task.task_id,
+        attempt_id=snapshot.attempt_id,
         template_code="REGULATORY_AUDIT_V1",
         report_title=f"{task.task_name}全过程可信审计报告",
         report_content=report_content,
@@ -852,6 +1490,9 @@ def run_settlement_workflow(
         input_value=audit_bundle,
         output_value={"report_id": report.report_id, "report_hash": report_hash},
         details={"citation_count": len(evidence_items), "chain_evidence_id": report_evidence.evidence_id},
+        authorized_permission=authorized_tools[
+            ("REPORT_EXPLAIN", "ReportTemplate+CitationRAG+CredentialService")
+        ],
     )
 
     task.status = "PENDING_CONFIRMATION"
@@ -921,7 +1562,7 @@ def run_settlement_workflow(
             result_hash=summary_result.result_hash,
             trace_id_value=run_trace,
         )
-    return workflow_bundle(db, task)
+    return workflow_bundle(db, task, actor)
 
 
 def emit_settlement_lineage(
@@ -959,16 +1600,23 @@ def emit_settlement_lineage(
 
 
 def create_audit_report(db: Session, task_id: str, template_code: str) -> AuditReport:
+    task = db.get(SettlementTask, task_id)
+    if task is None:
+        raise ValueError("Settlement task not found")
+    attempt = _authoritative_attempt(db, task)
+    if attempt is None:
+        raise ValueError("Current TTC attempt not found")
     existing = db.scalar(
         select(AuditReport)
-        .where(AuditReport.task_id == task_id, AuditReport.template_code == template_code)
+        .where(
+            AuditReport.task_id == task_id,
+            AuditReport.attempt_id == attempt.attempt_id,
+            AuditReport.template_code == template_code,
+        )
         .order_by(AuditReport.created_at.desc())
     )
     if existing:
         return existing
-    task = db.get(SettlementTask, task_id)
-    if task is None:
-        raise ValueError("Settlement task not found")
     evidences = db.scalars(
         select(BlockchainEvidence).where(BlockchainEvidence.task_id == task_id)
     ).all()
@@ -981,6 +1629,7 @@ def create_audit_report(db: Session, task_id: str, template_code: str) -> AuditR
     )
     report = AuditReport(
         task_id=task_id,
+        attempt_id=attempt.attempt_id,
         template_code=template_code,
         report_title=f"{task.task_name}补充审计报告",
         report_content=content,
@@ -1114,6 +1763,13 @@ def invoke_deepseek_agent(
     except StopIteration as exc:
         raise ValueError("Agent definition not found") from exc
 
+    deepseek_permission = _authorize_agent_operation(
+        db,
+        task_id=task_id,
+        agent_code=agent_code,
+        tool_name="DeepSeekChatCompletions",
+    )
+
     evidences = db.scalars(
         select(BlockchainEvidence)
         .where(BlockchainEvidence.task_id == task_id)
@@ -1171,6 +1827,7 @@ def invoke_deepseek_agent(
             "confidence": result["confidence"],
             "raw_data_accessed": False,
         },
+        authorized_permission=deepseek_permission,
     )
     result["event_id"] = event.event_id
     result["sequence_no"] = event.sequence_no
@@ -1218,6 +1875,12 @@ def answer_audit_question(db: Session, task_id: str, question: str) -> dict[str,
     task = db.get(SettlementTask, task_id)
     if task is None:
         raise ValueError("Settlement task not found")
+    deepseek_permission = _authorize_agent_operation(
+        db,
+        task_id=task_id,
+        agent_code="AUDIT_RISK",
+        tool_name="DeepSeekChatCompletions",
+    )
     evidences = db.scalars(
         select(BlockchainEvidence)
         .where(BlockchainEvidence.task_id == task_id)
@@ -1265,10 +1928,17 @@ def answer_audit_question(db: Session, task_id: str, question: str) -> dict[str,
                 "citation_count": len(answer["citations"]),
                 "raw_data_accessed": False,
             },
+            authorized_permission=deepseek_permission,
         )
         return answer
     except DeepSeekUnavailable as exc:
         fallback_reason = str(exc)
+        fallback_permission = _authorize_agent_operation(
+            db,
+            task_id=task_id,
+            agent_code="AUDIT_RISK",
+            tool_name="TemplateAuditFallback",
+        )
         answer = _template_audit_answer(db, task, evidences, signatures, question)
         _agent_event(
             db,
@@ -1286,6 +1956,7 @@ def answer_audit_question(db: Session, task_id: str, question: str) -> dict[str,
                 "citation_count": len(answer["citations"]),
                 "raw_data_accessed": False,
             },
+            authorized_permission=fallback_permission,
         )
         return answer
 

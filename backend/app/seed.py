@@ -11,6 +11,7 @@ from .models import (
     Organization,
     SettlementRule,
     SettlementTask,
+    Signature,
     TaskParticipant,
     User,
 )
@@ -18,6 +19,8 @@ from .security import hash_password, sha256_json, sign_value
 from .services.adapters import AGENT_DEFINITIONS
 from .services.vault import LocalDomainVault
 from .services.workflow import run_settlement_workflow
+from .services.tool_catalog import ensure_agent_tool_catalog
+from .services.asset_registry import project_upload_to_asset_registry
 
 
 ORGS = [
@@ -48,6 +51,8 @@ def _seed_upload(
     trade_batch_no: str = "TB-2026-06-001",
 ) -> DataUpload:
     data_ref, data_hash, commitment = LocalDomainVault.write(owner_org_id, upload_id, payload)
+    signer_did = f"did:hiddenchain:org:{owner_org_id}"
+    signature_value = sign_value({"data_hash": data_hash}, signer_did)
     upload = DataUpload(
         upload_id=upload_id,
         asset_type=asset_type,
@@ -59,7 +64,7 @@ def _seed_upload(
         commitment=commitment,
         schema_version="v1.0",
         validation_status="PASSED",
-        signature_value=sign_value({"data_hash": data_hash}, f"did:hiddenchain:org:{owner_org_id}"),
+        signature_value=signature_value,
         ingress_json={
             "source_type": "SIMULATION_EDGE_GATEWAY",
             "protocol": "HTTPS",
@@ -76,6 +81,19 @@ def _seed_upload(
         },
     )
     db.add(upload)
+    db.add(
+        Signature(
+            signer_org_id=owner_org_id,
+            signer_did=signer_did,
+            target_type="DATA_UPLOAD",
+            target_id=upload_id,
+            target_hash=data_hash,
+            signature_value=signature_value,
+            verify_status="VALID",
+        )
+    )
+    db.flush()
+    project_upload_to_asset_registry(db, upload)
     return upload
 
 
@@ -93,6 +111,9 @@ def seed_test_fixtures(db: Session) -> None:
                 status="ACTIVE",
             )
         )
+        # Explicit ordering is required when SQLite foreign-key enforcement is
+        # enabled because these models intentionally have no ORM relationship.
+        db.flush()
         credential = {
             "type": ["VerifiableCredential", "EnergyMarketParticipantCredential"],
             "issuer": "did:hiddenchain:regulator:test",
@@ -141,6 +162,9 @@ def seed_test_fixtures(db: Session) -> None:
                 },
             )
         )
+
+    db.flush()
+    ensure_agent_tool_catalog(db)
 
     rule_parameters = {
         "contract_price": 420.0,

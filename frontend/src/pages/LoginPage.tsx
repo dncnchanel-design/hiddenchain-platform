@@ -16,7 +16,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
   const product = useProductConfig();
-  const version = import.meta.env.VITE_APP_VERSION || "0.1.0";
+  const version = import.meta.env.VITE_APP_VERSION || "0.2.0";
   const footerItems = productFooterItems(product, version);
 
   function detectCapsLock(event: KeyboardEvent<HTMLInputElement>) {

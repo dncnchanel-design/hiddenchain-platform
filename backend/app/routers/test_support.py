@@ -24,6 +24,7 @@ from ..test_schemas import AnomalyInjectCreate, SettlementImportFile
 from ..security import sha256_json, sign_value
 from ..services.common import add_audit_log, model_dict, trace_id
 from ..services.vault import LocalDomainVault
+from ..services.asset_registry import project_upload_to_asset_registry
 from ..services.workflow import emit_settlement_lineage, run_privacy_analysis, run_settlement_workflow, task_summary
 
 
@@ -179,6 +180,7 @@ def import_and_run_settlement(
             )
         )
         uploaded.append(record)
+        project_upload_to_asset_registry(db, record)
 
     db.flush()
     task_payload = payload.business_validation_request

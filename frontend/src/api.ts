@@ -1,10 +1,42 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
-type ApiRequestInit = RequestInit & {
+export type ApiResponseMetadata = {
+  status: number;
+  traceId?: string;
+  requestId?: string;
+  etag?: string;
+  idempotencyReplayed: boolean;
+};
+
+export type ApiRequestInit = RequestInit & {
   cacheTtlMs?: number;
   retry?: number;
   timeoutMs?: number;
+  idempotencyKey?: string;
+  ifMatch?: string;
+  onResponseMetadata?: (metadata: ApiResponseMetadata) => void;
 };
+
+export type ApiCommandOptions = Omit<ApiRequestInit, "body" | "method">;
+
+export type IdempotencyKeyRecord = {
+  fingerprint: string;
+  key: string;
+};
+
+export function createIdempotencyKey(scope: string): string {
+  const normalizedScope = scope.replace(/[^a-zA-Z0-9:_-]/g, "-").slice(0, 40) || "command";
+  return `${normalizedScope}:${globalThis.crypto.randomUUID()}`.slice(0, 128);
+}
+
+export function prepareIdempotencyKey(
+  previous: IdempotencyKeyRecord | null | undefined,
+  scope: string,
+  fingerprint: string,
+): IdempotencyKeyRecord {
+  if (previous?.fingerprint === fingerprint) return previous;
+  return { fingerprint, key: createIdempotencyKey(scope) };
+}
 
 type CachedResponse = {
   expiresAt: number;
@@ -92,10 +124,20 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
     if (inFlight) return inFlight as Promise<T>;
   }
 
-  const { cacheTtlMs: _cacheTtlMs, retry: _retry, timeoutMs: _timeoutMs, ...requestOptions } = options;
+  const {
+    cacheTtlMs: _cacheTtlMs,
+    retry: _retry,
+    timeoutMs: _timeoutMs,
+    idempotencyKey: _idempotencyKey,
+    ifMatch: _ifMatch,
+    onResponseMetadata: _onResponseMetadata,
+    ...requestOptions
+  } = options;
   const headers = new Headers(requestOptions.headers);
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
+  if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
 
   const request = (async () => {
     const retries = isGet ? Math.max(0, options.retry ?? 1) : 0;
@@ -108,6 +150,16 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
       else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
       try {
         const response = await fetch(`${API_BASE}${path}`, { ...requestOptions, headers, signal: controller.signal });
+        const traceId = response.headers.get("x-trace-id") || undefined;
+        const requestId = response.headers.get("x-request-id") || undefined;
+        const replayedHeader = response.headers.get("Idempotency-Replayed");
+        options.onResponseMetadata?.({
+          status: response.status,
+          traceId,
+          requestId,
+          etag: response.headers.get("etag") || undefined,
+          idempotencyReplayed: replayedHeader === "true" || replayedHeader === "1",
+        });
         if (!response.ok) {
           if (attempt < retries && isRetryableStatus(response.status)) {
             await wait(180 * (attempt + 1));
@@ -119,10 +171,19 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
           } catch {
             body = {};
           }
-          const traceId = response.headers.get("x-trace-id") || response.headers.get("x-request-id") || (typeof body.trace_id === "string" ? body.trace_id : undefined);
-          const message = safeErrorMessage(body.detail || body.message, response.status);
+          const errorTraceId = traceId || requestId || (typeof body.trace_id === "string" ? body.trace_id : undefined);
+          const detail = body.detail;
+          const nestedDetailMessage = detail && typeof detail === "object" && !Array.isArray(detail)
+            ? (detail as Record<string, unknown>).message
+            : undefined;
+          const errorValue = typeof detail === "string"
+            ? detail
+            : typeof nestedDetailMessage === "string"
+              ? nestedDetailMessage
+              : body.message;
+          const message = safeErrorMessage(errorValue, response.status);
           if (response.status === 401) window.dispatchEvent(new Event("hiddenchain:unauthorized"));
-          throw new ApiError(message, response.status, traceId || undefined);
+          throw new ApiError(message, response.status, errorTraceId);
         }
         if (response.status === 204) return undefined as T;
         const value = await response.json() as T;
@@ -163,8 +224,8 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
   }
 }
 
-export function post<T>(path: string, body: unknown): Promise<T> {
-  return api<T>(path, { method: "POST", body: JSON.stringify(body) }).then((value) => {
+export function post<T>(path: string, body: unknown, options: ApiCommandOptions = {}): Promise<T> {
+  return api<T>(path, { ...options, method: "POST", body: JSON.stringify(body) }).then((value) => {
     invalidateApiCache();
     return value;
   });

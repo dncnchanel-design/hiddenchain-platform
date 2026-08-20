@@ -18,6 +18,87 @@ export interface SessionPayload {
   field_scopes: Record<string, string>;
 }
 
+export const TTC_NORMAL_STATES = [
+  "INIT",
+  "IDENTITY_VERIFIED",
+  "DATA_AUTHORIZED",
+  "RULE_FROZEN",
+  "COMPUTE_EXEC",
+  "RESULT_CONFIRM",
+  "AUDIT_GATE",
+  "EVIDENCE_STAGE",
+  "EVIDENCE_ANCHOR",
+  "ARCHIVED",
+] as const;
+
+export const TTC_ABNORMAL_STATES = [
+  "REJECTED",
+  "FAILED",
+  "INTERRUPTED",
+  "REWORK",
+  "HUMAN_REVIEW",
+  "ANCHOR_RETRY",
+  "CANCELLED",
+  "EXPIRED",
+] as const;
+
+export type NormalTtcState = (typeof TTC_NORMAL_STATES)[number];
+export type AbnormalTtcState = (typeof TTC_ABNORMAL_STATES)[number];
+export type TtcState = NormalTtcState | AbnormalTtcState | (string & {});
+
+export interface TtcDescriptor {
+  capsule_id: string | null;
+  state: TtcState;
+  state_version: number;
+  current_attempt: number;
+  execution_snapshot_id: string | null;
+  execution_snapshot_hash: string | null;
+  authoritative: boolean;
+}
+
+export interface TaskNextAction {
+  code: string;
+  label: string;
+  blocked: boolean;
+  reasons: string[];
+  responsible?: string | null;
+}
+
+export interface TrustedTransition {
+  attempt_id: string;
+  attempt_no: number;
+  sequence_no: number;
+  from_state: TtcState | null;
+  to_state: TtcState;
+  trigger_code: string;
+  transition_hash: string;
+  occurred_at: string;
+  actor_did?: string | null;
+  agent_did?: string | null;
+  reason?: string | null;
+  trace_id?: string | null;
+  evidence_refs?: string[];
+}
+
+export type ResultConfirmationDecision = "APPROVE" | "REJECT";
+
+export interface ResultConfirmationCommand {
+  decision: ResultConfirmationDecision;
+  opinion: string;
+}
+
+/** Stable additive contract for settlement APIs. Legacy fields remain available. */
+export interface SettlementTask {
+  task_id: string;
+  status: string;
+  current_stage?: string | null;
+  ttc?: TtcDescriptor | null;
+  allowed_actions?: string[];
+  next_action?: TaskNextAction | null;
+  trusted_chain?: TrustedTransition[];
+  [key: string]: unknown;
+}
+
 export type JsonRecord = Record<string, any>;
 
 export const ROLE_LABELS: Record<RoleCode, string> = {

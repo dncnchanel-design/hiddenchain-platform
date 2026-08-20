@@ -138,7 +138,7 @@ export function Button({
   );
 }
 
-const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW", "RECORDED", "NOT_REQUIRED"]);
+const positive = new Set(["ACTIVE", "VALID", "PASSED", "SUCCESS", "CONFIRMED", "APPROVED", "AUDITED", "HEALTHY", "RESOLVED", "GENERATED", "PERMIT", "READY", "LOW", "RECORDED", "NOT_REQUIRED"]);
 const information = new Set(["RUNNING", "PROCESSING", "IN_PROGRESS"]);
 const currentSelection = new Set(["CURRENT"]);
 const warning = new Set(["DRAFT", "PENDING", "BLOCKED", "MEDIUM", "REVIEW_REQUIRED", "UNCONFIRMED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED", "UNVERIFIED", "NOT_PROVIDED", "NOT_CONFIGURED"]);

@@ -4,19 +4,20 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import settings, validate_runtime_settings
-from .database import SessionLocal, engine, ensure_runtime_schema
-from .models import Base
+from .config import Settings, settings, validate_runtime_settings
+from .database import SessionLocal, database_readiness, ensure_runtime_schema
 from .production import assert_production_database_clean
-from .routers import audit, auth, data, energy, execution, system, trade, trust
+from .routers import audit, auth, data, energy, evidence, execution, system, trade, trust, trust_domain
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
@@ -32,12 +33,16 @@ from .services.prometheus import observe_http_request, prometheus_status
 from .services.rate_limit import limiter, rate_limit_status
 from .services.solar import PvlibSolarAdapter
 from .services.trust_execution import DynamicPolicyEngine
+from .services.tool_catalog import agent_tool_catalog_readiness, ensure_agent_tool_catalog
+from .services.evidence_outbox import LocalHashAnchorAdapter
+from .services.mpc import AdditiveSecretSharingMPC
+from .version import VERSION, version_payload
+from .services.common import trace_id
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_runtime_settings()
-    Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
     with SessionLocal() as db:
         assert_production_database_clean(db, settings)
@@ -45,26 +50,136 @@ async def lifespan(app: FastAPI):
             from .seed import seed_test_fixtures
 
             seed_test_fixtures(db)
+        ensure_agent_tool_catalog(db)
+        db.commit()
     yield
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version=VERSION,
     description="面向电力交易结算的数据授权、受控计算、结果确认与审计追溯服务",
     docs_url=f"{settings.api_prefix}/docs",
     openapi_url=f"{settings.api_prefix}/openapi.json",
     lifespan=lifespan,
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def structured_rate_limit_error(
+    request: Request,
+    exc: RateLimitExceeded,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "detail": "Rate limit exceeded: 操作过于频繁，请稍后重试",
+            "code": "RATE_LIMIT_EXCEEDED",
+            "message": "操作过于频繁，请稍后重试",
+            "trace_id": trace_id(),
+            "retryable": True,
+        },
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def structured_http_error(
+    request: Request,
+    exc: StarletteHTTPException,
+) -> JSONResponse:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or f"HTTP_{exc.status_code}")
+        message = str(detail.get("message") or detail)
+        retryable = bool(detail.get("retryable", False))
+    else:
+        code = f"HTTP_{exc.status_code}"
+        message = str(detail)
+        retryable = False
+    retryable = retryable or exc.status_code in {408, 425, 429, 502, 503, 504}
+    return JSONResponse(
+        status_code=exc.status_code,
+        headers=exc.headers,
+        content={
+            "detail": detail,
+            "code": code,
+            "message": message,
+            "trace_id": trace_id(),
+            "retryable": retryable,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def structured_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    field_errors = [
+        {
+            "location": [str(item) for item in error.get("loc", ())],
+            "message": error.get("msg", "invalid value"),
+            "type": error.get("type", "validation_error"),
+        }
+        for error in exc.errors()
+    ]
+    missing_if_match = any(
+        error.get("type") == "missing"
+        and tuple(error.get("loc", ())) == ("header", "If-Match")
+        for error in exc.errors()
+    )
+    if missing_if_match:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": "必须提供 If-Match 任务状态版本号",
+                "code": "PRECONDITION_REQUIRED",
+                "message": "必须提供 If-Match 任务状态版本号",
+                "trace_id": trace_id(),
+                "retryable": False,
+                "field_errors": field_errors,
+            },
+        )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "detail": field_errors,
+            "code": "VALIDATION_ERROR",
+            "message": "请求参数校验失败",
+            "trace_id": trace_id(),
+            "retryable": False,
+            "field_errors": field_errors,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def structured_internal_error(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    # Exception details stay in server-side telemetry.  Database statements,
+    # filesystem locations, secrets and stack traces must not cross the API.
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "服务执行失败，请稍后重试",
+            "code": "INTERNAL_SERVER_ERROR",
+            "message": "服务执行失败，请稍后重试",
+            "trace_id": trace_id(),
+            "retryable": True,
+        },
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "Idempotency-Replayed", "ETag"],
 )
 app.add_middleware(CorrelationIdMiddleware)
 setup_observability(app)
@@ -93,7 +208,18 @@ async def collect_prometheus_metrics(request: Request, call_next):
     )
     return response
 
-application_routers = [auth.router, data.router, trade.router, trust.router, audit.router, system.router, execution.router, energy.router]
+application_routers = [
+    auth.router,
+    data.router,
+    trade.router,
+    trust.router,
+    trust_domain.router,
+    evidence.router,
+    audit.router,
+    system.router,
+    execution.router,
+    energy.router,
+]
 if settings.app_env in {"development", "test"}:
     from .routers import test_support
 
@@ -103,17 +229,101 @@ for router in application_routers:
     app.include_router(router, prefix=settings.api_prefix)
 
 
+@app.get("/api/version", tags=["health"])
+def version() -> dict[str, object]:
+    return version_payload()
+
+
+@app.get("/api/health/live", tags=["health"])
+def liveness() -> dict[str, str]:
+    return {"status": "UP", "service": settings.app_name, "version": VERSION}
+
+
+def policy_decision_point_readiness(
+    settings_value: Settings = settings,
+) -> dict[str, object]:
+    """Probe the configured production OPA without exposing its URL."""
+
+    remote_configured = bool(settings_value.opa_url)
+    local_fallback = bool(settings_value.opa_local_fallback)
+    remote_ready = False
+    latency_ms: int | None = None
+    error_code: str | None = None
+    if remote_configured:
+        started = time.perf_counter()
+        try:
+            response = httpx.get(
+                f"{settings_value.opa_url}/health?plugins",
+                timeout=max(0.1, min(settings_value.opa_timeout_seconds, 3.0)),
+            )
+            response.raise_for_status()
+            remote_ready = True
+        except Exception:
+            error_code = "OPA_UNAVAILABLE"
+        latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+    else:
+        error_code = "OPA_NOT_CONFIGURED"
+
+    fallback_allowed = settings_value.app_env != "production" and local_fallback
+    ready = remote_ready or fallback_allowed
+    return {
+        "status": "READY" if ready else "NOT_READY",
+        "mode": "REMOTE_OPA" if remote_ready else "LOCAL_FALLBACK" if fallback_allowed else "BLOCKED",
+        "remote_configured": remote_configured,
+        "remote_status": (
+            "READY" if remote_ready else "UNAVAILABLE" if remote_configured else "NOT_CONFIGURED"
+        ),
+        "local_fallback_enabled": local_fallback,
+        "policy_path": settings_value.opa_policy_path,
+        "latency_ms": latency_ms,
+        "error_code": None if ready else error_code,
+    }
+
+
+@app.get("/api/health/ready", tags=["health"])
+def readiness(response: Response) -> dict[str, object]:
+    database = database_readiness()
+    policy = policy_decision_point_readiness()
+    try:
+        with SessionLocal() as db:
+            agent_tools = agent_tool_catalog_readiness(db)
+    except Exception:
+        agent_tools = {
+            "status": "NOT_READY",
+            "issue_count": 1,
+            "issues": ["AGENT_TOOL_CATALOG_UNAVAILABLE"],
+        }
+    ready = (
+        database["status"] == "READY"
+        and policy["status"] == "READY"
+        and agent_tools["status"] == "READY"
+    )
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "READY" if ready else "NOT_READY",
+        "checks": {
+            "database_migrations": database,
+            "policy_decision_point": policy,
+            "agent_tool_catalog": agent_tools,
+        },
+    }
+
+
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
     return {
         "status": "ok",
         "service": settings.app_name,
+        "version": version_payload(),
         "environment": settings.app_env,
+        "database": database_readiness(),
         "calculation_services": {
             "policy": OPAPolicyAdapter.status(),
             "grid": PandapowerGridAdapter.status(),
             "differential_privacy": OpenDPAdapter.status(),
             "solar_resource": PvlibSolarAdapter.status(),
+            "mpc_aggregate": AdditiveSecretSharingMPC.status(),
         },
         "integrations": {
             "observability": observability_status(),
@@ -141,8 +351,10 @@ def health() -> dict:
                 "DELIVER",
                 "LOG",
             ],
-            "async_evidence_recording": True,
-            "evidence_backend": "LOCAL_EVIDENCE_LEDGER_V1",
+            "async_evidence_recording": "TRANSACTIONAL_OUTBOX_POST_COMMIT_WORKER",
+            "evidence_backend": "MERKLE_BATCH_WITH_TRANSACTIONAL_OUTBOX_V1",
+            "anchor_adapter": LocalHashAnchorAdapter.status(),
+            "legacy_evidence_backend": "LOCAL_EVIDENCE_LEDGER_V1",
             "data_boundary_statement": "Each execution must be evaluated from its recorded protocol and attestation.",
         },
     }

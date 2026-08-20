@@ -5,7 +5,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /api/health
+    healthCheckPath: /api/health/ready
     envVars:
       - key: DATABASE_URL
         value: sqlite:////app/runtime/hiddenchain.db

@@ -22,7 +22,7 @@ from ..models import (
     SettlementTask,
     utc_now,
 )
-from ..security import sha256_json, sign_value
+from ..security import sha256_json, sign_value, verify_signature
 from .credentials import JsonLdCredentialAdapter
 from .privacy import OpenDPAdapter
 from .vault import LocalDomainVault
@@ -391,6 +391,34 @@ class LocalUsagePolicyAdapter:
         algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
         max_uses: int = 1,
     ) -> DataContract:
+        current = utc_now()
+        requested_refs = sorted(upload.data_ref for upload in uploads)
+        existing_contracts = db.scalars(
+            select(DataContract)
+            .where(
+                DataContract.task_id == task.task_id,
+                DataContract.provider_org_id == provider.org_id,
+                DataContract.consumer_type == consumer_org_id,
+                DataContract.purpose == purpose,
+                DataContract.status == "ACTIVE",
+            )
+            .order_by(DataContract.created_at.desc())
+        ).all()
+        for existing in existing_contracts:
+            allowed_algorithms = set(
+                (existing.policy_json or {}).get("constraint", {}).get(
+                    "algorithm_codes", []
+                )
+            )
+            if (
+                sorted(str(item) for item in existing.data_refs_json) == requested_refs
+                and algorithm_code in allowed_algorithms
+                and (existing.expires_at is None or existing.expires_at > current)
+            ):
+                from .policy_registry import project_contract_policy
+
+                project_contract_policy(db, existing)
+                return existing
         consumer_did_record = db.scalar(
             select(DidIdentity).where(DidIdentity.owner_id == consumer_org_id)
         )
@@ -399,7 +427,8 @@ class LocalUsagePolicyAdapter:
             if consumer_did_record
             else f"did:hiddenchain:org:{consumer_org_id}"
         )
-        expires_at = utc_now() + timedelta(days=7)
+        valid_from = current
+        expires_at = valid_from + timedelta(days=7)
         data_product_ids = [DataSpaceConnectorAdapter.data_product_id(upload) for upload in uploads]
         policy = {
             "profile": "HCDS-ODRL-DATASPACE-1.0",
@@ -420,7 +449,7 @@ class LocalUsagePolicyAdapter:
                 "execution_environment": "APPLICATION_PROCESS",
                 "output_mode": "AGGREGATE_ONLY",
                 "max_uses": max_uses,
-                "valid_from": utc_now().isoformat(),
+                "valid_from": valid_from.isoformat(),
                 "expires_at": expires_at.isoformat(),
                 "raw_data_export": False,
             },
@@ -440,9 +469,14 @@ class LocalUsagePolicyAdapter:
             policy_json=policy,
             policy_hash=sha256_json(policy),
             status="ACTIVE",
+            valid_from=valid_from,
+            expires_at=expires_at,
         )
         db.add(contract)
         db.flush()
+        from .policy_registry import project_contract_policy
+
+        project_contract_policy(db, contract)
         return contract
 
     @staticmethod
@@ -971,6 +1005,25 @@ class LocalControlledComputeAdapter:
         quantum = Decimal("1").scaleb(-digits)
         return value.quantize(quantum, rounding=ROUND_HALF_UP)
 
+    @staticmethod
+    def _verified_vault_payload(upload: DataUpload) -> dict[str, Any]:
+        payload = LocalDomainVault.read(upload.data_ref)
+        actual_hash = sha256_json(payload)
+        if actual_hash != upload.data_hash:
+            raise ValueError(f"Vault payload hash mismatch for {upload.upload_id}")
+        commitment_payload = {
+            "org_id": upload.owner_org_id,
+            "upload_id": upload.upload_id,
+            "hash": upload.data_hash,
+        }
+        if not verify_signature(
+            commitment_payload,
+            upload.commitment,
+            upload.owner_org_id,
+        ):
+            raise ValueError(f"Vault commitment mismatch for {upload.upload_id}")
+        return payload
+
     def run_settlement(
         self,
         *,
@@ -982,13 +1035,13 @@ class LocalControlledComputeAdapter:
         algorithm_code: str = "CONTROLLED_SETTLEMENT_V1",
     ) -> tuple[dict[str, Any], dict[str, Any], list[str], int]:
         started = time.perf_counter()
-        generator_private = LocalDomainVault.read(generator_upload.data_ref)
-        retailer_private = LocalDomainVault.read(retailer_upload.data_ref)
+        generator_private = self._verified_vault_payload(generator_upload)
+        retailer_private = self._verified_vault_payload(retailer_upload)
         scenario_uploads = scenario_uploads or {}
 
         def read_scenario(asset_type: str) -> dict[str, Any]:
             upload = scenario_uploads.get(asset_type)
-            return LocalDomainVault.read(upload.data_ref) if upload else {}
+            return self._verified_vault_payload(upload) if upload else {}
 
         forecast_private = read_scenario("RENEWABLE_FORECAST")
         vpp_private = read_scenario("VPP_RESOURCE")

@@ -19,12 +19,16 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
+      GIT_COMMIT: ${GIT_COMMIT:?Set the exact deployed commit SHA}
       DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
       SIGNING_SECRET: ${SIGNING_SECRET:?Set SIGNING_SECRET in .env.production}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set the public HTTPS origin in .env.production}
       TEST_FIXTURE_SEED: "false"
       TEST_COMPUTE_DELAY_MS: "0"
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:-memory://}
+      AUTH_LOGIN_RATE_LIMIT: ${AUTH_LOGIN_RATE_LIMIT:-10/minute}
       PRODUCT_NAME: ${PRODUCT_NAME:-隐链明算}
       PRODUCT_SHORT_NAME: ${PRODUCT_SHORT_NAME:-隐链明算}
       PRODUCT_SUBTITLE: ${PRODUCT_SUBTITLE:-电力交易可信执行平台}
@@ -65,7 +69,7 @@ services:
     volumes:
       - hiddenchain-runtime:/app/runtime
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready')"]
       interval: 15s
       timeout: 5s
       retries: 5

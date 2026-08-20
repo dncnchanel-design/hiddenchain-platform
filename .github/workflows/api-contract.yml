@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: ["main"]
   push:
-    branches: ["main"]
+    branches: ["main", "agent/**", "feature/**", "feat/**", "fix/**"]
   schedule:
     - cron: "37 13 * * 1"
   workflow_dispatch:
@@ -39,6 +39,14 @@ jobs:
       - name: Install Schemathesis
         run: python -m pip install --disable-pip-version-check schemathesis==4.24.3
 
+      - name: Run formal trusted business contract tests
+        working-directory: backend
+        run: >-
+          python -m pytest -q
+          tests/test_formal_backend.py
+          tests/test_trust_domain.py
+          tests/test_evidence_outbox.py
+
       - name: Start local API
         working-directory: backend
         run: |
@@ -66,12 +74,12 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:8765/api/openapi.json > "$RUNNER_TEMP/hiddenchain-openapi.json"
           python -m openapi_spec_validator "$RUNNER_TEMP/hiddenchain-openapi.json"
 
-      - name: Run deterministic API contract checks
+      - name: Run deterministic public OpenAPI contract checks
         working-directory: backend
         run: >-
           st run http://127.0.0.1:8765/api/openapi.json
           --url http://127.0.0.1:8765
-          --include-path-regex '^/api/(health|auth/demo-users)$'
+          --include-path-regex '^/api/(health(?:/live|/ready)?|version|public/config)$'
           --phases examples,coverage
           --max-examples 2
           --generation-deterministic
@@ -90,3 +98,40 @@ jobs:
             ${{ runner.temp }}/hiddenchain-uvicorn.log
           if-no-files-found: ignore
           retention-days: 14
+
+  frontend-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.19.0 --activate
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint frontend
+        run: pnpm lint
+
+      - name: Run frontend tests
+        run: pnpm test
+
+      - name: Type-check frontend
+        run: pnpm typecheck
+
+      - name: Build production frontend
+        run: pnpm build:production

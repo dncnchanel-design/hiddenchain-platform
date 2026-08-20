@@ -61,7 +61,7 @@ def dashboard_summary(
 
         task_ids = list(db.scalars(select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)).all())
         tasks_query = tasks_query.where(SettlementTask.task_id.in_(task_ids or ["__none__"]))
-    recent_tasks = [task_summary(db, item) for item in db.scalars(tasks_query).all()]
+    recent_tasks = [task_summary(db, item, user) for item in db.scalars(tasks_query).all()]
     latest_coordination = next(
         (item["scenario_coordination"] for item in recent_tasks if item.get("scenario_coordination")),
         [],

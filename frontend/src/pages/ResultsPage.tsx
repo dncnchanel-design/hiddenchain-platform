@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, Eye, FileSignature, RefreshCw } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, formatMoney, formatNumber, post } from "../api";
+import { api, formatMoney, formatNumber, post, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../api";
 import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { RESULT_SCOPE_LABELS, type JsonRecord } from "../types";
+import { RESULT_SCOPE_LABELS, type JsonRecord, type ResultConfirmationCommand } from "../types";
 
 const amountDirectionLabels: Record<string, string> = {
   RECEIVABLE: "应收",
@@ -20,10 +20,23 @@ export function ResultsPage() {
   const [confirmTarget, setConfirmTarget] = useState<JsonRecord | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const taskEtagsRef = useRef(new Map<string, string>());
+  const confirmationKeysRef = useRef(new Map<string, IdempotencyKeyRecord>());
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
-    const [results, orgs] = await Promise.all([api<JsonRecord[]>(taskId ? `/settlement/results?task_id=${encodeURIComponent(taskId)}` : "/settlement/results", request), api<JsonRecord[]>("/system/organizations", request)]);
-    return { results, orgs };
+    const [results, orgs, task] = await Promise.all([
+      api<JsonRecord[]>(taskId ? `/settlement/results?task_id=${encodeURIComponent(taskId)}` : "/settlement/results", request),
+      api<JsonRecord[]>("/system/organizations", request),
+      taskId
+        ? api<JsonRecord>(`/settlement/tasks/${taskId}`, {
+          ...request,
+          onResponseMetadata: (metadata) => {
+            if (metadata.etag) taskEtagsRef.current.set(taskId, metadata.etag);
+          },
+        })
+        : Promise.resolve(null),
+    ]);
+    return { results, orgs, task };
   };
   const { data, loading, refreshing, error, reload } = useRemote(loader, [taskId]);
   const totals = useMemo(() => {
@@ -42,7 +55,32 @@ export function ResultsPage() {
     setBusy(row.result_id);
     setMessage("");
     try {
-      await post(`/results/${row.result_id}/confirm`, {});
+      const rowTaskId = String(row.task_id || taskId);
+      let etag = taskEtagsRef.current.get(rowTaskId);
+      if (!etag) {
+        await api<JsonRecord>(`/settlement/tasks/${rowTaskId}`, {
+          cache: "no-store",
+          timeoutMs: 12_000,
+          onResponseMetadata: (metadata) => {
+            if (metadata.etag) taskEtagsRef.current.set(rowTaskId, metadata.etag);
+          },
+        });
+        etag = taskEtagsRef.current.get(rowTaskId);
+      }
+      const payload: ResultConfirmationCommand = {
+        decision: "APPROVE",
+        opinion: "同意结算结果",
+      };
+      const fingerprint = JSON.stringify({ resultId: row.result_id, resultHash: row.result_hash, payload, etag });
+      const requestKey = prepareIdempotencyKey(confirmationKeysRef.current.get(row.result_id), `result-confirm:${row.result_id}`, fingerprint);
+      confirmationKeysRef.current.set(row.result_id, requestKey);
+      await post(`/results/${row.result_id}/confirm`, payload, {
+        idempotencyKey: requestKey.key,
+        ifMatch: etag,
+        onResponseMetadata: (metadata) => {
+          if (metadata.etag) taskEtagsRef.current.set(rowTaskId, metadata.etag);
+        },
+      });
       setMessage("结果回执已签名确认。");
       await reload();
     } catch (reason) {

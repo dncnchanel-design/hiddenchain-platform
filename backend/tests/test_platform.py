@@ -12,6 +12,12 @@ from app.schemas import DataUploadCreate
 from app.services.trust_execution import AgenticQueryOrchestrator, DynamicPolicyEngine, ElectricityNode, ResultAuditor, _round_metric
 
 
+def _etag_headers(client, base_headers: dict[str, str], task_id: str) -> dict[str, str]:
+    response = client.get(f"/api/settlement/tasks/{task_id}", headers=base_headers)
+    assert response.status_code == 200, response.text
+    return {**base_headers, "If-Match": response.headers["etag"]}
+
+
 def test_login_response_never_exposes_password_hash(client):
     response = client.post(
         "/api/auth/login",
@@ -119,7 +125,7 @@ def test_settlement_creation_readiness_and_action_permissions(client, auth_heade
 def test_complete_agent_native_settlement_workflow(client, auth_headers):
     response = client.post(
         "/api/settlement/tasks/task-ready-t01/run",
-        headers=auth_headers["exchange"],
+        headers=_etag_headers(client, auth_headers["exchange"], "task-ready-t01"),
         json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
@@ -156,15 +162,21 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
     by_org = {item["org_id"]: item for item in scoped_results}
     generator_confirmation = client.post(
         f"/api/results/{by_org['org-generator-t01']['result_id']}/confirm",
-        headers=auth_headers["generator"],
-        json={"opinion": "同意结算结果"},
+        headers=_etag_headers(client, auth_headers["generator"], "task-ready-t01"),
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
     )
     assert generator_confirmation.status_code == 200
     assert generator_confirmation.json()["task"]["status"] == "PARTIALLY_CONFIRMED"
+    report_approval = client.post(
+        f"/api/audit/reports/{result['report']['report_id']}/decision",
+        headers=auth_headers["regulator"],
+        json={"decision": "APPROVE", "opinion": "中风险结算证据复核通过"},
+    )
+    assert report_approval.status_code == 200, report_approval.text
     retailer_confirmation = client.post(
         f"/api/results/{by_org['org-retailer-t01']['result_id']}/confirm",
-        headers=auth_headers["retailer"],
-        json={"opinion": "同意结算结果"},
+        headers=_etag_headers(client, auth_headers["retailer"], "task-ready-t01"),
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
     )
     assert retailer_confirmation.status_code == 200
     assert retailer_confirmation.json()["task"]["status"] == "AUDITED"
@@ -282,7 +294,7 @@ def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
 def test_settlement_records_connector_agreements_and_enforces_usage_control(client, auth_headers):
     response = client.post(
         "/api/settlement/tasks/task-ready-t01/run",
-        headers=auth_headers["exchange"],
+        headers=_etag_headers(client, auth_headers["exchange"], "task-ready-t01"),
         json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
@@ -349,7 +361,7 @@ def test_settlement_records_connector_agreements_and_enforces_usage_control(clie
 def test_usage_control_rejects_raw_output_and_wrong_algorithm(client, auth_headers):
     response = client.post(
         "/api/settlement/tasks/task-ready-t01/run",
-        headers=auth_headers["exchange"],
+        headers=_etag_headers(client, auth_headers["exchange"], "task-ready-t01"),
         json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert response.status_code == 200, response.text
@@ -464,7 +476,7 @@ def test_opa_rest_adapter_accepts_opa_decision_shape(monkeypatch):
 def test_audit_query_is_grounded_in_evidence(client, auth_headers):
     settled = client.post(
         "/api/settlement/tasks/task-ready-t01/run",
-        headers=auth_headers["exchange"],
+        headers=_etag_headers(client, auth_headers["exchange"], "task-ready-t01"),
         json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert settled.status_code == 200, settled.text
@@ -561,18 +573,23 @@ def test_result_confirmation_and_data_signing_are_idempotent(client, auth_header
     result = client.get(
         "/api/settlement/results", headers=auth_headers["generator"]
     ).json()[0]
+    confirmation_headers = _etag_headers(
+        client, auth_headers["generator"], result["task_id"]
+    )
     first_confirmation = client.post(
         f"/api/results/{result['result_id']}/confirm",
-        headers=auth_headers["generator"],
-        json={"opinion": "同意结算结果"},
+        headers=confirmation_headers,
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
     )
     second_confirmation = client.post(
         f"/api/results/{result['result_id']}/confirm",
-        headers=auth_headers["generator"],
-        json={"opinion": "同意结算结果"},
+        headers=confirmation_headers,
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
     )
     assert first_confirmation.status_code == second_confirmation.status_code == 200
-    assert first_confirmation.json() == second_confirmation.json()
+    assert first_confirmation.json()["signature"] == second_confirmation.json()["signature"]
+    assert first_confirmation.json()["idempotent_replay"] is False
+    assert second_confirmation.json()["idempotent_replay"] is True
 
 
 def test_data_commitment_can_only_be_signed_by_its_owner(client, auth_headers):
@@ -620,9 +637,9 @@ def test_retailer_cannot_analyze_another_organization_load_curve(client, auth_he
         headers=auth_headers["admin"],
         json={
             "asset_type": "USER_LOAD_CURVE",
-            "owner_org_id": "org-generator-t01",
+            "owner_org_id": "org-admin-t01",
             "trade_batch_no": "TB-CROSS-ORG-001",
-            "label": "发电侧负荷曲线测试数据",
+            "label": "平台运维组织负荷曲线测试数据",
             "local_payload": {"period": "2026-08", "load_curve": [1] * 24},
         },
     )

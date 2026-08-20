@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, Save, UsersRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, post } from "../api";
+import { api, post, prepareIdempotencyKey, type ApiResponseMetadata, type IdempotencyKeyRecord } from "../api";
 import { Button, ErrorState, Field, IdText, LoadingState, Notice, PageHeader, SectionHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
@@ -29,6 +29,7 @@ export function SettlementCreatePage() {
   const [ruleId, setRuleId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const createRequestRef = useRef<IdempotencyKeyRecord | null>(null);
   const { data, loading, error: loadError, reload } = useRemote(async (signal): Promise<CreateData> => {
     const options = { signal, cache: "no-store" as RequestCache };
     const [organizations, rules, catalog] = await Promise.all([
@@ -69,7 +70,7 @@ export function SettlementCreatePage() {
     setBusy(true);
     setError("");
     try {
-      const created = await post<JsonRecord>("/settlement/tasks", {
+      const payload = {
         task_name: taskName.trim(),
         trade_batch_no: batch.trim(),
         period_start: periodStart,
@@ -84,8 +85,22 @@ export function SettlementCreatePage() {
         compute_mode: "LOCAL_CONTROLLED",
         algorithm_code: "CONTROLLED_SETTLEMENT_V1",
         output_mode: "AGGREGATE_ONLY",
+      };
+      const fingerprint = JSON.stringify(payload);
+      createRequestRef.current = prepareIdempotencyKey(createRequestRef.current, "settlement-create", fingerprint);
+      let responseMetadata: ApiResponseMetadata | undefined;
+      const created = await post<JsonRecord>("/settlement/tasks", payload, {
+        idempotencyKey: createRequestRef.current.key,
+        onResponseMetadata: (metadata) => { responseMetadata = metadata; },
       });
-      navigate(`/settlements/${created.task_id}`, { replace: true, state: { created: true } });
+      navigate(`/settlements/${created.task_id}`, {
+        replace: true,
+        state: {
+          created: true,
+          etag: responseMetadata?.etag,
+          idempotencyReplayed: responseMetadata?.idempotencyReplayed,
+        },
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "结算任务创建失败");
     } finally {

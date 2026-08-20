@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import BUSINESS_ROLES, get_current_user, require_roles
+from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import DataSpaceAgreement, DataUpload, DidIdentity, Organization, Signature, User
 from ..schemas import DataUploadCreate
 from ..security import sign_value
@@ -14,9 +14,35 @@ from ..services.adapters import DATA_PRODUCT_CATALOG, DataSpaceConnectorAdapter
 from ..services.datapackage import FrictionlessCatalogAdapter
 from ..services.dataspace import DataspaceProtocolAdapter
 from ..services.vault import LocalDomainVault
+from ..services.trust_domain import TrustDomainError, verify_active_identity
+from ..services.asset_registry import (
+    project_upload_to_asset_registry,
+    redacted_asset_projection,
+)
 
 
 router = APIRouter(prefix="/data", tags=["data"])
+
+
+def _active_owner_identity(db: Session, org_id: str) -> DidIdentity:
+    identity = db.scalar(
+        select(DidIdentity)
+        .where(
+            DidIdentity.owner_id == org_id,
+            DidIdentity.org_id == org_id,
+            DidIdentity.owner_type == "ORG",
+        )
+        .order_by(DidIdentity.created_at.desc())
+    )
+    if identity is None:
+        raise HTTPException(status_code=403, detail="当前主体缺少有效 DID")
+    try:
+        return verify_active_identity(db, identity.did_id)
+    except TrustDomainError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
 
 
 @router.get("/catalog")
@@ -143,6 +169,7 @@ def list_uploads(
                 "encryption": "NOT_PROVIDED",
                 "attestation": "NOT_PROVIDED",
             },
+            "formal_asset": redacted_asset_projection(db, item),
         }
         for item in records
     ]
@@ -155,11 +182,14 @@ def create_upload(
     db: Session = Depends(get_db),
 ) -> dict:
     owner_org_id = user.org_id
-    if payload.owner_org_id and user.role_code in {"EXCHANGE", "ADMIN"}:
-        owner_org_id = payload.owner_org_id
+    if payload.owner_org_id and payload.owner_org_id != user.org_id:
+        raise HTTPException(status_code=403, detail="不能以其他组织名义登记或签署数据")
     owner = db.get(Organization, owner_org_id)
     if owner is None:
         raise HTTPException(status_code=404, detail="数据提供方不存在")
+    if owner.status != "ACTIVE":
+        raise HTTPException(status_code=403, detail="数据提供方组织不可用")
+    signer_identity = _active_owner_identity(db, owner_org_id)
     if user.role_code == "GENERATOR" and payload.asset_type not in {
         "GENERATION_DATA",
         "RENEWABLE_FORECAST",
@@ -171,7 +201,7 @@ def create_upload(
         "VPP_RESOURCE",
     }:
         raise HTTPException(status_code=403, detail="售电企业只能登记售电、用户负荷或虚拟电厂资源数据")
-    if payload.asset_type == "GRID_CONSTRAINT" and user.role_code not in {"EXCHANGE", "ADMIN"}:
+    if payload.asset_type == "GRID_CONSTRAINT" and user.role_code != "EXCHANGE":
         raise HTTPException(status_code=403, detail="调度安全边界只能由交易中心受控接入")
 
     if payload.asset_type == "USER_LOAD_CURVE" and user.role_code not in {"RETAILER", "EXCHANGE", "ADMIN"}:
@@ -206,15 +236,14 @@ def create_upload(
         "trusted_acquisition": True,
         "secure_transport": payload.ingress.model_dump(),
     }
-    did = db.scalar(select(DidIdentity).where(DidIdentity.owner_id == owner_org_id))
     record.signature_value = sign_value(
         {"upload_id": record.upload_id, "data_hash": data_hash},
-        did.did_id if did else owner_org_id,
+        signer_identity.did_id,
     )
     db.add(
         Signature(
             signer_org_id=owner_org_id,
-            signer_did=did.did_id if did else f"did:hiddenchain:org:{owner_org_id}",
+            signer_did=signer_identity.did_id,
             target_type="DATA_UPLOAD",
             target_id=record.upload_id,
             target_hash=data_hash,
@@ -222,6 +251,7 @@ def create_upload(
             verify_status="VALID",
         )
     )
+    project_upload_to_asset_registry(db, record)
     add_audit_log(
         db,
         action="UPLOAD_DATA_REFERENCE",
@@ -233,7 +263,12 @@ def create_upload(
     )
     db.commit()
     db.refresh(record)
-    return {**model_dict(record), "owner_org_name": owner.org_name, "raw_payload_exposed": False}
+    return {
+        **model_dict(record),
+        "owner_org_name": owner.org_name,
+        "raw_payload_exposed": False,
+        "formal_asset": redacted_asset_projection(db, record),
+    }
 
 
 @router.post("/{upload_id}/sign")
@@ -247,6 +282,7 @@ def sign_upload(
         raise HTTPException(status_code=404, detail="数据记录不存在")
     if upload.owner_org_id != user.org_id:
         raise HTTPException(status_code=403, detail="不能签署其他主体的数据")
+    signer_identity = _active_owner_identity(db, upload.owner_org_id)
     if upload.signature_value:
         existing = db.scalar(
             select(Signature)
@@ -254,15 +290,19 @@ def sign_upload(
                 Signature.target_type == "DATA_UPLOAD",
                 Signature.target_id == upload.upload_id,
                 Signature.target_hash == upload.data_hash,
+                Signature.signer_org_id == upload.owner_org_id,
+                Signature.signer_did == signer_identity.did_id,
                 Signature.verify_status == "VALID",
             )
             .order_by(Signature.created_at.desc())
         )
         if existing:
             return {"signature_id": existing.signature_id, "verify_status": existing.verify_status}
-    did = db.scalar(select(DidIdentity).where(DidIdentity.owner_id == upload.owner_org_id))
-    signer_did = did.did_id if did else f"did:hiddenchain:org:{upload.owner_org_id}"
-    signature_value = sign_value({"data_hash": upload.data_hash}, signer_did)
+    signer_did = signer_identity.did_id
+    signature_value = sign_value(
+        {"upload_id": upload.upload_id, "data_hash": upload.data_hash},
+        signer_did,
+    )
     signature = Signature(
         signer_org_id=upload.owner_org_id,
         signer_did=signer_did,

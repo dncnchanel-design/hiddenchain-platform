@@ -1,11 +1,32 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import settings
+from .migrations import apply_migrations, migration_status
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_integrity(dbapi_connection, _connection_record) -> None:
+    """Enforce declared foreign keys on every SQLite connection.
+
+    SQLite leaves foreign-key enforcement disabled unless each connection opts
+    in.  Registering the listener on ``Engine`` also covers isolated engines
+    used by migration tests and administrative scripts.
+    """
+
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
@@ -14,36 +35,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 
 def ensure_runtime_schema() -> None:
-    """Apply the small additive migrations used by local and hosted deployments.
+    """Backward-compatible entry point for the versioned migration runner."""
 
-    The project intentionally keeps deployment lightweight, so a full migration
-    framework would be disproportionate here.  These changes are additive and
-    safe for an existing SQLite or PostgreSQL database.
-    """
+    apply_migrations(engine)
 
-    additions = {
-        "data_uploads": {
-            "ingress_json": "JSON NOT NULL DEFAULT '{}'",
-        },
-        "settlement_tasks": {
-            "verification_profile_json": "JSON NOT NULL DEFAULT '{}'",
-        },
-        "privacy_compute_jobs": {
-            "privacy_guarantees_json": "JSON NOT NULL DEFAULT '{}'",
-        },
-    }
-    with engine.begin() as connection:
-        inspector = inspect(connection)
-        for table_name, columns in additions.items():
-            existing = {column["name"] for column in inspector.get_columns(table_name)}
-            for column_name, column_definition in columns.items():
-                if column_name not in existing:
-                    connection.execute(
-                        text(
-                            f"ALTER TABLE {table_name} ADD COLUMN "
-                            f"{column_name} {column_definition}"
-                        )
-                    )
+
+def database_readiness() -> dict[str, object]:
+    return migration_status(engine)
 
 
 def get_db() -> Generator[Session, None, None]:
