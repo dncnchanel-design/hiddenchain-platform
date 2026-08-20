@@ -24,20 +24,20 @@
 
 ### Current release state
 
-- `GITHUB_CI_PASS_RENDER_NO_SERVER`. The non-force push, remote SHA verification and hosted CI succeeded; no force-push or bypass was used.
+- `GITHUB_CI_PASS_RENDER_REVIEW_TEST_PASS`. The non-force push, remote SHA verification, hosted CI and Render review/test health/SHA checks succeeded; no force-push or bypass was used.
 
 ### Pending release evidence
 
-- Render review/test deployment, online health/smoke and deployed SHA verification; the derived service URL currently returns `no-server/404`.
+- Formal production deployment and external infrastructure evidence; Render review/test deployment, online health/smoke and deployed SHA verification are complete for `9e40ac7`, but are not production evidence.
 - Local Docker image build and real PostgreSQL migration/concurrency validation remain unavailable on this host.
 
 ### Known blockers
 
 - Eclipse EDC remains `ADAPTER`; TEE and cross-domain production MPC remain `BLOCKED`; blockchain consensus remains `DEMO` only.
 - PostgreSQL, Redis, MinIO, Milvus and production high-availability infrastructure are unavailable or unverified.
-- The available Render manifest is review/test only and cannot satisfy production acceptance.
-- Git transport and hosted CI are verified for the release branch. Render's derived service URL resolves but has no active server route; the API requires a credential and no Render CLI/token is configured.
+- The available Render service is review/test only and cannot satisfy production acceptance; it uses test mode, SQLite, fixture seeding and local OPA fallback.
+- Git transport, hosted CI and Render online checks are verified for the reviewed SHA. PostgreSQL, Redis, MinIO, Milvus and high-availability production operations remain unverified.
 
 ### Next step
 
-- Restore or create the Render review/test service route, then deploy the verified GitHub SHA and check health, smoke and deployed SHA without calling it “production.”
+- Keep the Render review/test service pinned to the verified SHA for review, and provision separate production infrastructure before any production release claim.

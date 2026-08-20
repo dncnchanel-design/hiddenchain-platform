@@ -49,4 +49,4 @@ Required endpoint checks:
 5. Confirm Render's deployed commit SHA equals local/GitHub SHA.
 6. Record any unavailable credential, deploy identity, health failure or SHA mismatch as `BLOCKED`/not released.
 
-Commit, push, remote SHA verification and hosted CI are `PASS` for release candidate `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`. The derived Render URL currently returns `x-render-routing: no-server` / HTTP 404, so deployment, health, online smoke and deployed-SHA convergence remain `BLOCKED_NO_SERVER`; this runbook does not infer them without an active Render service/API path.
+Commit, push, remote SHA verification and hosted CI are `PASS` for final branch head `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f` (container hardening code landed in `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`). Render review/test service `hiddenchain-platform` was deployed by pinning that commit and verified at `https://hiddenchain-platform.onrender.com`: live, ready, version and health returned HTTP 200; migrations `20260820_004` were READY and `/api/version.build_sha` matched. This remains review/test evidence only; formal production acceptance is still blocked.

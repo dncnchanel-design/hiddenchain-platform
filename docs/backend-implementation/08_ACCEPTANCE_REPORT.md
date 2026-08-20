@@ -1,6 +1,6 @@
 # Acceptance Report
 
-Status: `LOCAL_IMPLEMENTATION_VERIFICATION_AND_GITHUB_CI_PASS_RENDER_NO_SERVER`.
+Status: `LOCAL_IMPLEMENTATION_VERIFICATION_AND_GITHUB_CI_PASS_RENDER_REVIEW_TEST_PASS`.
 
 Applicable version: `0.2.0`.
 
@@ -28,10 +28,10 @@ Applicable version: `0.2.0`.
 | TEE/remote attestation | `BLOCKED` |
 | Blockchain consensus/finality | `DEMO` local receipt only; production claim rejected |
 | PostgreSQL/Redis/MinIO/Milvus and HA operations | `BLOCKED`/unverified external infrastructure |
-| Render | `REVIEW_TEST_ONLY`; deployment result `BLOCKED_NO_SERVER` |
+| Render | `REVIEW_TEST_ONLY`; deployment, health and deployed-SHA verification `PASS` |
 
 ## Verification conclusion
 
-Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created, remote history was safely merged as `562f762`, container hardening was committed as `fa04fdc`, and that release candidate was pushed non-force, verified remotely and passed hosted CI. Render health/smoke and deployed SHA remain unavailable because the service route returns `no-server/404`; they are not inferred here.
+Local build, 117 backend tests, 79% backend branch coverage, 46 frontend tests, API contract, security/failure paths, service E2E, golden paths, capability labels and frontend regression passed. Implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` was created, remote history was safely merged as `562f762`, container hardening was committed as `fa04fdc`, and final branch head `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f` was pushed non-force, verified remotely and passed hosted CI. Render review/test deployment `hiddenchain-platform` was then verified live with the same build SHA and healthy migrations. The service remains `APP_ENV=test` and does not satisfy formal production acceptance.
 
 Overall formal production acceptance remains `BLOCKED` until all applicable verification gates pass and external production infrastructure, credentials, operational controls and online evidence exist.

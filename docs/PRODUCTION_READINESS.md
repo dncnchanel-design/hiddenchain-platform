@@ -2,7 +2,7 @@
 
 适用版本：`0.2.0`。
 
-当前总体结论：本地实现、验证、实现提交、远端分叉合并、非强制推送、远端 SHA 核验与 GitHub CI 均 `PASS`，正式生产验收仍为 `BLOCKED`。当前加固发布候选为 `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`，GitHub 分支已核验为同一 SHA；Render 服务域名返回 `no-server/404`，未形成可验收部署。`render.yaml` 仅为 review/test，不是生产环境。
+当前总体结论：本地实现、验证、非强制推送、远端 SHA 核验、GitHub CI 与 Render review/test 在线验证均 `PASS`，正式生产验收仍为 `BLOCKED`。最终分支头为 `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f`，其中包含加固发布候选 `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`；GitHub 分支与 Render `build_sha` 已核验一致。Render 服务运行在 `APP_ENV=test`，仅为 review/test，不是生产环境。
 
 ## 自动门禁
 
@@ -29,8 +29,8 @@ cd ..\backend
 | 前端 lint/typecheck/test/build | `PASS` | ESLint、TypeScript、46 项 Vitest、生产/品牌守卫及 Vite 构建通过 |
 | API 合同/黄金路径 | `PASS` | OpenAPI 0.2.0 可序列化，69 个 path；3 条显式端到端黄金路径通过 |
 | 安全/失败/越权检查 | `PASS` | TTC 绕过、Agent 越权、Vault/算法/证据篡改、Outbox 重试/死信及跨组织访问回归通过 |
-| commit/push/远程 SHA/CI | `PASS` | 非强制推送成功，远端 `ls-remote` 核验为 `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`，与本地一致；GitHub CI 全部通过 |
-| Render 部署/健康/在线冒烟 | `BLOCKED` | 服务域名返回 Render `no-server/404`，Render API 未授权；即使可部署也仅允许 review/test |
+| commit/push/远程 SHA/CI | `PASS` | 非强制推送成功，远端 `ls-remote` 核验为 `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f`，与本地一致；GitHub CI 全部通过 |
+| Render 部署/健康/在线冒烟 | `PASS (review/test only)` | `https://hiddenchain-platform.onrender.com`；live/ready/version/health 均 HTTP 200，迁移 `20260820_004` READY，`build_sha=9e40ac7`；未宣称生产 |
 | 生产外部基础设施 | `BLOCKED` | 需 PostgreSQL、共享限流/队列、持久对象存储、可观测性和高可用部署证据 |
 
 ## 发布前人工检查
