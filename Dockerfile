@@ -30,7 +30,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY policy ./policy
 COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
-RUN mkdir -p /app/runtime /app/app/runtime/vault
+RUN groupadd --system app \
+    && useradd --system --gid app --no-create-home app \
+    && mkdir -p /app/runtime /app/app/runtime/vault \
+    && chown -R app:app /app/runtime /app/app/runtime
 
 EXPOSE 8000
+USER app
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

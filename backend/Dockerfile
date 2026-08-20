@@ -19,12 +19,18 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY policy ./policy
-RUN mkdir -p /app/runtime/vault
+RUN groupadd --system app \
+    && useradd --system --gid app --no-create-home app \
+    && mkdir -p /app/runtime/vault \
+    && chown -R app:app /app/runtime /app/app/runtime
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM runtime AS development
+USER app
 
 FROM runtime AS production
+USER root
 RUN rm -f /app/app/seed.py /app/app/test_schemas.py /app/app/routers/test_support.py
+USER app

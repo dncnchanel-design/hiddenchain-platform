@@ -48,7 +48,7 @@ docker compose --env-file .env.production -f docker-compose.production.yml --pro
 
 ## HTTPS
 
-`direct-domain` profile 使用 Caddy 自动申请证书。也可通过受管负载均衡器或命名 Tunnel 把 HTTPS 流量转发到 `frontend:80`。OPA 只在 Compose 内网暴露 8181，不应直接公开。
+`direct-domain` profile 使用 Caddy 自动申请证书。也可通过受管负载均衡器或命名 Tunnel 把 HTTPS 流量转发到 `frontend:8080`。OPA 只在 Compose 内网暴露 8181，不应直接公开。
 
 ## 验收
 
