@@ -28,6 +28,7 @@ const {
   system: SystemPage,
   trustedExecution: TrustedExecutionPage,
   workbench: WorkbenchPage,
+  trustedSpace: TrustedSpaceShell,
 } = pages;
 
 function ProtectedShell() {
@@ -43,7 +44,16 @@ function LoginGate() {
   const { session, loading, sessionError } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
   if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
-  return session ? <Navigate to={getDefaultPath(session)} replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
+  return session ? <Navigate to="/trusted-space/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
+}
+
+function TrustedSpaceGate() {
+  const { session, loading, sessionExpired, sessionError } = useAuth();
+  if (loading) return <div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>;
+  if (sessionExpired) return <Navigate to="/session-expired" replace />;
+  if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
+  if (!session) return <Navigate to="/login" replace />;
+  return <Suspense fallback={<div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>}><TrustedSpaceShell /></Suspense>;
 }
 
 function Allowed({ path, children }: { path: string; children: React.ReactNode }) {
@@ -64,7 +74,7 @@ function ExchangeOnly({ children }: { children: React.ReactNode }) {
 
 function WorkspaceHome() {
   const { session } = useAuth();
-  return session ? <Navigate to={getDefaultPath(session)} replace /> : null;
+  return session ? <Navigate to="/trusted-space/workbench" replace /> : null;
 }
 
 function SessionExpiredGate() {
@@ -77,6 +87,7 @@ export default function App() {
     <Routes>
         <Route path="/login" element={<LoginGate />} />
         <Route path="/session-expired" element={<SessionExpiredGate />} />
+        <Route path="/trusted-space/*" element={<TrustedSpaceGate />} />
         <Route element={<ProtectedShell />}>
           <Route index element={<WorkspaceHome />} />
           <Route path="/403" element={<ForbiddenPage />} />

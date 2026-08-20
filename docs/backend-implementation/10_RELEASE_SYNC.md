@@ -46,3 +46,6 @@ LOCAL_CODE_RELEASE_SHA = GITHUB_REVIEWED_SHA = RENDER_DEPLOY_COMMIT_SHA
 ```
 
 The current Render service is free review/test infrastructure with `APP_ENV=test`, SQLite, fixture seeding, single-instance memory rate limiting and local OPA fallback. The deployed commit, health endpoints and version build SHA were verified on 2026-08-20. This is not production evidence: no durable PostgreSQL/Redis/object storage, remote fail-closed OPA, HA, backup or external finality is provided. No secret or credential values are recorded here.
+## Frontend handoff checkpoint — 2026-08-20
+
+- Local typecheck, 49 tests, lint, production build, and independent 1440×900/390×844 visual checks passed; `agent/deep-brand-green` publication is pending precise staging/commit/push, with no Render action in this checkpoint.

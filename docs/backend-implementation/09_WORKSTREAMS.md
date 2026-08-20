@@ -19,3 +19,6 @@ Rules:
 - Commit, push, GitHub, Render and release convergence are owned only by `/root`.
 - All writes and generated outputs remain inside `PROJECT_ROOT`.
 - `docs_release` does not edit `06_TEST_REPORT.md` or `10_RELEASE_SYNC.md` and does not assert final test counts, commit, push or deployment outcomes.
+## Frontend delivery checkpoint — 2026-08-20
+
+- Trusted Energy console routes, twelve views, scoped primitives, capability truth fixtures, responsive Agent sheet, and pure tests are complete; precise stage/commit/push remains with `/root`, and Render is out of scope for this checkpoint.

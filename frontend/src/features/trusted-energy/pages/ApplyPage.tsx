@@ -1,0 +1,25 @@
+import { useState } from "react";
+import { ArrowLeft, ArrowRight, Check, FileCheck2, LockKeyhole, Network, Search, ShieldCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { demoAssets, routeForView } from "../types";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Steps } from "../components/ui-primitives";
+import { PageFrame } from "../components/PageFrame";
+
+const asset = demoAssets[0];
+const useCases = [{ id: "settlement", title: "结算分析", desc: "按既定规则核验结算电量与价格", icon: FileCheck2 }, { id: "cross-check", title: "交叉分析", desc: "与授权的负荷数据进行聚合比对", icon: Search }, { id: "model", title: "模型训练", desc: "训练能源预测模型，仅返回模型指标", icon: Network }, { id: "audit", title: "审计复核", desc: "支持监管审计的口径与证据核验", icon: ShieldCheck }, { id: "other", title: "其他受控用途", desc: "由提供方人工审核用途与处理方式", icon: LockKeyhole }];
+
+export function ApplyPage() {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [purpose, setPurpose] = useState("settlement");
+  const [method, setMethod] = useState("mpc");
+  const [submitted, setSubmitted] = useState(false);
+  const methods = [{ id: "mpc", title: "MPC 聚合计算", desc: "仅暴露计算结果摘要，不返回原始数据", badge: "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST" }, { id: "query", title: "脱敏查询", desc: "返回预先定义的脱敏统计字段", badge: "ADAPTER" }];
+  const steps = ["选择用途", "使用方式", "确认条件", "提交申请"];
+  function next() { if (step < 3) setStep((value) => value + 1); else setSubmitted(true); }
+  return <PageFrame title="使用申请" description={`申请访问「${asset.name}」前，请按用途与处理边界完成确认。`} back={routeForView("asset", asset.id)}>
+    <Card className="trusted-application-card"><CardContent><div className="trusted-application-meta"><span><small>申请资产</small><strong>{asset.name}</strong></span><span><small>提供方</small><strong>{asset.provider}</strong></span><span><small>敏感等级</small><Badge tone="danger">{asset.sensitivity}</Badge></span><span><small>申请有效期</small><strong>30 日</strong></span></div></CardContent></Card>
+    <Steps steps={steps} current={step} />
+    {submitted ? <Card className="trusted-submit-success"><CardContent><span className="trusted-success-icon"><Check size={24} /></span><h2>申请已提交至提供方审核</h2><p>申请编号 <code>REQ-20260518-008</code> 已生成。系统不会代替提供方批准，也不会自动执行计算。</p><div className="trusted-submit-actions"><Button variant="secondary" onClick={() => navigate(routeForView("catalog"))}>返回数据目录</Button><Button variant="primary" onClick={() => navigate(routeForView("contract"))}>查看协商状态 <ArrowRight size={14} /></Button></div></CardContent></Card> : <Card className="trusted-step-card"><CardHeader><CardTitle>{steps[step]}</CardTitle><p>{step === 0 ? "请选择本次申请的业务目标，目的将写入后续协商记录。" : step === 1 ? "选择提供方允许的处理方式。" : step === 2 ? "确认数据范围、结果口径和责任边界。" : "提交前核对本地受控环境与主体信息。"}</p></CardHeader><CardContent>{step === 0 && <div className="trusted-option-grid">{useCases.map(({ id, title, desc, icon: Icon }) => <button type="button" className={`trusted-option-card${purpose === id ? " is-selected" : ""}`} key={id} onClick={() => setPurpose(id)}><span className="trusted-option-radio">{purpose === id && <i />}</span><Icon size={18} /><span><strong>{title}</strong><small>{desc}</small></span></button>)}</div>}{step === 1 && <div className="trusted-option-grid trusted-method-grid">{methods.map(({ id, title, desc, badge }) => <button type="button" className={`trusted-option-card${method === id ? " is-selected" : ""}`} key={id} onClick={() => setMethod(id)}><span className="trusted-option-radio">{method === id && <i />}</span><Network size={18} /><span><strong>{title}</strong><small>{desc}</small><Badge tone={badge === "ADAPTER" ? "warning" : "success"}>{badge}</Badge></span></button>)}</div>}{step === 2 && <div className="trusted-confirm-list"><div><span><Check size={14} />用途</span><strong>{useCases.find((item) => item.id === purpose)?.title}</strong></div><div><span><Check size={14} />处理方式</span><strong>{methods.find((item) => item.id === method)?.title}</strong></div><div><span><Check size={14} />结果范围</span><strong>结算电量、结算价格、质量摘要</strong></div><div><span><Check size={14} />保留期限</span><strong>结果 30 日，证据摘要长期留存</strong></div><label className="trusted-check-field"><input type="checkbox" defaultChecked />我确认不会尝试推断或导出原始主体数据，且接受提供方人工审核。</label></div>}{step === 3 && <div className="trusted-review-box"><div className="trusted-review-label"><ShieldCheck size={16} /><span>提交前核验</span><Badge tone="success" dot>信息完整</Badge></div><p>本申请将在本地创建协商记录，后续由提供方决定是否授权。MPC 能力当前为 <code>LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST</code>，不可作为生产跨域证明。</p><dl className="trusted-definition-list"><div><dt>主体 DID</dt><dd><code>did:energy:generator001</code></dd></div><div><dt>目标资产</dt><dd>{asset.name} / {asset.version}</dd></div></dl></div>}</CardContent><div className="trusted-step-footer"><Button variant="secondary" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}><ArrowLeft size={14} />上一步</Button><Button variant="primary" onClick={next}>{step === 3 ? "提交申请" : "下一步"}<ArrowRight size={14} /></Button></div></Card>}
+  </PageFrame>;
+}

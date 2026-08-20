@@ -41,3 +41,6 @@
 ### Next step
 
 - Keep the Render review/test service pinned to the verified SHA for review, and provision separate production infrastructure before any production release claim.
+## Frontend delivery checkpoint — 2026-08-20
+
+- Trusted Energy console implementation, responsive visual verification, and pure frontend tests completed; precise publication remains pending and no Render deployment was performed in this checkpoint.

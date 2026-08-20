@@ -36,6 +36,7 @@ export const pages = {
   system: lazyNamed(() => import("./pages/SystemPage"), "SystemPage"),
   trustedExecution: lazyNamed(() => import("./pages/TrustedExecutionPage"), "TrustedExecutionPage"),
   workbench: lazyNamed(() => import("./pages/WorkbenchPage"), "WorkbenchPage"),
+  trustedSpace: lazyNamed(() => import("./features/trusted-energy/layout/TrustedSpaceShell"), "TrustedSpaceShell"),
 };
 
 const routePages: Array<[string, LazyPage]> = [

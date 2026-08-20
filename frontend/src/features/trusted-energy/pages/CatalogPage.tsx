@@ -1,0 +1,19 @@
+import { useMemo, useState } from "react";
+import { ArrowUpRight, Database, Filter, Search, SlidersHorizontal, UserRound } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { demoAssets, routeForView } from "../types";
+import { Badge, Button, Card, CardContent, Input, Select, StatusBadge } from "../components/ui-primitives";
+import { PageFrame } from "../components/PageFrame";
+
+export function CatalogPage() {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState("all");
+  const [domain, setDomain] = useState("all");
+  const [level, setLevel] = useState("all");
+  const filtered = useMemo(() => demoAssets.filter((asset) => (!query || `${asset.name} ${asset.provider} ${asset.description}`.toLowerCase().includes(query.toLowerCase())) && (type === "all" || asset.type === type) && (domain === "all" || asset.domain === domain) && (level === "all" || asset.sensitivity === level)), [query, type, domain, level]);
+  return <PageFrame title="数据目录" description="发现可申请的数据资产，先确认用途、敏感等级和可用方式。" action={<Button variant="secondary"><Filter size={14} />保存筛选</Button>}>
+    <Card className="trusted-filter-card"><CardContent><div className="trusted-filter-row"><label className="trusted-search-field"><Search size={16} /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索资产名称、提供方、标识…" aria-label="搜索数据资产" /></label><Select value={type} onChange={(event) => setType(event.target.value)} options={[{ value: "all", label: "全部类型" }, ...Array.from(new Set(demoAssets.map((item) => item.type))).map((item) => ({ value: item, label: item }))]} /><Select value={domain} onChange={(event) => setDomain(event.target.value)} options={[{ value: "all", label: "全部领域" }, ...Array.from(new Set(demoAssets.map((item) => item.domain))).map((item) => ({ value: item, label: item }))]} /><Select value={level} onChange={(event) => setLevel(event.target.value)} options={[{ value: "all", label: "全部等级" }, { value: "L1", label: "L1 公开" }, { value: "L2", label: "L2 内部" }, { value: "L3", label: "L3 敏感" }, { value: "L4", label: "L4 高敏" }]} /><Button variant="ghost" size="icon" aria-label="更多筛选"><SlidersHorizontal size={15} /></Button></div><div className="trusted-filter-summary"><span><Database size={13} />共 {filtered.length} 项资产</span><span>当前范围：东部绿能企业可见域</span><Badge tone="warning">示例目录 · 本地受控</Badge></div></CardContent></Card>
+    <div className="trusted-catalog-list">{filtered.map((asset) => <Card className="trusted-asset-row" key={asset.id}><CardContent><div className="trusted-asset-main"><span className="trusted-asset-icon"><Database size={18} /></span><div><div className="trusted-asset-title"><h2>{asset.name}</h2><Badge tone={asset.sensitivity === "L4" ? "danger" : asset.sensitivity === "L3" ? "warning" : "neutral"}>{asset.sensitivity}</Badge><StatusBadge value={asset.status} /></div><p>{asset.description}</p><div className="trusted-asset-meta"><span><UserRound size={13} />{asset.provider}</span><span>{asset.type} · {asset.domain}</span><span>更新于 {asset.updatedAt}</span></div></div></div><div className="trusted-asset-stats"><div><small>质量评分</small><strong>{asset.quality.toFixed(1)}</strong></div><div><small>采集频率</small><strong>{asset.frequency}</strong></div><div><small>可用方式</small><strong>{asset.access}</strong></div><div className="trusted-asset-actions"><Button variant="secondary" size="sm" onClick={() => navigate(routeForView("asset", asset.id))}>查看详情 <ArrowUpRight size={13} /></Button><Button variant="primary" size="sm" onClick={() => navigate(routeForView("apply", asset.id))}>申请使用</Button></div></div></CardContent></Card>)}{!filtered.length && <div className="trusted-empty-state"><Database size={22} /><strong>没有匹配的数据资产</strong><span>调整筛选条件或清空搜索关键词后重试。</span><Button variant="secondary" onClick={() => { setQuery(""); setType("all"); setDomain("all"); setLevel("all"); }}>清空筛选</Button></div>}</div>
+  </PageFrame>;
+}
