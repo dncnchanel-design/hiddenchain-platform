@@ -3,7 +3,7 @@
 Date: 2026-08-20
 Version: `0.2.0`
 Overall local status: `PASS`
-Remote release status: `PENDING/BLOCKED_BY_EXTERNAL_ACCESS`
+Remote release status: `BLOCKED_AT_GITHUB_PUSH`
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -21,6 +21,8 @@ Remote release status: `PENDING/BLOCKED_BY_EXTERNAL_ACCESS`
 | Agent over-permission | PASS | DID/Tool grants are checked before data, compute or external side effects; revoked/out-of-scope calls fail closed |
 | Secret leakage | PASS | High-confidence credential scan found no private keys, cloud/PAT/API tokens; production source guard passed |
 | Frontend regression | PASS | ESLint, TypeScript, 46 tests, production guard, brand guard and bundle passed; no CSS, routes, navigation or visual-system redesign |
+| Local implementation commit | PASS | `71de395bf658fa34c8d271705ace130d9abf0e24`; cached scope 70 files, protected assets excluded |
+| GitHub push | BLOCKED | Sandboxed network connection failed; required elevated retry was denied by the host usage-limit approval gate |
 
 ## Commands and observations
 
@@ -56,8 +58,8 @@ YAML parsing: render.yaml, docker-compose.production.yml and all three modified 
 | --- | --- | --- |
 | Real PostgreSQL migration/advisory-lock run | BLOCKED | No PostgreSQL instance is available; dialect SQL and migration behavior are covered locally |
 | Docker production image build | BLOCKED | Docker is not installed on this host; source and production guards passed and CI retains the image/security gates |
-| Browser/Render online smoke | PENDING | Must follow commit, push, remote SHA and review/test deployment |
-| GitHub Python 3.12 coverage replay | PENDING | `backend-tests.yml` now runs on `agent/**`; requires successful push and GitHub Actions access |
+| Browser/Render online smoke | BLOCKED | Must follow a successful push and verified remote SHA; release sequence stopped at that prerequisite |
+| GitHub Python 3.12 coverage replay | BLOCKED | `backend-tests.yml` runs on `agent/**`, but the branch cannot reach GitHub while push access is blocked |
 | External EDC, TEE, chain consensus and cross-domain MPC | BLOCKED | External runtimes, credentials, independent nodes and proof infrastructure are not present |
 
 The Starlette/httpx compatibility deprecation warning is known and non-failing. It does not change the verification result.

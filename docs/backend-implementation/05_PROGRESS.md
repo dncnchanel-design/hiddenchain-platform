@@ -19,14 +19,15 @@
 - Updated trusted-execution, production-readiness, deployment and backend-implementation documentation to match the code boundary.
 - Closed independent review blockers for state-machine artifact gates, organization/DID authorization, audit approval, algorithm/build binding, Vault input integrity, Merkle batch replay verification and anchor receipt validation.
 - Passed 117 backend tests, 79% fixed-seed backend branch coverage, 46 frontend tests, explicit golden paths, OpenAPI serialization, production/brand guards, Python/TypeScript compilation, ESLint and Vite production build.
+- Completed final cached-diff, protected-asset boundary and high-confidence secret scans, then created implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24`.
 
-### In progress
+### Current release state
 
-- Final diff/staging review and the authorized commit/push/review-test deployment sequence by `/root`.
+- `BLOCKED_AT_GITHUB_PUSH`. The sandboxed push could not connect to GitHub, and the required elevated retry was denied by the host usage-limit approval gate. No bypass was attempted.
 
 ### Pending release evidence
 
-- Reviewed commit, push, GitHub remote SHA verification, Render review/test deployment, online health/smoke and deployed SHA verification.
+- GitHub push, remote SHA verification, Render review/test deployment, online health/smoke and deployed SHA verification.
 - Local Docker image build and real PostgreSQL migration/concurrency validation remain unavailable on this host.
 
 ### Known blockers
@@ -34,8 +35,8 @@
 - Eclipse EDC remains `ADAPTER`; TEE and cross-domain production MPC remain `BLOCKED`; blockchain consensus remains `DEMO` only.
 - PostgreSQL, Redis, MinIO, Milvus and production high-availability infrastructure are unavailable or unverified.
 - The available Render manifest is review/test only and cannot satisfy production acceptance.
-- Live GitHub/Render access and credentials are not yet proven.
+- GitHub egress/elevated execution is currently unavailable; Render cannot be attempted before a verified GitHub push.
 
 ### Next step
 
-- Main coordinator reviews/stages only owned files, commits, then performs the authorized release sequence without calling Render review/test “production.”
+- When GitHub egress/elevated execution becomes available, retry the normal non-force push, verify the remote SHA, then continue the Render review/test sequence without calling it “production.”

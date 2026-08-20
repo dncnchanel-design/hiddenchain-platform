@@ -2,7 +2,7 @@
 
 适用版本：`0.2.0`。
 
-当前总体结论：本地实现与验证 `PASS`，正式生产验收仍为 `BLOCKED`。仓库已完成本地可信执行、生产源码门禁和回归验证，但尚无 commit/push 后的远程 SHA 收敛、生产基础设施或线上冒烟证据。`render.yaml` 仅为 review/test，不是生产环境。
+当前总体结论：本地实现、验证与实现提交 `PASS`，正式生产验收仍为 `BLOCKED`。仓库已完成本地可信执行、生产源码门禁和回归验证；实现提交为 `71de395bf658fa34c8d271705ace130d9abf0e24`，但 GitHub 推送受主机网络/授权限制阻塞，因而尚无远程 SHA 收敛、生产基础设施或线上冒烟证据。`render.yaml` 仅为 review/test，不是生产环境。
 
 ## 自动门禁
 
@@ -29,8 +29,8 @@ cd ..\backend
 | 前端 lint/typecheck/test/build | `PASS` | ESLint、TypeScript、46 项 Vitest、生产/品牌守卫及 Vite 构建通过 |
 | API 合同/黄金路径 | `PASS` | OpenAPI 0.2.0 可序列化，69 个 path；3 条显式端到端黄金路径通过 |
 | 安全/失败/越权检查 | `PASS` | TTC 绕过、Agent 越权、Vault/算法/证据篡改、Outbox 重试/死信及跨组织访问回归通过 |
-| commit/push/远程 SHA | `PENDING` | 本文档不预告发布结果 |
-| Render 部署/健康/在线冒烟 | `PENDING` | 当前清单仅允许 review/test |
+| commit/push/远程 SHA | `PARTIAL/BLOCKED` | 本地实现提交 `71de395…` 已创建；GitHub 网络连接失败，授权重试又被主机用量审批拒绝，远程 SHA 未知 |
+| Render 部署/健康/在线冒烟 | `BLOCKED` | 发布序列按门禁停在 GitHub push；当前清单即使可部署也仅允许 review/test |
 | 生产外部基础设施 | `BLOCKED` | 需 PostgreSQL、共享限流/队列、持久对象存储、可观测性和高可用部署证据 |
 
 ## 发布前人工检查

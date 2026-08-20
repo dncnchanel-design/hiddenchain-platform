@@ -1,6 +1,6 @@
 # Implementation Plan
 
-Implementation snapshot: repository-local development for stages 0–4 and the local verification portion of stage 5 are complete in the `0.2.0` working tree. Commit, remote synchronization and review/test deployment remain pending.
+Implementation snapshot: repository-local development for stages 0–4, local verification and the implementation commit are complete for `0.2.0`. Remote synchronization and review/test deployment are blocked at the GitHub push prerequisite.
 
 ## Stage 0: governance and baseline
 
@@ -45,11 +45,11 @@ Status: `IMPLEMENTED_LOCALLY`.
 
 ## Stage 5: verification and release
 
-Status: `LOCAL_VERIFICATION_PASS_RELEASE_PENDING`.
+Status: `LOCAL_COMMIT_PASS_RELEASE_BLOCKED_AT_GITHUB_PUSH`.
 
 - Build, unit, integration, security, failure, contract, service E2E and golden-path gates passed.
 - The fixed-seed branch-coverage replay passed at 79% against a 75% floor; the feature-branch CI trigger will repeat it on Python 3.12 after push.
 - Frontend lint, typecheck, 46 tests, production/brand guards and production bundle passed without visual-system changes.
-- Diff/untracked-boundary review, final staging, commit, GitHub/Render synchronization and SHA convergence remain in the release sequence.
+- Diff/untracked-boundary review, explicit staging and implementation commit `71de395bf658fa34c8d271705ace130d9abf0e24` completed. GitHub push failed on network access and its authorized retry was denied by the host usage gate, so remote/Render SHA convergence did not start.
 
 Render in this stage means review/test deployment only under the current manifest. It cannot satisfy production acceptance. External EDC, TEE, blockchain consensus, PostgreSQL, Redis, MinIO, Milvus and high-availability infrastructure remain outside the implemented local boundary.
