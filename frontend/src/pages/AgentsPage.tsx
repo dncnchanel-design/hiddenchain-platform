@@ -30,8 +30,8 @@ export function AgentsPage() {
     return { definitions, events, tasks, serviceStatus };
   };
   const { data, loading, refreshing, error, reload } = useRemote(loader, []);
-  const effectiveTaskId = taskId || data?.tasks[0]?.task_id || "";
-  const events = useMemo(() => effectiveTaskId ? data?.events.filter((item) => item.task_id === effectiveTaskId) || [] : data?.events || [], [data, effectiveTaskId]);
+  const effectiveTaskId = taskId;
+  const events = useMemo(() => effectiveTaskId ? data?.events.filter((item) => item.task_id === effectiveTaskId) || [] : [], [data, effectiveTaskId]);
   const selectedTask = data?.tasks.find((item) => item.task_id === effectiveTaskId);
 
   async function invokeOne(agent: JsonRecord) {
@@ -84,6 +84,7 @@ export function AgentsPage() {
       <FilterBar actions={<Button icon={Workflow} variant="primary" busy={batchRunning} disabled={!effectiveTaskId || Boolean(runningCode)} onClick={() => setConfirmBatch(true)}>运行任务能力链</Button>}>
         <label><span>关联任务</span><select value={effectiveTaskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}><option value="">请选择</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
       </FilterBar>
+      {!effectiveTaskId && <Notice tone="info">请先选择一个真实任务；未选择任务时不会执行能力服务或展示其他任务事件。</Notice>}
       {actionError && <Notice tone="warning">{actionError}</Notice>}
 
       <Surface title="能力服务目录" meta={`${data.definitions.length} 项`}>

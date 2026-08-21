@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
+
 from sqlalchemy import create_engine, inspect, select
 
 from app.database import SessionLocal
@@ -134,6 +136,23 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         "/api/trust-space/assistant/sessions",
     ):
         assert path in paths
+
+    frontend_client = Path(__file__).resolve().parents[2] / "frontend/src/features/trusted-energy/trusted-space-api.ts"
+    frontend_source = frontend_client.read_text(encoding="utf-8")
+    frontend_to_openapi = {
+        "/trust-space/context": "/api/trust-space/context",
+        "/trust-space/catalog": "/api/trust-space/catalog",
+        "/data/access-requests": "/api/data/access-requests",
+        "/trust-space/contracts": "/api/trust-space/contracts",
+        "/trust-space/ttc": "/api/trust-space/ttc",
+        "/trust-space/computations": "/api/trust-space/computations",
+        "/trust-space/results": "/api/trust-space/results",
+        "/trust-space/notifications": "/api/trust-space/notifications",
+        "/trust-space/assistant": "/api/trust-space/assistant/sessions",
+    }
+    for path, openapi_path in frontend_to_openapi.items():
+        assert path in frontend_source
+        assert openapi_path in paths
 
     contexts = {
         role: client.get("/api/trust-space/context", headers=auth_headers[role])

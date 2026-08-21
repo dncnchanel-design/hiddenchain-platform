@@ -15,6 +15,9 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
+  const [mode, setMode] = useState<"account" | "did">("account");
+  const [did, setDid] = useState("");
+  const [credential, setCredential] = useState("");
   const product = useProductConfig();
   const version = import.meta.env.VITE_APP_VERSION || "0.2.0";
   const footerItems = productFooterItems(product, version);
@@ -25,6 +28,10 @@ export function LoginPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mode === "did") {
+      setError("DID 身份认证尚未配置生产凭证，本次不会伪造登录结果。请切换账号密码登录，或联系管理员接入 DID Provider。");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -38,7 +45,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="login-screen">
+    <div className="login-screen trusted-login-screen">
       <header className="login-brandbar">
         <div className="login-brand">
           <span className="login-product-mark"><BrandMark size={21} /></span>
@@ -48,12 +55,18 @@ export function LoginPage() {
       </header>
 
       <main className="login-main">
-        <form className="login-form" onSubmit={submit}>
+        <form className="login-form trusted-login-form" onSubmit={submit}>
           <div className="login-form-heading">
             <span className="login-form-icon" aria-hidden="true"><LockKeyhole size={20} /></span>
             <div><h1>登录系统</h1><p>使用已授权账号进入工作空间</p></div>
           </div>
 
+          <div className="trusted-login-tabs" role="tablist" aria-label="登录方式">
+            <button type="button" role="tab" aria-selected={mode === "account"} className={mode === "account" ? "is-active" : ""} onClick={() => { setMode("account"); setError(""); }}>账号密码登录</button>
+            <button type="button" role="tab" aria-selected={mode === "did"} className={mode === "did" ? "is-active" : ""} onClick={() => { setMode("did"); setError(""); }}>DID 身份认证</button>
+          </div>
+
+          {mode === "account" ? <>
           <label className="field">
             <span>账号</span>
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required minLength={3} maxLength={64} autoFocus />
@@ -69,8 +82,13 @@ export function LoginPage() {
           </label>
 
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
+          </> : <div className="trusted-did-login-panel">
+            <label className="field"><span>选择主体 DID</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置 DID（请联系管理员）</option></select></label>
+            <label className="field"><span>凭证引用</span><input value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="输入部署端提供的凭证引用" autoComplete="off" /></label>
+            <div className="trusted-did-notice"><ShieldCheck size={15} /><span>当前环境未接入 DID Provider。提交后只会提示未配置，不会创建会话或模拟认证成功。</span></div>
+          </div>}
           {error && <Notice tone="warning">{error}</Notice>}
-          <Button type="submit" variant="primary" busy={busy}>登录</Button>
+          <Button type="submit" variant="primary" busy={busy}>{mode === "did" ? "验证 DID 凭证" : "登录"}</Button>
 
           {product.loginNotice && <Notice>{product.loginNotice}</Notice>}
           <div className="login-security-note"><ShieldCheck size={15} /><span>请使用授权账号登录，离开终端时及时退出系统。</span></div>

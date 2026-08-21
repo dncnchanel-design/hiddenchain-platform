@@ -4,8 +4,10 @@ from pathlib import Path
 
 
 SAMPLE_XLSX = (
-    Path(__file__).resolve().parent
-    / "fixtures"
+    Path(__file__).resolve().parents[2]
+    / "frontend"
+    / "public"
+    / "sample-data"
     / "hiddenchain-excel-batch-data.xlsx"
 )
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

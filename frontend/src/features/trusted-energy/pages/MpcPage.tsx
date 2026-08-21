@@ -1,0 +1,105 @@
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, CheckCircle2, Cpu, Link2, Network, Radio, RefreshCw, ShieldCheck, TerminalSquare } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ApiError, createIdempotencyKey, shortHash } from "../../../api";
+import { useRemote } from "../../../hooks";
+import { Badge, Button, Card, CardContent, CardHeader, Progress, RemoteState, StatusBadge, SurfaceHeader } from "../components/ui-primitives";
+import { PageFrame } from "../components/PageFrame";
+import { controlComputation, loadComputation, loadComputationEvents, loadComputations, type ComputationDetailPayload, type ComputationEvent, type ComputationListPayload, type ComputationAction } from "../trusted-space-api";
+import { routeForView, trustedEntityId } from "../types";
+
+function statusLabel(value: string) {
+  return ({ RUNNING: "执行中", PENDING: "待开始", QUEUED: "排队中", SUCCEEDED: "已完成", SUCCESS: "已完成", FAILED: "失败", CANCELLED: "已取消", COMPLETED: "已完成", BLOCKED: "已阻断" } as Record<string, string>)[value] || value || "未知";
+}
+
+function capabilityTone(value?: string) {
+  return value === "BLOCKED" ? "danger" as const : value === "ADAPTER" || value === "DEMO" ? "warning" as const : "success" as const;
+}
+
+export function MpcPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routeJobId = trustedEntityId(location.pathname, "mpc");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [listPage, setListPage] = useState(1);
+  const listRemote = useRemote<ComputationListPayload | null>((signal) => routeJobId ? Promise.resolve(null) : loadComputations({ page: listPage, pageSize: 12, status: statusFilter || undefined }, signal), [routeJobId, listPage, statusFilter]);
+  const selectedJobId = routeJobId;
+  const remote = useRemote<ComputationDetailPayload | null>((signal) => selectedJobId ? loadComputation(selectedJobId, signal) : Promise.resolve(null), [selectedJobId]);
+  const detail = remote.data;
+  const [logsEnabled, setLogsEnabled] = useState(false);
+  const [logRetryNonce, setLogRetryNonce] = useState(0);
+  const [logItems, setLogItems] = useState<ComputationEvent[]>([]);
+  const [logError, setLogError] = useState("");
+  const [controlBusy, setControlBusy] = useState<ComputationAction | "">("");
+  const [controlError, setControlError] = useState("");
+  const cursorRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!logsEnabled || !selectedJobId) return undefined;
+    let active = true;
+    let timer: number | undefined;
+    const controller = new AbortController();
+    cursorRef.current = undefined;
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const payload = await loadComputationEvents(selectedJobId, { cursor: cursorRef.current, limit: 50 }, controller.signal);
+        if (!active) return;
+        setLogItems((previous) => {
+          const known = new Set(previous.map((item) => item.sequence_no));
+          return [...previous, ...payload.items.filter((item) => !known.has(item.sequence_no))];
+        });
+        const offset = Number(cursorRef.current || 0) || 0;
+        cursorRef.current = payload.next_cursor || String(offset + payload.items.length);
+        setLogError("");
+        timer = window.setTimeout(() => void poll(), 1_500);
+      } catch (error) {
+        if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
+        setLogError(error instanceof ApiError ? error.message : "计算日志读取失败");
+        timer = window.setTimeout(() => void poll(), 4_000);
+      }
+    };
+    void poll();
+    return () => {
+      active = false;
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [logRetryNonce, logsEnabled, selectedJobId]);
+
+  async function runControl(action: ComputationAction) {
+    if (!detail || controlBusy) return;
+    setControlBusy(action);
+    setControlError("");
+    try {
+      await controlComputation(detail.job.job_id, action, action === "cancel" ? "用户请求取消计算" : "用户请求重试计算", {
+        ifMatch: String(detail.job.state_version),
+        idempotencyKey: createIdempotencyKey(`compute-${action}-${detail.job.job_id}`),
+      });
+      await remote.reload();
+      await listRemote.reload();
+    } catch (error) {
+      setControlError(error instanceof ApiError ? error.message : "计算控制动作未完成，请刷新后重试");
+    } finally {
+      setControlBusy("");
+    }
+  }
+
+  const fallbackLoading = !routeJobId && listRemote.loading && !listRemote.data;
+  const fallbackError = !routeJobId && listRemote.error && !listRemote.data ? listRemote.error : "";
+  return <PageFrame title="MPC 计算任务" description={detail ? `查看真实计算任务 ${detail.job.job_id} 的参与方、进度、日志和回执。` : "读取真实隐私计算任务与能力边界。"} back={detail ? routeForView("ttc", detail.job.task_id) : routeForView("workbench")} action={detail ? <Badge tone={capabilityTone(detail.external_execution.capability_state)} dot>{detail.external_execution.capability_state}</Badge> : <Button variant="secondary" onClick={() => void listRemote.reload()} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
+    {fallbackLoading && <RemoteState loading />}
+    {fallbackError && <RemoteState error={fallbackError} onRetry={() => void listRemote.reload()} />}
+    {remote.loading && !detail && !fallbackLoading && !fallbackError && <RemoteState loading />}
+    {remote.error && !detail && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
+    {!selectedJobId && !fallbackLoading && !fallbackError && <RemoteState empty emptyLabel="当前主体暂无可见计算任务" />}
+    {listRemote.data && !routeJobId && !detail && <Card><CardHeader><SurfaceHeader title="计算任务列表" description="从真实 privacy_compute_jobs 选择任务" action={<select aria-label="按计算状态筛选" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setListPage(1); }}><option value="">全部状态</option><option value="QUEUED">排队中</option><option value="RUNNING">执行中</option><option value="SUCCESS">已完成</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option></select>} /></CardHeader><CardContent>{listRemote.data.items.length ? <div className="trusted-task-list">{listRemote.data.items.map((job) => <button type="button" className="trusted-task-row" key={job.job_id} onClick={() => navigate(routeForView("mpc", job.job_id))}><span className="trusted-task-icon"><Network size={15} /></span><span className="trusted-task-copy"><strong>{job.task_name || job.job_id}</strong><small><code>{job.job_id}</code> · {statusLabel(job.status)}</small></span><StatusBadge value={statusLabel(job.status)} /></button>)}</div> : <RemoteState empty emptyLabel="当前筛选下暂无计算任务" />}<div className="trusted-submit-actions"><Button variant="secondary" size="sm" disabled={listPage <= 1} onClick={() => setListPage((value) => Math.max(1, value - 1))}>上一页</Button><span className="trusted-muted">第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 项</span><Button variant="secondary" size="sm" disabled={listPage * listRemote.data.page_size >= listRemote.data.total} onClick={() => setListPage((value) => value + 1)}>下一页</Button></div></CardContent></Card>}
+    {detail && <>
+      <div className="trusted-mpc-alert"><ShieldCheck size={16} /><div><strong>能力边界提示</strong><span>参与方、回执和日志来自后端任务登记；外部 MPC/TEE 未配置时保持 ADAPTER 或 BLOCKED，不推断生产连接。</span></div><Badge tone={capabilityTone(detail.external_execution.capability_state)}>{detail.external_execution.capability_state}</Badge></div>
+      <Card className="trusted-task-banner"><CardContent><div><small>Job ID</small><strong><code>{detail.job.job_id}</code></strong></div><div><small>关联 TTC</small><strong><code>{detail.job.task_id}</code></strong></div><div><small>算法</small><strong>{detail.job.algorithm_code}</strong></div><div><small>状态</small><StatusBadge value={statusLabel(detail.job.status)} /></div><div><small>进度</small><strong>{detail.job.progress}%</strong></div><div><small>适配器</small><Badge tone="warning">{detail.job.adapter_code || "NOT_CONFIGURED"}</Badge></div></CardContent></Card>
+      <div className="trusted-mpc-grid"><Card className="trusted-topology-card"><CardHeader><SurfaceHeader title="参与方拓扑" description="仅展示真实 TaskParticipant 登记" action={<Network size={16} />} /></CardHeader><CardContent>{detail.participants.length ? <><div className="trusted-topology">{detail.participants.map((party, index) => <div className={`trusted-party-card trusted-party-party-${index + 1}`} key={party.org_id}><span className="trusted-party-icon"><Cpu size={16} /></span><strong>{party.organization?.org_name || party.org_id}</strong><small>{party.role_in_task}</small><code>{party.org_id}</code><StatusBadge value={party.data_status || "未登记"} /></div>)}<div className="trusted-mpc-core"><span><Network size={18} /></span><strong>受控计算节点</strong><small>{detail.external_execution.adapter_code || "未配置适配器"}</small><Badge tone={capabilityTone(detail.external_execution.capability_state)}>{detail.external_execution.capability_state}</Badge></div></div><div className="trusted-topology-legend"><span><i className="trusted-dot trusted-dot-success" />真实登记</span><span><i className="trusted-dot trusted-dot-warning" />能力边界</span></div></> : <RemoteState empty emptyLabel="当前任务未登记参与方；跨域执行为 BLOCKED" />}</CardContent></Card><Card className="trusted-mpc-log-card"><CardHeader><SurfaceHeader title="实时计算日志" description="通过 cursor 轮询真实 logs endpoint" action={<TerminalSquare size={16} />} /></CardHeader><CardContent><div className="trusted-log-stream trusted-log-compact">{detail.job.logs.map((line, index) => <div key={`job-${index}-${line}`}><time>任务日志</time><code>{line}</code></div>)}{logItems.map((event) => <div key={`event-${event.sequence_no}`}><time>#{event.sequence_no}</time><code>{event.detail}</code><CheckCircle2 size={13} /></div>)}{!detail.job.logs.length && !logItems.length && <span className="trusted-muted">暂无日志记录</span>}</div><div className="trusted-mpc-progress"><Progress value={detail.job.progress} label={`计算进度 ${detail.job.progress}%`} /><span>{detail.job.duration_ms ? `${detail.job.duration_ms} ms` : "持续时间未登记"}</span></div><div className="trusted-submit-actions"><Button variant={logsEnabled ? "primary" : "secondary"} disabled={!detail.allowed_actions?.includes("poll_logs")} title={detail.allowed_actions?.includes("poll_logs") ? "开启/关闭真实 cursor 轮询" : "后端未返回 poll_logs 能力"} onClick={() => setLogsEnabled((value) => !value)}><Radio size={14} />{logsEnabled ? "停止日志订阅" : "订阅本地日志"}</Button>{logError && <Button variant="link" size="sm" onClick={() => { setLogError(""); setLogRetryNonce((value) => value + 1); setLogsEnabled(true); }}>重试日志</Button>}</div></CardContent></Card></div>
+      <Card><CardHeader><SurfaceHeader title="参与方回执" description="回执哈希与链锚定状态来自真实证据记录；没有 TxHash 时保持未锚定" action={<Link2 size={16} />} /></CardHeader><CardContent><div className="trusted-receipt-table">{detail.receipts.map((receipt) => <div key={receipt.evidence_id}><span><strong>{receipt.stage}</strong><small>{receipt.biz_type} · {receipt.biz_id}</small></span><code>{shortHash(receipt.evidence_hash)}</code><span>{receipt.tx_hash ? <code>{shortHash(receipt.tx_hash)}</code> : <Badge tone="warning">未锚定</Badge>}</span><StatusBadge value={receipt.status} /><ArrowRight size={14} /></div>)}{!detail.receipts.length && <RemoteState empty emptyLabel="暂无真实计算回执" />}</div></CardContent></Card>
+      <Card><CardHeader><SurfaceHeader title="计算控制" description="仅在后端 allowed_actions 明确开放时启用写动作" /></CardHeader><CardContent><div className="trusted-submit-actions"><Button variant="secondary" busy={controlBusy === "retry"} disabled={!detail.allowed_actions?.includes("retry") || Boolean(controlBusy)} title={detail.allowed_actions?.includes("retry") ? "执行后端 retry" : detail.action_reasons?.retry || "后端未返回 retry 能力"} onClick={() => void runControl("retry")}>重试计算</Button><Button variant="danger" busy={controlBusy === "cancel"} disabled={!detail.allowed_actions?.includes("cancel") || Boolean(controlBusy)} title={detail.allowed_actions?.includes("cancel") ? "执行后端 cancel" : detail.action_reasons?.cancel || "后端未返回 cancel 能力"} onClick={() => void runControl("cancel")}>取消计算</Button><span className="trusted-muted">{controlError || detail.action_reasons?.retry || detail.action_reasons?.cancel || "当前没有可执行控制动作"}</span><span className="trusted-muted">TEE：{detail.external_execution.tee_attestation || "NOT_CONFIGURED"} · 跨域参与方：{detail.external_execution.cross_domain_participants.length}</span></div></CardContent></Card>
+    </>}
+  </PageFrame>;
+}

@@ -134,7 +134,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
     ...requestOptions
   } = options;
   const headers = new Headers(requestOptions.headers);
-  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
   if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
@@ -226,6 +226,13 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
 
 export function post<T>(path: string, body: unknown, options: ApiCommandOptions = {}): Promise<T> {
   return api<T>(path, { ...options, method: "POST", body: JSON.stringify(body) }).then((value) => {
+    invalidateApiCache();
+    return value;
+  });
+}
+
+export function postForm<T>(path: string, form: FormData, options: ApiCommandOptions = {}): Promise<T> {
+  return api<T>(path, { ...options, method: "POST", body: form }).then((value) => {
     invalidateApiCache();
     return value;
   });
