@@ -20,6 +20,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 MODULES = [
     {"code": "overview", "path": "/overview", "roles": ["ADMIN"]},
     {"code": "workbench", "path": "/workbench", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "generation-data", "path": "/data/generation", "roles": ["GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "retail-data", "path": "/data/retail", "roles": ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "excel-upload", "path": "/data/upload", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "data-space", "path": "/data-space", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
     {"code": "trusted-execution", "path": "/trusted-execution", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},

@@ -1,47 +1,61 @@
 import type { ElementType } from "react";
-import { ArrowRight, BarChart3, Building2, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowRight, BarChart3, Building2, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Button, DataTable, DateTimeText, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
+import { Button, DataTable, DateTimeText, ErrorState, IdText, LoadingState, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { taskNextAction, taskTabFor } from "../settlement-model";
 import type { JsonRecord, RoleCode } from "../types";
-import { loadWorkbench, type WorkbenchQuickAction } from "../features/trusted-energy/trusted-space-api";
 
-type RoleConfig = { title: string };
-type WorkbenchData = { tasks: JsonRecord[]; organizations: JsonRecord[]; summary: JsonRecord; rules: JsonRecord[]; quick_action_items: WorkbenchQuickAction[] | null };
+type WorkbenchAction = { title: string; path: string; icon: ElementType };
+type RoleConfig = { title: string; nextStep: string; nextPath: string; actions: WorkbenchAction[] };
+type WorkbenchData = { tasks: JsonRecord[]; organizations: JsonRecord[]; summary: JsonRecord; rules: JsonRecord[] };
 
 const roleConfig: Record<RoleCode, RoleConfig> = {
   GENERATOR: {
-    title: "发电企业工作台",
+    title: "发电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
+    actions: [
+      { title: "登记发电数据", path: "/data/generation", icon: Database },
+      { title: "确认结果", path: "/results", icon: FileCheck2 },
+      { title: "查看审计凭证", path: "/evidence", icon: FileClock },
+    ],
   },
   RETAILER: {
-    title: "售电企业工作台",
+    title: "售电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
+    actions: [
+      { title: "登记用电数据", path: "/data/retail", icon: Database },
+      { title: "发起隐私分析", path: "/compute", icon: LockKeyhole },
+      { title: "确认聚合结果", path: "/results", icon: FileCheck2 },
+    ],
   },
   EXCHANGE: {
-    title: "交易中心工作台",
+    title: "交易中心工作台", nextStep: "发起结算任务", nextPath: "/settlements/new",
+    actions: [
+      { title: "查看结算任务", path: "/settlements", icon: Network },
+      { title: "维护授权规则", path: "/rules", icon: Gavel },
+      { title: "运行受控查询", path: "/trusted-execution", icon: ShieldCheck },
+      { title: "查看计算任务", path: "/compute", icon: Network },
+    ],
   },
   REGULATOR: {
-    title: "监管审计工作台",
+    title: "监管审计工作台", nextStep: "查看审计事项", nextPath: "/audit",
+    actions: [
+      { title: "查看调用审计", path: "/audit", icon: ShieldCheck },
+      { title: "复核受控执行", path: "/trusted-execution", icon: LockKeyhole },
+      { title: "处置风险事件", path: "/anomalies", icon: BarChart3 },
+      { title: "查看审计报告", path: "/reports", icon: FileCheck2 },
+    ],
   },
   ADMIN: {
-    title: "可信执行业务工作台",
+    title: "可信执行业务工作台", nextStep: "查看结算任务", nextPath: "/settlements",
+    actions: [
+      { title: "查看结算任务", path: "/settlements", icon: Network },
+      { title: "查看授权规则", path: "/rules", icon: Gavel },
+      { title: "查看受控执行", path: "/trusted-execution", icon: ShieldCheck },
+      { title: "查看风险事件", path: "/anomalies", icon: ShieldCheck },
+    ],
   },
-};
-
-const quickActionIcons: Record<string, ElementType> = {
-  VIEW_OWN_ASSETS: FileClock,
-  REVIEW_INBOUND_AUTHORIZATIONS: FileCheck2,
-  CONFIRM_OWN_RESULT: FileCheck2,
-  REQUEST_USAGE: LockKeyhole,
-  CREATE_SETTLEMENT: Network,
-  VIEW_PENDING_AUDIT: ShieldCheck,
-  VIEW_ALL_ASSETS: FileClock,
-  VIEW_AUTHORIZATIONS: FileCheck2,
-  REVIEW_AUDIT_EVIDENCE: ShieldCheck,
-  VIEW_SYSTEM_CAPABILITIES: Gavel,
-  VIEW_RUNTIME_STATUS: BarChart3,
 };
 
 function organizationName(organizations: JsonRecord[], orgId: unknown) {
@@ -57,14 +71,13 @@ export function WorkbenchPage() {
   const canReadRules = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(role);
   const loader = async (signal?: AbortSignal): Promise<WorkbenchData> => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
-    const [tasks, organizations, summary, rules, trustedWorkbench] = await Promise.all([
+    const [tasks, organizations, summary, rules] = await Promise.all([
       api<JsonRecord[]>("/settlement/tasks", request),
       api<JsonRecord[]>("/system/organizations", request),
       api<JsonRecord>("/dashboard/summary", request),
       canReadRules ? api<JsonRecord[]>("/rules", request) : Promise.resolve([] as JsonRecord[]),
-      loadWorkbench(signal).catch(() => null),
     ]);
-    return { tasks, organizations, summary, rules, quick_action_items: trustedWorkbench?.quick_action_items ?? null };
+    return { tasks, organizations, summary, rules };
   };
   const { data, loading, refreshing, error, reload } = useRemote(loader, [role, canReadRules]);
 
@@ -83,7 +96,6 @@ export function WorkbenchPage() {
   const openAnomalies = Number(data.summary.kpis?.open_anomalies || 0);
   const activeRule = data.rules.find((item) => item.status === "ACTIVE");
   const latestUpdatedAt = tasks.map((item) => item.updated_at || item.created_at).filter(Boolean).sort().at(-1);
-  const primaryAction = data.quick_action_items?.find((item) => item.allowed && item.path?.trim());
 
   return (
     <>
@@ -93,7 +105,7 @@ export function WorkbenchPage() {
         <div className="workspace-context-primary"><div className="workspace-icon"><Building2 size={19} /></div><div><span>当前组织</span><strong>{String(authenticatedSession.org.org_name || "—")}</strong></div></div>
         <div className="workspace-context-item"><span>生效规则</span><strong>{activeRule?.rule_version || "—"}</strong></div>
         <div className="workspace-context-item"><span>最近更新</span><strong>{latestUpdatedAt ? <DateTimeText value={String(latestUpdatedAt)} /> : "—"}</strong></div>
-        {primaryAction ? <Link className="button button-primary workspace-action" to={primaryAction.path}>{primaryAction.label}<ArrowRight size={15} /></Link> : <span className="button button-secondary workspace-action" title={data.quick_action_items === null ? "后端快捷动作不可用" : "当前角色暂无可执行动作"}>{data.quick_action_items === null ? "快捷动作不可用" : "暂无可执行动作"}</span>}
+        <Link className="button button-primary workspace-action" to={config.nextPath}>{config.nextStep}<ArrowRight size={15} /></Link>
       </section>
 
       <div className="metrics-grid four workbench-kpis">
@@ -106,14 +118,9 @@ export function WorkbenchPage() {
       <div className="workbench-toolbar">
         <strong>常用操作</strong>
         <div className="workbench-quick-actions">
-          {data.quick_action_items === null && <Notice tone="warning">后端快捷动作暂不可用，未加载旧版静态入口。</Notice>}
-          {data.quick_action_items && !data.quick_action_items.length && <span className="muted">当前角色暂无快捷动作</span>}
-          {data.quick_action_items?.map((action) => {
-            const Icon = quickActionIcons[action.code] || ArrowRight;
-            const canOpen = action.allowed && Boolean(action.path?.trim());
-            return canOpen
-              ? <Link key={action.code} className="quick-action" to={action.path}><Icon size={15} /><span>{action.label}</span><ArrowRight size={13} /></Link>
-              : <span key={action.code} className="quick-action is-disabled" title={action.disabled_reason || "后端未允许此动作"}><Icon size={15} /><span>{action.label}</span><small>{action.disabled_reason || "后端未允许此动作"}</small></span>;
+          {config.actions.map((action) => {
+            const Icon = action.icon;
+            return <Link key={action.path} className="quick-action" to={action.path}><Icon size={15} /><span>{action.title}</span><ArrowRight size={13} /></Link>;
           })}
         </div>
       </div>

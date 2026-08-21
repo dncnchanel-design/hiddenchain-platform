@@ -39,12 +39,11 @@ describe("route access policy", () => {
     expect(canAccessRoute(exchange, "/rules")).toBe(false);
   });
 
-  it("exposes one shared Excel upload entry instead of side-specific data pages", () => {
+  it("does not expose generator-only data entry to retailers", () => {
     const retailer = sessionFor("RETAILER");
     const paths = getVisibleRoutes(retailer, "business").map((route) => route.path);
-    expect(paths).toContain("/data/upload");
+    expect(paths).toContain("/data/retail");
     expect(paths).not.toContain("/data/generation");
-    expect(paths).not.toContain("/data/retail");
   });
 
   it("only lets the exchange create a settlement even though all roles can view tasks", () => {
@@ -65,7 +64,6 @@ describe("route access policy", () => {
     expect(generatorNavigation.map((group) => group.label)).toEqual(["首页", "结算管理", "可信数据空间", "隐私计算", "审计与风控"]);
     expect(generatorNavigation.flatMap((group) => group.items).map((item) => item.label)).not.toContain("发起结算任务");
     expect(generatorNavigation.flatMap((group) => group.items).map((item) => item.label)).not.toContain("用电侧数据");
-    expect(generatorNavigation.flatMap((group) => group.items).map((item) => item.label)).toContain("Excel 批量上传");
     expect(generatorNavigation.some((group) => group.id === "manage")).toBe(false);
 
     const adminNavigation = getPrimaryNavigation(sessionFor("ADMIN"));

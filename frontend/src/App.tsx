@@ -6,15 +6,14 @@ import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
 import { ForbiddenPage, NotFoundPage, SessionExpiredPage, UnavailablePage } from "./pages/StatusPages";
 import { pages } from "./routes";
-import { TrustedSpaceProvider } from "./features/trusted-energy/trusted-space-context";
 
 const {
   agents: AgentsPage,
   anomalies: AnomaliesPage,
   audit: AuditPage,
   compute: ComputePage,
+  data: DataPage,
   dataSpace: DataSpacePage,
-  excelUpload: ExcelUploadPage,
   evidence: EvidencePage,
   login: LoginPage,
   logs: LogsPage,
@@ -29,7 +28,6 @@ const {
   system: SystemPage,
   trustedExecution: TrustedExecutionPage,
   workbench: WorkbenchPage,
-  trustedSpace: TrustedSpaceShell,
 } = pages;
 
 function ProtectedShell() {
@@ -45,16 +43,7 @@ function LoginGate() {
   const { session, loading, sessionError } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
   if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
-  return session ? <Navigate to="/trusted-space/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
-}
-
-function TrustedSpaceGate() {
-  const { session, loading, sessionExpired, sessionError } = useAuth();
-  if (loading) return <div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>;
-  if (sessionExpired) return <Navigate to="/session-expired" replace />;
-  if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
-  if (!session) return <Navigate to="/login" replace />;
-  return <Suspense fallback={<div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>}><TrustedSpaceProvider><TrustedSpaceShell /></TrustedSpaceProvider></Suspense>;
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
 }
 
 function Allowed({ path, children }: { path: string; children: React.ReactNode }) {
@@ -75,7 +64,7 @@ function ExchangeOnly({ children }: { children: React.ReactNode }) {
 
 function WorkspaceHome() {
   const { session } = useAuth();
-  return session ? <Navigate to="/trusted-space/workbench" replace /> : null;
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : null;
 }
 
 function SessionExpiredGate() {
@@ -86,17 +75,15 @@ function SessionExpiredGate() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginGate />} />
-      <Route path="/session-expired" element={<SessionExpiredGate />} />
-      <Route path="/trusted-space/*" element={<TrustedSpaceGate />} />
-      <Route element={<ProtectedShell />}>
+        <Route path="/login" element={<LoginGate />} />
+        <Route path="/session-expired" element={<SessionExpiredGate />} />
+        <Route element={<ProtectedShell />}>
           <Route index element={<WorkspaceHome />} />
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="/overview" element={<Allowed path="/overview"><OverviewPage /></Allowed>} />
           <Route path="/workbench" element={<Allowed path="/workbench"><WorkbenchPage /></Allowed>} />
-          <Route path="/data/upload" element={<Allowed path="/data/upload"><ExcelUploadPage /></Allowed>} />
-          <Route path="/data/generation" element={<Navigate to="/data/upload" replace />} />
-          <Route path="/data/retail" element={<Navigate to="/data/upload" replace />} />
+          <Route path="/data/generation" element={<Allowed path="/data/generation"><DataPage mode="generation" /></Allowed>} />
+          <Route path="/data/retail" element={<Allowed path="/data/retail"><DataPage mode="retail" /></Allowed>} />
           <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
           <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
           <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />

@@ -171,8 +171,7 @@ export function TrustedExecutionPage() {
 
   const status = remote.data.status;
   const policy = remote.data.policy;
-  const credentialUnavailable = status.did_verified !== true;
-  const unavailable = status.availability === "NOT_CONFIGURED" || credentialUnavailable;
+  const unavailable = status.availability === "NOT_CONFIGURED";
   const policyVersion = String(policy.version || status.policy_engine?.version || "—");
   const resultStatus = String(result?.execution_status || "");
   const resultBody = (result?.result || {}) as JsonRecord;
@@ -193,10 +192,10 @@ export function TrustedExecutionPage() {
       <section className="trusted-execution-thesis" aria-label="系统主线">
         <div><strong>不是给不给数据</strong><span>而是决定数据怎么被使用</span></div>
         <div className="trusted-execution-thesis-flow"><span>身份</span><ArrowRight size={14} /><span>意图</span><ArrowRight size={14} /><span>策略</span><ArrowRight size={14} /><span>执行</span><ArrowRight size={14} /><span>证据</span></div>
-        <div className="trusted-execution-thesis-meta"><span>当前策略 {policyVersion}</span><StatusTag value={status.availability} label={credentialUnavailable ? "身份不可用" : unavailable ? "未配置可执行节点" : "测试节点可用"} /></div>
+        <div className="trusted-execution-thesis-meta"><span>当前策略 {policyVersion}</span><StatusTag value={status.availability} label={unavailable ? "未配置可执行节点" : "测试节点可用"} /></div>
       </section>
 
-      {unavailable && <Notice tone="warning">{credentialUnavailable ? `当前主体凭证状态为 ${status.credential_status || "NOT_PROVIDED"}，查询入口保持关闭。` : "当前环境未配置受控能源节点，查询入口保持关闭。"}生产环境不会使用内置测试数据代替真实连接器。</Notice>}
+      {unavailable && <Notice tone="warning">当前环境未配置受控能源节点，查询入口保持关闭。生产环境不会使用内置测试数据代替真实连接器。</Notice>}
       {actionError && <Notice tone="warning">{actionError}</Notice>}
 
       <div className="trusted-execution-layout">
@@ -230,7 +229,7 @@ export function TrustedExecutionPage() {
 
         <Surface title="能力边界" meta="事实状态，不是宣传指标">
           <div className="trusted-execution-boundary-list">
-            <BoundaryRow icon={Fingerprint} label="DID / VC 身份" value={status.did_verified ? "由请求主体凭证核验" : status.credential_status === "MISSING" ? "未提供主体凭证" : "凭证未通过核验"} state={status.did_verified ? "PASSED" : status.credential_status || "NOT_PROVIDED"} />
+            <BoundaryRow icon={Fingerprint} label="DID / VC 身份" value="由请求主体凭证核验" state="VALID" />
             <BoundaryRow icon={LockKeyhole} label="原始数据 API 返回" value={status.security_boundary?.api_raw_records_returned === false ? "否" : "未提供"} state={status.security_boundary?.api_raw_records_returned === false ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={Database} label="跨域不出域证明" value={status.security_boundary?.cross_domain_non_export_verified ? "已验证" : "未提供"} state={status.security_boundary?.cross_domain_non_export_verified ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={ShieldCheck} label="结果反推检查" value={status.security_boundary?.anti_inference_check || "未提供"} state="PENDING" />

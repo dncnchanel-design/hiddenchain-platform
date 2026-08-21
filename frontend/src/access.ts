@@ -6,7 +6,8 @@ export type NavigationGroupId = "entry" | "settlement" | "data" | "compute" | "a
 export type RouteCode =
   | "workbench"
   | "data-space"
-  | "excel-upload"
+  | "generation-data"
+  | "retail-data"
   | "rules"
   | "compute"
   | "settlements"
@@ -55,7 +56,8 @@ const ANALYSIS_ROLES: readonly RoleCode[] = ["RETAILER", "EXCHANGE", "REGULATOR"
 export const ROUTE_POLICIES: readonly RoutePolicy[] = [
   { code: "workbench", path: "/workbench", title: "工作台", workspace: "business", group: "entry", roles: ALL_ROLES },
   { code: "data-space", path: "/data-space", title: "可信数据目录", workspace: "business", group: "data", roles: ALL_ROLES },
-  { code: "excel-upload", path: "/data/upload", title: "Excel 批量上传", workspace: "business", group: "data", roles: ALL_ROLES },
+  { code: "generation-data", path: "/data/generation", title: "发电侧数据", workspace: "business", group: "data", roles: ["GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN"] },
+  { code: "retail-data", path: "/data/retail", title: "用电侧数据", workspace: "business", group: "data", roles: ["RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"] },
   { code: "rules", path: "/rules", title: "结算规则", workspace: "business", group: "settlement", roles: REVIEW_ROLES },
   { code: "compute", path: "/compute", title: "隐私计算", workspace: "business", group: "compute", roles: ALL_ROLES },
   { code: "settlements", path: "/settlements", title: "结算任务", workspace: "business", group: "settlement", roles: ALL_ROLES },
@@ -145,7 +147,8 @@ export function getPrimaryNavigation(session: SessionPayload): PrimaryNavigation
   const dataItems = compact([
     item("data-space", "数据目录"),
     item("trusted-execution", "受控数据使用"),
-    item("excel-upload", "Excel 批量上传"),
+    item("generation-data", "发电侧数据"),
+    item("retail-data", "用电侧数据"),
     item("data-space", "数据授权记录", "/data-space#data-authorizations"),
   ]);
   if (dataItems.length) groups.push({ id: "data", label: "可信数据空间", workspace: "business", items: dataItems });

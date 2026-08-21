@@ -5,8 +5,6 @@ import App from "./App";
 import { AuthProvider } from "./auth";
 import { ProductConfigProvider } from "./branding";
 import "./styles.css";
-import "./features/trusted-energy/tailwind.css";
-import "./features/trusted-energy/trusted-energy.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -1171,73 +1171,6 @@ table tbody tr:hover {
 
 .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-.upload-file-panel {
-  display: grid;
-  gap: var(--space-5);
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
-  align-items: end;
-}
-
-.upload-file-control {
-  display: flex;
-  gap: var(--space-4);
-  align-items: flex-start;
-  min-width: 0;
-}
-
-.upload-file-control > svg {
-  color: var(--brand-primary);
-  margin-top: 25px;
-  flex: 0 0 auto;
-}
-
-.upload-file-control .field {
-  min-width: 0;
-  flex: 1;
-}
-
-.upload-file-control input[type="file"] {
-  padding: 8px;
-  background: var(--surface-subtle);
-}
-
-.upload-file-meta {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  align-items: center;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.upload-file-meta strong {
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
-
-.upload-file-actions {
-  display: flex;
-  gap: var(--space-4);
-  align-items: flex-end;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.upload-scope {
-  display: flex;
-  gap: var(--space-2);
-  align-items: flex-start;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-body);
-}
-
-.upload-scope svg {
-  color: var(--brand-primary);
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-
 .filter-bar,
 .log-filters {
   display: flex;
@@ -2293,13 +2226,11 @@ table tbody tr:hover {
   .content-grid,
   .two-equal,
   .form-grid.two,
-  .upload-file-panel,
   .strategy-grid,
   .evidence-stages,
   .node-topology-grid,
   .review-evidence-grid,
   .agent-grid { grid-template-columns: 1fr; }
-  .upload-file-actions { align-items: stretch; flex-direction: column; }
   .master-detail { grid-template-columns: 1fr; }
   .master-panel { position: static; }
   .capsule-banner,

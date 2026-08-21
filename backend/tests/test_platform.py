@@ -27,6 +27,8 @@ def test_login_response_never_exposes_password_hash(client):
     payload = response.json()
     assert payload["token_type"] == "bearer"
     assert any(item["code"] == "trusted-execution" for item in payload["menus"])
+    assert any(item["code"] == "generation-data" and item["path"] == "/data/generation" for item in payload["menus"])
+    assert any(item["code"] == "retail-data" and item["path"] == "/data/retail" for item in payload["menus"])
     assert "password_hash" not in payload["user"]
     assert "password" not in str(payload["user"]).lower()
 
