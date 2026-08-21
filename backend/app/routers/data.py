@@ -4,15 +4,20 @@ import math
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Response, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
-from ..models import DataSpaceAgreement, DataUpload, DidIdentity, Organization, Signature, User
-from ..schemas import DataUploadCreate
+from ..models import DataSpaceAgreement, DataUpload, DataUsageRequest, DidIdentity, Organization, Signature, User
+from ..schemas import (
+    DataUploadCreate,
+    DataUsageRequestCreate,
+    DataUsageRequestDecision,
+    DataUsageRequestReview,
+)
 from ..security import sign_value
 from ..services.common import add_audit_log, model_dict
 from ..services.adapters import DATA_PRODUCT_CATALOG, DataSpaceConnectorAdapter
@@ -32,6 +37,14 @@ from ..services.excel_upload import (
 from ..services.asset_registry import (
     project_upload_to_asset_registry,
     redacted_asset_projection,
+)
+from ..services.data_usage_requests import (
+    UsageRequestError,
+    create_request,
+    get_request,
+    list_requests,
+    to_payload as usage_request_payload,
+    transition_request,
 )
 
 
@@ -501,6 +514,225 @@ def list_data_space_agreements(
         }
         for item in records
     ]
+
+
+def _usage_request_error(exc: UsageRequestError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": exc.detail},
+    )
+
+
+@router.post("/access-requests", status_code=status.HTTP_201_CREATED)
+def create_data_usage_request(
+    payload: DataUsageRequestCreate,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE")),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        request, replay = create_request(
+            db,
+            payload,
+            user,
+            idempotency_key=idempotency_key,
+        )
+        if replay:
+            response.status_code = status.HTTP_200_OK
+        result = usage_request_payload(db, request, user)
+        result["idempotent_replay"] = replay
+        return result
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "REQUEST_CREATE_FAILED", "message": "申请创建失败，数据库未写入"},
+        ) from exc
+
+
+@router.get("/access-requests")
+def list_data_usage_requests(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status"),
+    inbox: bool = Query(default=False),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        records, total = list_requests(
+            db,
+            user,
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            provider_inbox=inbox,
+        )
+        return {
+            "items": [usage_request_payload(db, item, user) for item in records],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "inbox": inbox,
+        }
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "REQUEST_LIST_FAILED", "message": "申请列表读取失败"},
+        ) from exc
+
+
+@router.get("/access-requests/{request_id}")
+def get_data_usage_request(
+    request_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        request = get_request(db, request_id, user)
+        return usage_request_payload(db, request, user)
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+
+
+def _transition_data_usage_request(
+    request_id: str,
+    *,
+    action: str,
+    reason: str,
+    if_match: str | None,
+    user: User,
+    db: Session,
+) -> dict[str, Any]:
+    try:
+        request = get_request(db, request_id, user)
+        request, replay = transition_request(
+            db,
+            request,
+            user,
+            action=action,
+            reason=reason,
+            if_match=if_match,
+        )
+        payload = usage_request_payload(db, request, user)
+        payload["idempotent_replay"] = replay
+        return payload
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "REQUEST_TRANSITION_FAILED", "message": "申请状态变更失败，数据库未写入"},
+        ) from exc
+
+
+@router.post("/access-requests/{request_id}/review")
+def review_data_usage_request(
+    request_id: str,
+    payload: DataUsageRequestReview,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _transition_data_usage_request(
+        request_id,
+        action="review",
+        reason=payload.note,
+        if_match=if_match,
+        user=user,
+        db=db,
+    )
+
+
+@router.post("/access-requests/{request_id}/approve")
+def approve_data_usage_request(
+    request_id: str,
+    payload: DataUsageRequestDecision,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _transition_data_usage_request(
+        request_id,
+        action="approve",
+        reason=payload.reason,
+        if_match=if_match,
+        user=user,
+        db=db,
+    )
+
+
+@router.post("/access-requests/{request_id}/reject")
+def reject_data_usage_request(
+    request_id: str,
+    payload: DataUsageRequestDecision,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _transition_data_usage_request(
+        request_id,
+        action="reject",
+        reason=payload.reason,
+        if_match=if_match,
+        user=user,
+        db=db,
+    )
+
+
+@router.post("/access-requests/{request_id}/withdraw")
+def withdraw_data_usage_request(
+    request_id: str,
+    payload: DataUsageRequestDecision | None = None,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        request = get_request(db, request_id, user)
+        if user.role_code != "ADMIN" and request.applicant_org_id != user.org_id:
+            raise UsageRequestError(403, "APPLICANT_WITHDRAW_REQUIRED", "仅申请方可以撤回自己的申请")
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+    return _transition_data_usage_request(
+        request_id,
+        action="revoke",
+        reason=payload.reason if payload else "申请方撤回",
+        if_match=if_match,
+        user=user,
+        db=db,
+    )
+
+
+@router.post("/access-requests/{request_id}/revoke")
+def revoke_data_usage_request(
+    request_id: str,
+    payload: DataUsageRequestDecision,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        request = get_request(db, request_id, user)
+        if user.role_code != "ADMIN" and request.provider_org_id != user.org_id:
+            raise UsageRequestError(403, "PROVIDER_REVOKE_REQUIRED", "仅资产提供方可以撤销授权")
+    except UsageRequestError as exc:
+        raise _usage_request_error(exc) from exc
+    return _transition_data_usage_request(
+        request_id,
+        action="revoke",
+        reason=payload.reason,
+        if_match=if_match,
+        user=user,
+        db=db,
+    )
 
 
 @router.get("/uploads")

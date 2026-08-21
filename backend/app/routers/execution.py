@@ -30,6 +30,11 @@ def execution_status(
     db: Session = Depends(get_db),
 ) -> dict:
     status = trusted_execution_status()
+    identity = CallerIdentity.from_user(db, user, user.role_code)
+    # Expose the authenticated subject's verified state instead of making the
+    # page infer a valid credential from the availability of the controller.
+    status["credential_status"] = identity.credential_status
+    status["did_verified"] = identity.did_verified
     status["nodes"] = EnergyNodeRegistry(db).catalog() if settings.app_env != "production" else []
     return status
 

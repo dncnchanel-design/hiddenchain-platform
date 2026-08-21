@@ -86,6 +86,76 @@ class DataUploadCreate(StrictModel):
         return self
 
 
+class DataUsageRequestCreate(StrictModel):
+    """Consumer-submitted data-use request; actor and provider are server-bound."""
+
+    asset_id: str = Field(min_length=1, max_length=64)
+    asset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
+    purpose: str = Field(min_length=2, max_length=64)
+    usage_mode: str = Field(min_length=2, max_length=64)
+    requested_scope: dict[str, Any] = Field(default_factory=dict)
+    requested_fields: list[str] = Field(default_factory=list, max_length=128)
+    # Optional on the wire so the service can apply its versioned server
+    # policy.  The effective value is always persisted and returned with the
+    # policy source; clients must not invent an asset-specific default.
+    duration_days: int | None = Field(default=None, ge=1, le=3650)
+    terms: dict[str, Any] = Field(default_factory=dict)
+
+
+class DataUsageRequestDecision(StrictModel):
+    reason: str = Field(min_length=2, max_length=2000)
+
+
+class DataUsageRequestReview(StrictModel):
+    note: str = Field(default="", max_length=2000)
+
+
+class ContractNegotiationEventCreate(StrictModel):
+    event_type: Literal["COMMENT", "COUNTEROFFER", "COUNTER", "ATTACHMENT"] = "COMMENT"
+    message: str = Field(default="", max_length=4000)
+    terms: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+
+
+class ContractNegotiationAction(StrictModel):
+    message: str = Field(default="", max_length=4000)
+    terms: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+
+
+class TtcTransitionAction(StrictModel):
+    to_state: str = Field(min_length=2, max_length=32)
+    trigger: str = Field(min_length=2, max_length=96)
+    reason: str = Field(min_length=2, max_length=1000)
+    agent_did: str | None = Field(default=None, max_length=160)
+    trace_id: str | None = Field(default=None, max_length=64)
+    attempt_id: str | None = Field(default=None, max_length=36)
+
+
+class ComputationAction(StrictModel):
+    reason: str = Field(default="", max_length=1000)
+
+
+class AssistantSessionCreate(StrictModel):
+    """Create a user-and-organization scoped Trusted Space assistant session."""
+
+    page_path: str | None = Field(default=None, max_length=255)
+    entity_type: str | None = Field(default=None, max_length=64)
+    entity_id: str | None = Field(default=None, max_length=96)
+
+
+class AssistantMessageCreate(StrictModel):
+    """A user message interpreted only by the deterministic allowlist planner."""
+
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class AssistantExecuteRequest(StrictModel):
+    """Optionally select one step from a persisted assistant plan."""
+
+    step_id: str | None = Field(default=None, max_length=36)
+
+
 class SolarEvaluationRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)

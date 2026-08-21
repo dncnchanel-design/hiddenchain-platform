@@ -1,6 +1,110 @@
 # Progress Ledger
 
-## Current checkpoint — 2026-08-21 (post-publish review/test; docs-only sync)
+## Current backend batch — 2026-08-21 (Trusted Space residual closure; local only)
+
+### Completed in this batch
+
+- Added migration `20260821_004` and the scoped `user_notifications` table. Notifications carry recipient user/organization, type, title/body, entity references, severity, read timestamp, creation timestamp, and a recipient-scoped dedupe key.
+- Added `/api/trust-space/notifications` paginated/type/unread filtering, unread counts, mark-one-read and mark-all-read actions. Every query is scoped to the authenticated user; notification publishing runs after the primary transaction and failures are swallowed/rolled back so the business decision remains committed.
+- Connected notification publication to persisted data-use submissions/decisions, contract negotiation events, TTC transitions, generated result-confirmation records, and audit report generation. Dedupe keys prevent repeated notifications on idempotent replays.
+- Added allowlisted, versioned `GET /api/trust-space/help?view=...` content. Responses contain plain-text guidance, real related API paths, allowed actions, role capabilities and explicit ADAPTER/BLOCKED/DEMO boundaries; arbitrary view/file paths are rejected.
+- Extended the workbench DTO with compatibility-preserving `quick_action_items` (`code`, `label`, `path`, `allowed`, `disabled_reason`, `entity_id`, capability/source fields). Existing `quick_actions: string[]` remains for the current client while new clients can use stable codes instead of localized-label routing. Empty target records are disabled with a reason.
+- Added scoped `GET /api/trust-space/ttc` pagination/status filtering. TTC detail/list/action envelopes now derive manual transition actions from the current `TtcStateMachine` state and role; the existing transition endpoint remains the final If-Match and domain-state guard.
+
+### Verification evidence
+
+- Residual backend专项: PASS, 4 tests (`tests/test_trust_space_notifications.py`), covering migration/OpenAPI, help allowlist, notification isolation/idempotency/read state, authorization/contract/TTC/result/audit event publication, stable quick-action codes and TTC list/transition scope.
+- Combined notification + authorization + Trusted Space/workflow/migration/TTC regression group: PASS, 36 tests, 2 warnings.
+- Backend full pytest: PASS, 146 tests, 2 warnings, 164.26 seconds.
+- Python compilation: PASS (`python -m compileall -q backend/app backend/tests/test_trust_space_notifications.py`).
+
+### Release boundary
+
+- This is local backend work only. No frontend file, frontend integration, commit, GitHub push, Render deployment, or online/visual claim was made by this batch. The existing frontend still consumes the legacy `quick_actions: string[]`; `quick_action_items` is the stable contract for the next frontend wiring batch.
+
+## Current backend batch — 2026-08-21 (Trusted Space Agent assistant; local only)
+
+### Completed in this batch
+
+- Added migration `20260821_003` with four scoped persistence tables: `assistant_sessions`, `assistant_messages`, `assistant_plans`, and `assistant_plan_steps`. Sessions are bound to the authenticated user and organization; plans and steps carry versions, idempotency keys, capability labels, source-of-truth fields, and durable request/invocation references.
+- Added `/api/trust-space/assistant` session, resume, message, message/plan listing, tool catalog, plan status, execute, cancel, and retry endpoints. The router enforces business-role authentication, user/organization scope, structured `403/404/409/412/428` errors, `If-Match`, idempotency replay, and ETags.
+- Added a deterministic allowlisted local planner (`LOCAL_REAL_DETERMINISTIC`). Supported read shortcuts query persisted asset/passport/quality, usage-request, TTC, evidence-ledger, and audit records. Outputs explicitly report `raw_data_accessed=false`; unknown intents are `BLOCKED` and do not produce fabricated results.
+- Write shortcuts (`SUBMIT_USAGE_REQUEST`, authorization decisions, and TTC advancement) never mutate business tables. They persist an assistant review envelope with `PENDING_REVIEW`, a durable request ID, and an audited human-review event; this batch did not invent a second execution engine or claim an existing `ControlledExecutionRequest` model that is absent from the repository.
+- Tool catalog entries are sourced from the existing `agent_tools` registry and filtered by role. External EDC/TEE/MPC/chain capabilities retain their existing `ADAPTER`/`BLOCKED`/`DEMO` truth labels.
+
+### Verification evidence
+
+- Assistant专项: PASS, 4 tests (`tests/test_trust_space_assistant.py`), covering session/organization isolation, durable messages/plans/steps and multi-plan versions, five real read shortcuts, unknown intent, role scope, tool filtering, write review/no business side effect, audit/invocation trace, idempotency, stale `If-Match`, cancel/retry/status, OpenAPI and sensitive-field non-leakage.
+- Migration + assistant + Trusted Space read/workflow gate: PASS, 21 tests.
+- Related platform/security/trust-domain regression group: PASS, 51 tests (`tests/test_platform.py`, `tests/test_security_gates.py`, `tests/test_trust_domain.py`).
+- Backend full pytest: PASS, 142 tests, 2 warnings, 119.96 seconds; compile/diff checks are run after this ledger update.
+
+### Release boundary
+
+- This is local backend work only. No frontend file, frontend Agent Sheet integration, commit, GitHub push, Render deployment, or online/visual claim was made by this batch.
+
+## Current backend batch — 2026-08-21 (Trusted Space contract/TTC/result/audit workflows; local only)
+
+### Completed in this batch
+
+- Added append-only `ContractNegotiationEvent` persistence and migration `20260821_002`. Contract detail/list and event/action APIs now expose real parties, assets/authorization references, terms, state/timeline, optimistic `If-Match`, idempotency, comment/counter/accept/reject semantics, provider/consumer scope, and audit side effects. Attachment values are controlled metadata references only; no file download or upload claim is made.
+- Extended `/api/trust-space` with 24 documented paths covering contracts and negotiation actions, TTC detail/events/controlled transitions, computation detail/log polling, results, result-confirm delegation to the existing signature/state/evidence transaction, evidence verification, and audit list/task/JSON/CSV export. DTOs carry `capability_state`, `source_of_truth`, and `allowed_actions` envelopes.
+- TTC read models compose persisted tasks, attempts, transitions, immutable rule-freeze snapshots and participant registrations. Manual transitions delegate to the existing `TtcStateMachine` and `If-Match` guard; normal system stages cannot be advanced by the frontend. Computation participants/logs/receipts come from persisted jobs and task data; absent cross-domain MPC/TEE returns `ADAPTER`/`BLOCKED` and empty participant data rather than static A/B/C nodes.
+- Result/evidence models expose persisted hashes, signatures, local ledger evidence, evidence batches/outbox/anchors and honest chain capability labels. Missing evidence produces no invented TxHash/block height. Audit exports are server-side and export actions are themselves audited; business roles remain denied from oversight-only audit routes.
+
+### Verification evidence
+
+- Trusted Space workflow专项：PASS, 5 tests (`tests/test_trust_space_workflows.py`), covering negotiation persistence/state/If-Match/idempotency/scope/attachments, TTC cursor and controlled transitions, snapshot/attempt composition, computation ADAPTER/BLOCKED truth and log cursor, result/evidence hash/verify scope, and audit JSON/CSV exports.
+- Combined migration + authorization + prior Trusted Space + workflow gate: PASS, 23 tests.
+- Related regression groups: PASS, 30 tests (`test_trust_domain.py`, `test_evidence_outbox.py`, `test_security_gates.py`) and 63 tests (`test_platform.py`, `test_formal_backend.py`, `test_mpc.py`, `test_open_source_integrations.py`).
+- Backend full pytest: PASS, 138 tests, 3 warnings; `python -m compileall -q backend/app`: PASS; `git diff --check`: PASS.
+
+### Release boundary
+
+- This is local backend work only. No frontend file, frontend integration, commit, GitHub push, Render deployment, or visual/online claim was made by this batch. The frontend has not been connected to these new workflows; Agent/assistant integration remains a later batch.
+
+## Current backend batch — 2026-08-21 (Trusted Space read models; local only)
+
+### Completed in this batch
+
+- Added the database-backed `/api/trust-space` read-model family: `context`, `workbench`, `identity`, `catalog`, and `assets/{asset_id}`. These endpoints aggregate the authenticated actor, organization/DID, real data assets and versions, passports, quality records, usage requests, contracts/agreements, TTC tasks, compute jobs, and audit reports; they do not copy frontend fixtures or fixed demo asset IDs.
+- Enforced role and organization scope in the read model: generator/retailer users see only their own assets and participant-scoped task data; exchange/regulator/admin users can read the allowed wider scope; asset detail returns `404` for an unknown or out-of-scope asset to avoid enumeration.
+- Added stable pagination and backend filters for catalog search, asset type, domain, sensitivity, and provider. Workbench KPIs use full scoped counts while recent lists are bounded; empty result sets return real zero/empty values.
+- Added explicit `capability_state` and `source_of_truth` fields throughout the DTOs. Identity/DID records are sourced from `did_identities`; connector control is labeled `ADAPTER` with `NOT_CONFIGURED` external EDC readiness; TEE is `BLOCKED`; blockchain is `DEMO`. No connected certificate, EDC, TEE, TxHash, or production attestation is invented.
+
+### Verification evidence
+
+- Trusted Space API/service matrix: PASS, 5 tests (`tests/test_trust_space.py`) covering OpenAPI contract, actor/subject isolation, workbench scope, catalog filters/pagination/empty result, honest identity readiness, real asset ID detail, and 404 boundary.
+- Combined migration + authorization + Trusted Space tests: PASS, 18 tests.
+- Python compilation: PASS. Backend full pytest: PASS, 133 tests collected and all passed (warnings only).
+
+### Release boundary
+
+- This batch is local backend work only. No frontend file, commit, GitHub push, Render deployment, or visual claim was made.
+
+## Prior backend batch — 2026-08-21 (provider authorization workflow; local only; superseded for current work)
+
+### Completed in this batch
+
+- Added the persisted `DataUsageRequest` domain model and migration `20260821_001`. It records the asset/version, applicant and provider organizations/DIDs, purpose, usage mode, requested scope/fields, terms, duration/expiry, decision/revocation reason, reviewer, optimistic state version, organization-scoped idempotency key, timestamps, contract/agreement references, and capability truth fields.
+- Added the provider-governed state machine `SUBMITTED → UNDER_REVIEW → APPROVED/REJECTED`, with `APPROVED → REVOKED/EXPIRED`; applicant withdrawal uses `REVOKED`. Illegal transitions return a structured `409`, stale `If-Match` returns a structured version conflict, and repeated target actions are idempotent.
+- Exposed the `/api/data/access-requests` API family: create, scoped paginated list, provider inbox (`?inbox=true`), detail, review, approve, reject, applicant withdraw, and provider revoke. The backend derives applicant/provider identity and enforces organization scope; no frontend route has been connected in this batch.
+- Provider approval creates a standalone nullable-task `DataContract` and `DataSpaceAgreement` in the same transaction and writes an audit event. Decisions are labeled `LOCAL_REAL`; signature is `NOT_PROVIDED` and external anchoring is `BLOCKED`. No production signature, chain transaction, or random `REQ-*` identifier is claimed.
+- Existing settlement-linked contracts/agreements remain task-bound; the nullable compatibility migration preserves their existing task IDs. The SQLite legacy upgrade path was exercised, including index-safe table rebuild and repeated migration application.
+
+### Verification evidence
+
+- Migration readiness: PASS, 7 tests (`tests/test_migrations_readiness.py`).
+- Provider authorization API/service matrix: PASS, 6 tests (`tests/test_data_usage_requests.py`), including OpenAPI paths, pagination/inbox scope, idempotency, 403/409/428 semantics, review/approve/reject/withdraw/revoke, contract/agreement/audit side effects, expiry synchronization, and approval rollback.
+- Existing settlement/data/trust-domain and security/Excel/integration regression groups: PASS in the focused runs; the subsequent full backend pytest also passed all 133 collected tests.
+- Frontend lint/typecheck/build/unit tests and online/Render evidence are not part of this backend batch and are not claimed as revalidated here.
+
+### Release boundary
+
+- This batch is local working-tree work only. No commit, GitHub push, Render deployment, or frontend visual change was made by this batch.
+- The existing published/review ledger below remains historical context; it does not include this backend batch.
+
+## Prior release checkpoint — 2026-08-21 (post-publish review/test; docs-only sync; superseded for current backend work)
 
 ### Completed in this checkpoint
 

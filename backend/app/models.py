@@ -150,7 +150,13 @@ class TaskParticipant(Base, TimestampMixin):
 class DataContract(Base, TimestampMixin):
     __tablename__ = "data_contracts"
     contract_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    task_id: Mapped[str] = mapped_column(ForeignKey("settlement_tasks.task_id"), index=True)
+    # Standalone data-use authorizations do not create a settlement task.  The
+    # nullable FK preserves the legacy settlement relationship while allowing
+    # the provider-approval workflow to persist a real contract without
+    # inventing a task or linking it to an unrelated trade.
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("settlement_tasks.task_id"), index=True, nullable=True
+    )
     provider_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
     consumer_type: Mapped[str] = mapped_column(String(32), nullable=False)
     purpose: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -174,7 +180,9 @@ class DataSpaceAgreement(Base, TimestampMixin):
     __tablename__ = "data_space_agreements"
     agreement_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     contract_id: Mapped[str] = mapped_column(ForeignKey("data_contracts.contract_id"), index=True)
-    task_id: Mapped[str] = mapped_column(ForeignKey("settlement_tasks.task_id"), index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("settlement_tasks.task_id"), index=True, nullable=True
+    )
     provider_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
     consumer_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
     provider_did: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -195,6 +203,118 @@ class DataSpaceAgreement(Base, TimestampMixin):
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class ContractNegotiationEvent(Base):
+    """Append-only negotiation facts for a data contract.
+
+    Attachments are deliberately metadata-only references.  A row never
+    claims that a file was uploaded or downloaded; callers must point to an
+    already registered evidence/upload reference.
+    """
+
+    __tablename__ = "contract_negotiation_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "contract_id",
+            "state_version",
+            name="uq_contract_negotiation_event_version",
+        ),
+        UniqueConstraint(
+            "contract_id",
+            "idempotency_key",
+            name="uq_contract_negotiation_event_idempotency",
+        ),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    contract_id: Mapped[str] = mapped_column(
+        ForeignKey("data_contracts.contract_id"), index=True
+    )
+    agreement_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_space_agreements.agreement_id"), index=True
+    )
+    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), index=True)
+    actor_org_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.org_id"), index=True
+    )
+    actor_did: Mapped[str | None] = mapped_column(String(160))
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    terms_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    attachment_metadata_json: Mapped[list[Any]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    from_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+    event_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    capability_label: Mapped[str] = mapped_column(String(24), default="LOCAL_REAL", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class DataUsageRequest(Base, TimestampMixin):
+    """Provider-governed request for a data asset outside a settlement task.
+
+    This is intentionally a first-class request rather than a frontend-only
+    record.  ``contract_id`` and ``agreement_id`` are populated only after an
+    approval transaction creates the corresponding trust-domain rows.  The
+    capability/signature fields describe the local controlled decision and do
+    not claim an external production signature or chain anchor.
+    """
+
+    __tablename__ = "data_usage_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "applicant_org_id",
+            "idempotency_key",
+            name="uq_data_usage_request_org_idempotency",
+        ),
+    )
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("data_assets.asset_id"), index=True)
+    asset_version_id: Mapped[str] = mapped_column(
+        ForeignKey("data_asset_versions.version_id"), index=True
+    )
+    applicant_user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    applicant_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    provider_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    applicant_did: Mapped[str] = mapped_column(String(160), nullable=False)
+    provider_did: Mapped[str] = mapped_column(String(160), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(128), nullable=False)
+    usage_mode: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    requested_fields_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    terms_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="SUBMITTED", nullable=False, index=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    revocation_reason: Mapped[str | None] = mapped_column(Text)
+    reviewer_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), index=True)
+    reviewer_did: Mapped[str | None] = mapped_column(String(160))
+    revoked_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), index=True)
+    revoked_by_did: Mapped[str | None] = mapped_column(String(160))
+    decision_hash: Mapped[str | None] = mapped_column(String(128))
+    decision_capability_label: Mapped[str | None] = mapped_column(String(32))
+    decision_signature_id: Mapped[str | None] = mapped_column(String(36))
+    contract_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_contracts.contract_id"), index=True
+    )
+    agreement_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_space_agreements.agreement_id"), index=True
+    )
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128), index=True
+    )
+    request_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class PrivacyComputeJob(Base, TimestampMixin):
     __tablename__ = "privacy_compute_jobs"
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -212,6 +332,15 @@ class PrivacyComputeJob(Base, TimestampMixin):
     privacy_guarantees_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     attempt_id: Mapped[str | None] = mapped_column(String(36), index=True)
     execution_snapshot_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    # A queued local job may be cancelled before execution starts.  The
+    # action fields make a command replayable without manufacturing a second
+    # job/attempt; retry stays blocked until a real requeue executor exists.
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    action_code: Mapped[str | None] = mapped_column(String(32))
+    action_idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+    action_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    action_response_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class SettlementResult(Base, TimestampMixin):
@@ -311,6 +440,107 @@ class AgentEvent(Base, TimestampMixin):
     details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
+class AssistantSession(Base, TimestampMixin):
+    """Scoped, durable Trusted Space assistant conversation session."""
+
+    __tablename__ = "assistant_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "idempotency_key",
+            name="uq_assistant_session_user_idempotency",
+        ),
+        UniqueConstraint("session_id", "org_id", name="uq_assistant_session_org_scope"),
+    )
+
+    session_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    page_path: Mapped[str | None] = mapped_column(String(255))
+    entity_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    entity_id: Mapped[str | None] = mapped_column(String(96), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False, index=True)
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AssistantPlan(Base, TimestampMixin):
+    """Deterministic assistant plan; it is not an execution engine."""
+
+    __tablename__ = "assistant_plans"
+    __table_args__ = (
+        UniqueConstraint("session_id", "idempotency_key", name="uq_assistant_plan_idempotency"),
+    )
+
+    plan_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("assistant_sessions.session_id"), index=True
+    )
+    trigger_message_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    intent_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="READY", nullable=False, index=True)
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    plan_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    capability_label: Mapped[str] = mapped_column(String(32), default="LOCAL_REAL_DETERMINISTIC", nullable=False)
+    source_of_truth: Mapped[str] = mapped_column(String(160), default="assistant_planner", nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+
+
+class AssistantMessage(Base, TimestampMixin):
+    """User/assistant records; content is a persisted deterministic summary."""
+
+    __tablename__ = "assistant_messages"
+    __table_args__ = (
+        UniqueConstraint("session_id", "sequence_no", name="uq_assistant_message_sequence"),
+        UniqueConstraint("session_id", "idempotency_key", name="uq_assistant_message_idempotency"),
+    )
+
+    message_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("assistant_sessions.session_id"), index=True
+    )
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey("assistant_plans.plan_id"), index=True)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent_code: Mapped[str | None] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="RECORDED", nullable=False)
+    capability_label: Mapped[str] = mapped_column(String(32), default="LOCAL_REAL_DETERMINISTIC", nullable=False)
+    source_of_truth: Mapped[str] = mapped_column(String(160), default="assistant_messages", nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+
+
+class AssistantPlanStep(Base, TimestampMixin):
+    """A read-only tool invocation or a pending human-review request."""
+
+    __tablename__ = "assistant_plan_steps"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "sequence_no", name="uq_assistant_step_sequence"),
+        UniqueConstraint("plan_id", "idempotency_key", name="uq_assistant_step_idempotency"),
+    )
+
+    step_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    plan_id: Mapped[str] = mapped_column(ForeignKey("assistant_plans.plan_id"), index=True)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    action_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    tool_code: Mapped[str | None] = mapped_column(String(96), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    target_id: Mapped[str | None] = mapped_column(String(96), index=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="READY", nullable=False, index=True)
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    invocation_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    input_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    output_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(96))
+    capability_label: Mapped[str] = mapped_column(String(32), default="LOCAL_REAL_DETERMINISTIC", nullable=False)
+    source_of_truth: Mapped[str] = mapped_column(String(160), default="assistant_plan_steps", nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     log_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -325,6 +555,38 @@ class AuditLog(Base):
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     ip_address: Mapped[str | None] = mapped_column(String(64))
     details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class UserNotification(Base):
+    """A scoped, deduplicated notification for one authenticated user.
+
+    Notifications are deliberately separate from audit logs: audit rows are
+    immutable evidence, while this table is a user-facing read/unread inbox.
+    The dedupe key is scoped to the recipient so one domain event can notify
+    every eligible user without creating duplicate rows for the same user.
+    """
+
+    __tablename__ = "user_notifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "dedupe_key",
+            name="uq_user_notifications_user_dedupe",
+        ),
+    )
+
+    notification_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    notification_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    entity_id: Mapped[str | None] = mapped_column(String(96), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="INFO", nullable=False, index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False, index=True)
 
 
 class AuditReport(Base, TimestampMixin):

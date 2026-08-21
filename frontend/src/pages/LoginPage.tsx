@@ -16,7 +16,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
   const [mode, setMode] = useState<"account" | "did">("account");
-  const [did, setDid] = useState("did:energy:generator001");
+  const [did, setDid] = useState("");
   const [credential, setCredential] = useState("");
   const product = useProductConfig();
   const version = import.meta.env.VITE_APP_VERSION || "0.2.0";
@@ -83,7 +83,7 @@ export function LoginPage() {
 
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
           </> : <div className="trusted-did-login-panel">
-            <label className="field"><span>选择主体 DID</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="did:energy:generator001">did:energy:generator001 · 东部绿能企业</option><option value="did:energy:trading001">did:energy:trading001 · 东部电力交易中心</option></select></label>
+            <label className="field"><span>选择主体 DID</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置 DID（请联系管理员）</option></select></label>
             <label className="field"><span>凭证引用</span><input value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="输入部署端提供的凭证引用" autoComplete="off" /></label>
             <div className="trusted-did-notice"><ShieldCheck size={15} /><span>当前环境未接入 DID Provider。提交后只会提示未配置，不会创建会话或模拟认证成功。</span></div>
           </div>}

@@ -27,6 +27,7 @@ from ..security import sha256_json, sign_value
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log, model_dict
 from ..services.lineage import read_run_events
+from ..services.notifications import publish_audit_report
 from ..services.trust_domain import (
     TTCState,
     TtcStateMachine,
@@ -139,6 +140,7 @@ def generate_report(
         details={"report_hash": report.report_hash},
     )
     db.commit()
+    publish_audit_report(db, report, actor_user_id=user.user_id)
     return model_dict(report)
 
 

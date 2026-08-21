@@ -154,3 +154,10 @@ export function StatusBadge({ value }: { value: string }) {
   const tone = /已完成|已验证|PASS|已连接|已授权|可申请/.test(value) ? "success" : /计算中|进行中|运行中|已签署/.test(value) ? "info" : /复核|待开始|适配|DEMO|待执行/.test(value) ? "warning" : /受限|阻断|失败/.test(value) ? "danger" : "neutral";
   return <Badge tone={tone} dot>{value}</Badge>;
 }
+
+export function RemoteState({ loading, error, onRetry, empty = false, emptyLabel = "暂无数据" }: { loading?: boolean; error?: string; onRetry?: () => void; empty?: boolean; emptyLabel?: string }) {
+  if (loading) return <div className="trusted-empty-state" role="status"><LoaderCircle className="energy-spin" size={20} /><span>正在加载真实数据…</span></div>;
+  if (error) return <div className="trusted-empty-state" role="alert"><X size={20} /><strong>数据加载失败</strong><span>{error}</span>{onRetry && <Button variant="secondary" onClick={onRetry}>重试</Button>}</div>;
+  if (empty) return <div className="trusted-empty-state" role="status"><Circle size={20} /><strong>{emptyLabel}</strong></div>;
+  return null;
+}

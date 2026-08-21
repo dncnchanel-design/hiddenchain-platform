@@ -89,6 +89,34 @@ FORMAL_TRUST_TABLE_NAMES = frozenset(
     }
 )
 
+AUTHORIZATION_TABLE_NAMES = frozenset({"data_usage_requests"})
+NEGOTIATION_TABLE_NAMES = frozenset({"contract_negotiation_events"})
+ASSISTANT_TABLE_NAMES = frozenset(
+    {
+        "assistant_sessions",
+        "assistant_messages",
+        "assistant_plans",
+        "assistant_plan_steps",
+    }
+)
+NOTIFICATION_TABLE_NAMES = frozenset({"user_notifications"})
+
+COMPUTE_CONTROL_COLUMNS: dict[str, dict[str, str]] = {
+    "privacy_compute_jobs": {
+        "state_version": "INTEGER NOT NULL DEFAULT 1",
+        "action_code": "VARCHAR(32)",
+        "action_idempotency_key": "VARCHAR(160)",
+        "action_fingerprint": "VARCHAR(128)",
+        "action_response_json": "JSON NOT NULL DEFAULT '{}'",
+        "cancelled_at": "TIMESTAMP",
+    }
+}
+
+COMPUTE_CONTROL_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_privacy_compute_jobs_action_idempotency "
+    "ON privacy_compute_jobs (action_idempotency_key)",
+)
+
 
 def _callable_source(value: Callable[..., Any]) -> str:
     try:
@@ -166,6 +194,62 @@ def _create_indexes(connection: Connection, statements: Iterable[str]) -> None:
         connection.execute(text(statement))
 
 
+def _make_nullable(connection: Connection, table_name: str, column_name: str) -> None:
+    """Make a legacy FK column nullable without losing existing records.
+
+    PostgreSQL supports this directly. SQLite has no DROP NOT NULL syntax; for
+    the legacy tables involved in standalone approvals, rebuild the table from
+    the shared metadata while copying every existing column.
+    """
+
+    allowed = {
+        ("data_contracts", "task_id"),
+        ("data_space_agreements", "task_id"),
+    }
+    if (table_name, column_name) not in allowed:
+        raise RuntimeError(f"unsupported nullable migration target: {table_name}.{column_name}")
+    inspector = inspect(connection)
+    if table_name not in set(inspector.get_table_names()):
+        raise RuntimeError(f"migration target table is missing: {table_name}")
+    columns = {item["name"]: item for item in inspector.get_columns(table_name)}
+    if column_name not in columns or columns[column_name].get("nullable", True):
+        return
+
+    if connection.dialect.name == "postgresql":
+        connection.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} DROP NOT NULL"))
+        return
+    if connection.dialect.name != "sqlite":
+        raise RuntimeError(
+            f"nullable migration is not implemented for dialect {connection.dialect.name}"
+        )
+
+    table = Base.metadata.tables.get(table_name)
+    if table is None:
+        raise RuntimeError(f"migration metadata is missing table: {table_name}")
+    old_name = f"{table_name}__nullable_migration"
+    if old_name in set(inspect(connection).get_table_names()):
+        raise RuntimeError(f"stale nullable migration table exists: {old_name}")
+
+    # The migration runner owns one transaction. SQLite's FK toggle is
+    # effective before the first DDL statement on this connection and lets us
+    # rebuild the parent table without rewriting child FK declarations.
+    connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    # SQLite keeps index names when a table is renamed. Drop the table-owned
+    # indexes first so metadata recreation does not collide with those names.
+    for index in inspect(connection).get_indexes(table_name):
+        connection.exec_driver_sql(f"DROP INDEX IF EXISTS {index['name']}")
+    connection.exec_driver_sql(f"ALTER TABLE {table_name} RENAME TO {old_name}")
+    table.create(bind=connection, checkfirst=False)
+    old_columns = set(columns)
+    copy_columns = [column.name for column in table.columns if column.name in old_columns]
+    quoted = ", ".join(copy_columns)
+    connection.exec_driver_sql(
+        f"INSERT INTO {table_name} ({quoted}) SELECT {quoted} FROM {old_name}"
+    )
+    connection.exec_driver_sql(f"DROP TABLE {old_name}")
+    connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+
 def _baseline(connection: Connection) -> None:
     # A frozen table-name set prevents future models from silently becoming
     # part of this historical baseline through repository-wide create_all.
@@ -224,6 +308,75 @@ def _formal_trust_domain(connection: Connection) -> None:
     for table_name, columns in FORMAL_TRUST_COLUMNS.items():
         _add_columns(connection, table_name, columns)
     _create_indexes(connection, FORMAL_TRUST_INDEXES)
+
+
+AUTHORIZATION_INDEXES: tuple[str, ...] = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_data_usage_requests_org_idempotency "
+    "ON data_usage_requests (applicant_org_id, idempotency_key)",
+    "CREATE INDEX IF NOT EXISTS ix_data_usage_requests_provider_status "
+    "ON data_usage_requests (provider_org_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_data_usage_requests_applicant_status "
+    "ON data_usage_requests (applicant_org_id, status, created_at)",
+)
+
+
+def _provider_authorization_workflow(connection: Connection) -> None:
+    # The nullable legacy FK is required for standalone approvals. Existing
+    # settlement rows remain intact and keep their task bindings.
+    _make_nullable(connection, "data_contracts", "task_id")
+    _make_nullable(connection, "data_space_agreements", "task_id")
+    _create_revision_tables(connection, AUTHORIZATION_TABLE_NAMES)
+    _create_indexes(connection, AUTHORIZATION_INDEXES)
+
+
+NEGOTIATION_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_contract_negotiation_contract_created "
+    "ON contract_negotiation_events (contract_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_negotiation_agreement_created "
+    "ON contract_negotiation_events (agreement_id, created_at)",
+)
+
+
+def _contract_negotiation_events(connection: Connection) -> None:
+    _create_revision_tables(connection, NEGOTIATION_TABLE_NAMES)
+    _create_indexes(connection, NEGOTIATION_INDEXES)
+
+
+ASSISTANT_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_assistant_sessions_org_status "
+    "ON assistant_sessions (org_id, status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_assistant_messages_session_created "
+    "ON assistant_messages (session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_assistant_plans_session_status "
+    "ON assistant_plans (session_id, status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_assistant_steps_plan_status "
+    "ON assistant_plan_steps (plan_id, status, updated_at)",
+)
+
+
+def _assistant_sessions_and_plans(connection: Connection) -> None:
+    _create_revision_tables(connection, ASSISTANT_TABLE_NAMES)
+    _create_indexes(connection, ASSISTANT_INDEXES)
+
+
+NOTIFICATION_INDEXES: tuple[str, ...] = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_notifications_user_dedupe "
+    "ON user_notifications (user_id, dedupe_key)",
+    "CREATE INDEX IF NOT EXISTS ix_user_notifications_user_read_created "
+    "ON user_notifications (user_id, read_at, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_user_notifications_org_type_created "
+    "ON user_notifications (org_id, notification_type, created_at)",
+)
+
+
+def _user_notifications(connection: Connection) -> None:
+    _create_revision_tables(connection, NOTIFICATION_TABLE_NAMES)
+    _create_indexes(connection, NOTIFICATION_INDEXES)
+
+
+def _privacy_compute_controls(connection: Connection) -> None:
+    _add_columns(connection, "privacy_compute_jobs", COMPUTE_CONTROL_COLUMNS["privacy_compute_jobs"])
+    _create_indexes(connection, COMPUTE_CONTROL_INDEXES)
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -664,6 +817,67 @@ MIGRATIONS: tuple[Migration, ...] = (
             ),
             *(f"index:{statement}" for statement in ATTEMPT_BOUND_OUTCOME_INDEXES),
             "legacy-outcomes:attempt_id-remains-null",
+        ),
+        checksum_helpers=(_add_columns, _create_indexes),
+    ),
+    Migration(
+        "20260821_001",
+        "add provider-governed data usage requests and standalone authorization bindings",
+        _provider_authorization_workflow,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(AUTHORIZATION_TABLE_NAMES)),
+            "nullable:data_contracts.task_id",
+            "nullable:data_space_agreements.task_id",
+            *(f"index:{statement}" for statement in AUTHORIZATION_INDEXES),
+        ),
+        checksum_helpers=(
+            _make_nullable,
+            _create_revision_tables,
+            _create_indexes,
+        ),
+    ),
+    Migration(
+        "20260821_002",
+        "add append-only contract negotiation events",
+        _contract_negotiation_events,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(NEGOTIATION_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in NEGOTIATION_INDEXES),
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260821_003",
+        "add scoped Trusted Space assistant sessions and deterministic plans",
+        _assistant_sessions_and_plans,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(ASSISTANT_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in ASSISTANT_INDEXES),
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260821_004",
+        "add scoped deduplicated user notifications",
+        _user_notifications,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(NOTIFICATION_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in NOTIFICATION_INDEXES),
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260821_005",
+        "add truthful privacy computation cancel and idempotent action controls",
+        _privacy_compute_controls,
+        revision_schema=(
+            *(
+                f"column:{table_name}.{column_name}:{definition}"
+                for table_name, columns in sorted(COMPUTE_CONTROL_COLUMNS.items())
+                for column_name, definition in sorted(columns.items())
+            ),
+            *(f"index:{statement}" for statement in COMPUTE_CONTROL_INDEXES),
+            "retry:blocked-until-real-requeue-executor",
         ),
         checksum_helpers=(_add_columns, _create_indexes),
     ),

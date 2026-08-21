@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import Settings, settings, validate_runtime_settings
 from .database import SessionLocal, database_readiness, ensure_runtime_schema
 from .production import assert_production_database_clean
-from .routers import audit, auth, data, energy, evidence, execution, system, trade, trust, trust_domain
+from .routers import assistant, audit, auth, data, energy, evidence, execution, system, trade, trust, trust_domain, trust_space
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
@@ -214,6 +214,8 @@ application_routers = [
     trade.router,
     trust.router,
     trust_domain.router,
+    trust_space.router,
+    assistant.router,
     evidence.router,
     audit.router,
     system.router,

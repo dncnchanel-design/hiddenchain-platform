@@ -1,0 +1,594 @@
+from __future__ import annotations
+
+import csv
+import io
+import json
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..database import get_db
+from ..dependencies import BUSINESS_ROLES, require_roles
+from ..models import BlockchainEvidence, User
+from ..schemas import (
+    ComputationAction,
+    ContractNegotiationAction,
+    ContractNegotiationEventCreate,
+    ResultConfirmRequest,
+    TtcTransitionAction,
+)
+from ..services.adapters import LocalEvidenceLedgerAdapter
+from ..services.common import add_audit_log
+from ..services import notifications as notification_service
+from ..services import trust_space as trust_space_service
+from ..services.trust_domain import TrustDomainError
+
+
+router = APIRouter(prefix="/trust-space", tags=["trust-space"])
+
+
+@router.get("/context")
+def context(
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.role_context(db, user)
+
+
+@router.get("/workbench")
+def workbench(
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.workbench(db, user)
+
+
+@router.get("/help")
+def help_content(
+    view: str = Query(default="workbench", min_length=1, max_length=64),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return trust_space_service.contextual_help(db, user, view)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": str(exc), "message": "不支持的帮助页面"},
+        ) from exc
+
+
+@router.get("/notifications")
+def notifications(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    notification_type: str | None = Query(default=None, alias="type", max_length=48),
+    unread_only: bool = Query(default=False),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return notification_service.list_notifications(
+        db,
+        user,
+        page=page,
+        page_size=page_size,
+        notification_type=notification_type,
+        unread_only=unread_only,
+    )
+
+
+@router.post("/notifications/{notification_id}/read")
+def read_notification(
+    notification_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return notification_service.mark_read(db, user, notification_id)
+    except notification_service.NotificationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.detail},
+        ) from exc
+
+
+@router.post("/notifications/read-all")
+def read_all_notifications(
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return notification_service.mark_all_read(db, user)
+
+
+@router.get("/identity")
+def identity(
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.identity(db, user)
+
+
+@router.get("/catalog")
+def catalog(
+    q: str | None = Query(default=None, max_length=128),
+    asset_type: str | None = Query(default=None, max_length=64),
+    domain: str | None = Query(default=None, max_length=128),
+    sensitivity_level: str | None = Query(default=None, max_length=8),
+    provider_org_id: str | None = Query(default=None, max_length=64),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.catalog(
+        db,
+        user,
+        query_text=q,
+        asset_type=asset_type,
+        domain=domain,
+        sensitivity_level=sensitivity_level,
+        provider_org_id=provider_org_id,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/assets/{asset_id}")
+def asset_detail(
+    asset_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.asset_detail(db, asset_id, user)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "DATA_ASSET_NOT_FOUND", "message": "数据资产不存在或当前主体不可见"},
+        )
+    return payload
+
+
+def _domain_error(exc: Exception) -> None:
+    code = getattr(exc, "code", str(exc))
+    message = getattr(exc, "detail", code)
+    status_code = status.HTTP_409_CONFLICT
+    if code.endswith("_NOT_FOUND"):
+        status_code = status.HTTP_404_NOT_FOUND
+    elif code.endswith("_FORBIDDEN") or code.endswith("_DENIED"):
+        status_code = status.HTTP_403_FORBIDDEN
+    elif code in {"IF_MATCH_REQUIRED"}:
+        status_code = status.HTTP_428_PRECONDITION_REQUIRED
+    elif code in {"IF_MATCH_INVALID", "NEGOTIATION_VERSION_CONFLICT"}:
+        status_code = status.HTTP_412_PRECONDITION_FAILED
+    elif code in {"COMPUTE_ACTION_IF_MATCH_REQUIRED"}:
+        status_code = status.HTTP_428_PRECONDITION_REQUIRED
+    elif code in {"COMPUTE_ACTION_VERSION_CONFLICT"}:
+        status_code = status.HTTP_412_PRECONDITION_FAILED
+    elif code in {
+        "COMPUTE_ACTION_IDEMPOTENCY_REQUIRED",
+        "COMPUTE_ACTION_IDEMPOTENCY_INVALID",
+        "COMPUTE_ACTION_VERSION_INVALID",
+    }:
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    elif code in {"TTC_SYSTEM_TRANSITION_REQUIRED", "TTC_OPERATION_FORBIDDEN"}:
+        status_code = status.HTTP_403_FORBIDDEN
+    elif code.startswith("ATTACHMENT_") or code.endswith("_REQUIRED"):
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    raise HTTPException(status_code=status_code, detail={"code": code, "message": message}) from exc
+
+
+@router.get("/contracts")
+def contracts(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    state: str | None = Query(default=None, max_length=32),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.contract_list(db, user, page=page, page_size=page_size, state=state)
+
+
+@router.get("/contracts/{contract_id}")
+def contract(
+    contract_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.contract_detail(db, contract_id, user)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "CONTRACT_NOT_FOUND", "message": "合同不存在或当前主体不可见"},
+        )
+    return payload
+
+
+def _append_event(
+    contract_id: str,
+    event_type: str,
+    payload: ContractNegotiationEventCreate | ContractNegotiationAction,
+    user: User,
+    db: Session,
+    if_match: str | None,
+    idempotency_key: str | None,
+) -> dict[str, Any]:
+    try:
+        return trust_space_service.append_contract_event(
+            db,
+            contract_id,
+            user,
+            event_type=event_type,
+            message=payload.message,
+            terms=payload.terms,
+            attachments=payload.attachments,
+            if_match=if_match,
+            idempotency_key=idempotency_key,
+        )
+    except (LookupError, PermissionError, ValueError) as exc:
+        _domain_error(exc)
+    raise AssertionError("unreachable")
+
+
+@router.post("/contracts/{contract_id}/events", status_code=status.HTTP_201_CREATED)
+def contract_event(
+    contract_id: str,
+    payload: ContractNegotiationEventCreate,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _append_event(contract_id, payload.event_type, payload, user, db, if_match, idempotency_key)
+
+
+@router.post("/contracts/{contract_id}/accept")
+def accept_contract(
+    contract_id: str,
+    payload: ContractNegotiationAction,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _append_event(contract_id, "ACCEPT", payload, user, db, if_match, idempotency_key)
+
+
+@router.post("/contracts/{contract_id}/reject")
+def reject_contract(
+    contract_id: str,
+    payload: ContractNegotiationAction,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _append_event(contract_id, "REJECT", payload, user, db, if_match, idempotency_key)
+
+
+@router.post("/contracts/{contract_id}/counter")
+def counter_contract(
+    contract_id: str,
+    payload: ContractNegotiationAction,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _append_event(contract_id, "COUNTER", payload, user, db, if_match, idempotency_key)
+
+
+@router.get("/ttc")
+def ttc_list(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status", max_length=32),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.ttc_list(
+        db,
+        user,
+        page=page,
+        page_size=page_size,
+        status_filter=status_filter,
+    )
+
+
+@router.get("/ttc/{task_id}")
+def ttc(
+    task_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.ttc_detail(db, task_id, user)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "TTC_TASK_NOT_FOUND", "message": "TTC 任务不存在或当前主体不可见"},
+        )
+    return payload
+
+
+@router.get("/ttc/{task_id}/events")
+def ttc_event_page(
+    task_id: str,
+    cursor: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        payload = trust_space_service.ttc_events(db, task_id, user, cursor=cursor, limit=limit)
+    except ValueError as exc:
+        _domain_error(exc)
+    if payload is None:
+        raise HTTPException(status_code=404, detail={"code": "TTC_TASK_NOT_FOUND", "message": "TTC 任务不存在或当前主体不可见"})
+    return payload
+
+
+@router.post("/ttc/{task_id}/transitions")
+def ttc_transition(
+    task_id: str,
+    payload: TtcTransitionAction,
+    response: Response,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict[str, Any]:
+    try:
+        result = trust_space_service.transition_ttc(
+            db,
+            task_id,
+            user,
+            to_state=payload.to_state,
+            trigger=payload.trigger,
+            reason=payload.reason,
+            if_match=if_match,
+            attempt_id=payload.attempt_id,
+            agent_did=payload.agent_did,
+            trace_id=payload.trace_id,
+        )
+    except (LookupError, PermissionError, ValueError, TrustDomainError) as exc:
+        _domain_error(exc)
+    response.headers["ETag"] = f'"{result["state_version"]}"'
+    return result
+
+
+@router.get("/computations")
+def computations(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status", max_length=32),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    query = select(trust_space_service.PrivacyComputeJob)
+    if status_filter:
+        query = query.where(trust_space_service.PrivacyComputeJob.status == status_filter.upper())
+    jobs = db.scalars(query.order_by(trust_space_service.PrivacyComputeJob.created_at.desc())).all()
+    jobs = [item for item in jobs if trust_space_service._compute_visible(db, item, user)]
+    total = len(jobs)
+    start = (page - 1) * page_size
+    items = [trust_space_service.computation_detail(db, item.job_id, user)["job"] for item in jobs[start : start + page_size]]
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "empty_state": total == 0,
+        "allowed_actions": ["view", "poll_logs"],
+        "capability_state": "LOCAL_REAL",
+        "source_of_truth": "privacy_compute_jobs",
+    }
+
+
+@router.get("/computations/{job_id}")
+def computation(
+    job_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.computation_detail(db, job_id, user)
+    if payload is None:
+        raise HTTPException(status_code=404, detail={"code": "COMPUTE_JOB_NOT_FOUND", "message": "计算任务不存在或当前主体不可见"})
+    return payload
+
+
+@router.get("/computations/{job_id}/events")
+def computation_event_page(
+    job_id: str,
+    cursor: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        payload = trust_space_service.computation_events(db, job_id, user, cursor=cursor, limit=limit)
+    except ValueError as exc:
+        _domain_error(exc)
+    if payload is None:
+        raise HTTPException(status_code=404, detail={"code": "COMPUTE_JOB_NOT_FOUND", "message": "计算任务不存在或当前主体不可见"})
+    return payload
+
+
+def _control_computation(
+    job_id: str,
+    action: str,
+    payload: ComputationAction,
+    response: Response,
+    user: User,
+    db: Session,
+    if_match: str | None,
+    idempotency_key: str | None,
+) -> dict[str, Any]:
+    try:
+        result = trust_space_service.control_computation(
+            db,
+            job_id,
+            user,
+            action=action,
+            reason=payload.reason,
+            if_match=if_match,
+            idempotency_key=idempotency_key,
+        )
+    except (LookupError, PermissionError, ValueError, TrustDomainError) as exc:
+        _domain_error(exc)
+    response.headers["ETag"] = f'"{result["job"]["state_version"]}"'
+    return result
+
+
+@router.post("/computations/{job_id}/cancel")
+def cancel_computation(
+    job_id: str,
+    payload: ComputationAction,
+    response: Response,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _control_computation(job_id, "CANCEL", payload, response, user, db, if_match, idempotency_key)
+
+
+@router.post("/computations/{job_id}/retry")
+def retry_computation(
+    job_id: str,
+    payload: ComputationAction,
+    response: Response,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, Any]:
+    return _control_computation(job_id, "RETRY", payload, response, user, db, if_match, idempotency_key)
+
+
+@router.get("/results")
+def results(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.result_list(db, user, page=page, page_size=page_size)
+
+
+@router.get("/results/{result_id}")
+def result(
+    result_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.result_detail(db, result_id, user)
+    if payload is None:
+        raise HTTPException(status_code=404, detail={"code": "RESULT_NOT_FOUND", "message": "结果不存在或当前主体不可见"})
+    return payload
+
+
+@router.post("/results/{result_id}/confirm")
+def confirm_result_alias(
+    result_id: str,
+    payload: ResultConfirmRequest,
+    response: Response,
+    user: User = Depends(require_roles("GENERATOR", "RETAILER")),
+    db: Session = Depends(get_db),
+    if_match: str = Header(alias="If-Match"),
+) -> dict[str, Any]:
+    # The existing trade router owns the real signature, state-machine and
+    # evidence transaction.  This alias intentionally delegates to it.
+    from .trade import confirm_result as existing_confirm_result
+
+    return existing_confirm_result(result_id, payload, response, user, db, if_match)
+
+
+@router.get("/evidence/{evidence_id}/verify")
+def verify_evidence(
+    evidence_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    evidence = db.get(BlockchainEvidence, evidence_id)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail={"code": "EVIDENCE_NOT_FOUND", "message": "证据不存在"})
+    task = db.get(trust_space_service.SettlementTask, evidence.task_id) if evidence.task_id else None
+    if task is None or not trust_space_service._task_visible(db, task, user):
+        raise HTTPException(status_code=403, detail={"code": "EVIDENCE_SCOPE_DENIED", "message": "无权核验证据"})
+    result = LocalEvidenceLedgerAdapter.verify(evidence)
+    add_audit_log(
+        db,
+        action="VERIFY_CHAIN_EVIDENCE",
+        target_type="BLOCKCHAIN_EVIDENCE",
+        target_id=evidence.evidence_id,
+        result="SUCCESS" if result["matched"] else "FAILED",
+        user=user,
+        details=result,
+    )
+    db.commit()
+    return {
+        **result,
+        "allowed_actions": ["view"],
+        "capability_state": "DEMO",
+        "source_of_truth": "blockchain_evidence/local_evidence_ledger",
+    }
+
+
+@router.get("/audit")
+def audit(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.audit_list(db, user, page=page, page_size=page_size)
+
+
+@router.get("/audit/tasks/{task_id}")
+def audit_task(
+    task_id: str,
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.audit_task(db, task_id, user)
+    if payload is None:
+        raise HTTPException(status_code=404, detail={"code": "TTC_TASK_NOT_FOUND", "message": "任务不存在"})
+    return payload
+
+
+@router.get("/audit/export")
+def export_audit(
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    db: Session = Depends(get_db),
+) -> Response:
+    payload = trust_space_service.audit_list(db, user, page=1, page_size=5000)
+    add_audit_log(
+        db,
+        action="EXPORT_AUDIT_RECORDS",
+        target_type="AUDIT_EXPORT",
+        target_id=f"{user.user_id}:{format}",
+        result="SUCCESS",
+        user=user,
+        details={"format": format, "record_count": payload["total"]},
+    )
+    db.commit()
+    if format == "json":
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, default=str),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=audit-records.json"},
+        )
+    stream = io.StringIO()
+    writer = csv.DictWriter(
+        stream,
+        fieldnames=["record_type", "record_id", "occurred_at", "action_code", "target_type", "target_id", "result", "actor_org_id"],
+        extrasaction="ignore",
+    )
+    writer.writeheader()
+    writer.writerows(payload["items"])
+    return Response(
+        content=stream.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit-records.csv"},
+    )

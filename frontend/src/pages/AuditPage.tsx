@@ -35,7 +35,7 @@ export function AuditPage() {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState("");
   const tasks = useRemote<JsonRecord[]>((signal) => api("/settlement/tasks", { signal, timeoutMs: 12000, cache: "no-store" }), []);
-  const effectiveTaskId = taskId || tasks.data?.[0]?.task_id || "";
+  const effectiveTaskId = taskId;
   const timeline = useRemote<JsonRecord | null>((signal) => effectiveTaskId ? api(`/audit/timeline/${effectiveTaskId}`, { signal, timeoutMs: 12000, cache: "no-store" }) : Promise.resolve(null), [effectiveTaskId]);
 
   const currentCheck = checks.find((item) => item.code === checkCode) || checks[0];
@@ -68,7 +68,7 @@ export function AuditPage() {
     <>
       <PageHeader title="审计与复核" actions={<>{linkedTaskId && <Link className="button button-secondary" to={`/settlements/${linkedTaskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={tasks.refreshing || timeline.refreshing} onClick={async () => { await Promise.all([tasks.reload(), timeline.reload()]); }}>刷新</Button></>} />
       <FilterBar>
-        <label><span>审计对象</span><select value={effectiveTaskId} disabled={Boolean(linkedTaskId)} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        <label><span>审计对象</span><select value={effectiveTaskId} disabled={Boolean(linkedTaskId)} onChange={(event) => { setTaskId(event.target.value); setAnswer(null); }}><option value="">请选择</option>{tasks.data.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
         {timeline.data?.task && <><div className="filter-status"><span>当前状态</span><StatusTag value={timeline.data.task.status} /></div><div className="filter-status"><span>风险等级</span><StatusTag value={timeline.data.task.risk_level} /></div></>}
       </FilterBar>
 

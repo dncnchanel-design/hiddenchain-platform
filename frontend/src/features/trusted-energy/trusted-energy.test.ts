@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes, getTrustedView, routeForView, TRUSTED_BASE } from "./types";
+import { isKnownTrustedPath, trustedEntityId, trustedMenuCodeForView, getTrustedView, routeForView, TRUSTED_BASE } from "./types";
+import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes } from "./trusted-energy.test-fixtures";
 
 describe("trusted energy console model", () => {
   it("keeps the complete 12-module checklist and reachable deep links", () => {
@@ -7,7 +8,8 @@ describe("trusted energy console model", () => {
     expect(trustedModuleChecklist.map((module) => module.key)).toEqual([
       "login", "workbench", "identity", "catalog", "asset", "apply", "contract", "ttc", "mpc", "results", "audit", "agent",
     ]);
-    expect(trustedViewRoutes).toHaveLength(10);
+    expect(trustedViewRoutes).toHaveLength(11);
+    expect(trustedViewRoutes.some((route) => route.path === `${TRUSTED_BASE}/authorizations`)).toBe(true);
     for (const route of trustedViewRoutes) {
       expect(route.path.startsWith(`${TRUSTED_BASE}/`)).toBe(true);
       expect(route.label.length).toBeGreaterThan(1);
@@ -15,6 +17,17 @@ describe("trusted energy console model", () => {
     expect(routeForView("asset", "asset-power-output-001")).toBe(`${TRUSTED_BASE}/assets/asset-power-output-001`);
     expect(routeForView("mpc", "com-20260518-001")).toBe(`${TRUSTED_BASE}/mpc/com-20260518-001`);
     expect(getTrustedView(`${TRUSTED_BASE}/results/res-20260518-001`)).toBe("results");
+    expect(routeForView("contract")).toBe(`${TRUSTED_BASE}/contracts`);
+    expect(routeForView("ttc")).toBe(`${TRUSTED_BASE}/ttc`);
+    expect(routeForView("mpc")).toBe(`${TRUSTED_BASE}/mpc`);
+    expect(trustedEntityId(`${TRUSTED_BASE}/assets/asset%2Freal`, "assets")).toBe("asset/real");
+    expect(getTrustedView(`${TRUSTED_BASE}/contracts`)).toBe("contract");
+    expect(getTrustedView(`${TRUSTED_BASE}/ttc/ttc-real`)).toBe("ttc");
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc`)).toBe(true);
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc/job-real`)).toBe(true);
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/unknown`)).toBe(false);
+    expect(trustedMenuCodeForView("asset")).toBe("asset-passport");
+    expect(trustedMenuCodeForView("mpc")).toBe("compute");
   });
 
   it("locks capability truth labels to the product boundary", () => {

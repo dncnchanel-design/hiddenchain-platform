@@ -1,21 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Activity, BadgeCheck, Bell, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, UserRound, X, type LucideIcon } from "lucide-react";
+import { Activity, BadgeCheck, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, UserRound, X, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { AgentSheet } from "../components/AgentSheet";
-import { navItems, getTrustedView, routeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
+import { NotificationCenter } from "../components/NotificationCenter";
+import { isKnownTrustedPath, navItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
 import { cn } from "../utils";
 import { Badge, Button, IconButton } from "../components/ui-primitives";
+import { RemoteState } from "../components/ui-primitives";
+import { useTrustedSpaceContext } from "../trusted-space-context";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
 import { AssetPassportPage } from "../pages/AssetPassportPage";
 import { ApplyPage } from "../pages/ApplyPage";
+import { AuthorizationsPage } from "../pages/AuthorizationsPage";
 import { ContractPage } from "../pages/ContractPage";
 import { TtcPage } from "../pages/TtcPage";
 import { MpcPage } from "../pages/MpcPage";
 import { ResultsEvidencePage } from "../pages/ResultsEvidencePage";
 import { AuditCenterPage } from "../pages/AuditCenterPage";
+import { ForbiddenPage, NotFoundPage } from "../../../pages/StatusPages";
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -31,6 +36,7 @@ const titles: Record<TrustedViewKey, string> = {
   workbench: "工作台",
   identity: "身份中心",
   catalog: "数据目录",
+  authorizations: "授权记录",
   asset: "数据资产护照",
   apply: "使用申请",
   contract: "合同协商",
@@ -44,6 +50,7 @@ function renderView(view: TrustedViewKey) {
   switch (view) {
     case "identity": return <IdentityPage />;
     case "catalog": return <CatalogPage />;
+    case "authorizations": return <AuthorizationsPage />;
     case "asset": return <AssetPassportPage />;
     case "apply": return <ApplyPage />;
     case "contract": return <ContractPage />;
@@ -58,6 +65,7 @@ function renderView(view: TrustedViewKey) {
 
 export function TrustedSpaceShell() {
   const { session, logout } = useAuth();
+  const trustedContext = useTrustedSpaceContext();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -65,17 +73,27 @@ export function TrustedSpaceShell() {
   const view = getTrustedView(location.pathname);
   const title = titles[view];
   const currentNav = navItems.find((item) => item.key === view);
-  const subjectName = session?.user?.display_name || session?.user?.username || "东部绿能企业";
-  const did = "did:energy:generator001";
-  const activeGroup = currentNav?.key === "identity" ? "主体与身份" : currentNav?.key === "catalog" ? "数据空间" : currentNav?.key === "contract" || currentNav?.key === "mpc" ? "协作与计算" : currentNav?.key === "audit" || currentNav?.key === "results" ? "证据与审计" : "工作台";
-
-  const quickLinks = useMemo(() => navItems.map((item) => ({ ...item, Icon: iconMap[item.icon] })), []);
+  const context = trustedContext.context;
+  const quickLinks = useMemo(() => {
+    const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
+    return navItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
+  }, [context?.visible_menus]);
 
   useEffect(() => {
     const openAgent = () => setAgentOpen(true);
     window.addEventListener("trusted-energy:agent-open", openAgent);
     return () => window.removeEventListener("trusted-energy:agent-open", openAgent);
   }, []);
+
+  if (trustedContext.loading) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState loading /></div>;
+  if (trustedContext.error || !context) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState error={trustedContext.error || "可信数据空间上下文不可用"} onRetry={() => void trustedContext.reload()} /></div>;
+  if (!isKnownTrustedPath(location.pathname)) return <div className="trusted-space-shell tw-min-h-screen"><NotFoundPage /></div>;
+  const visibleMenuCodes = new Set(context.visible_menus.map((menu) => menu.code));
+  if (!visibleMenuCodes.has(trustedMenuCodeForView(view))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
+  const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
+  const roleLabel = context.actor.role_label || context.actor.role_code;
+  const did = context.identity_ref.did || "未配置 DID";
+  const activeGroup = currentNav?.key === "identity" ? "主体与身份" : currentNav?.key === "catalog" || currentNav?.key === "authorizations" ? "数据空间" : currentNav?.key === "contract" || currentNav?.key === "mpc" ? "协作与计算" : currentNav?.key === "audit" || currentNav?.key === "results" ? "证据与审计" : "工作台";
 
   function goTo(path: string) {
     setMobileNavOpen(false);
@@ -94,10 +112,10 @@ export function TrustedSpaceShell() {
         <span className="trusted-org-label">Trusted Energy Data &amp; Privacy Computing Space</span>
       </div>
       <div className="trusted-system-right">
-        <Badge tone="success" dot>本地受控环境</Badge>
-        <span className="trusted-system-pulse"><i />服务状态正常</span>
-        <IconButton label="通知"><Bell size={16} /></IconButton>
-        <div className="trusted-user-menu"><span className="trusted-avatar"><UserRound size={15} /></span><span className="trusted-user-copy"><strong>{subjectName}</strong><small>数据提供方</small></span><ChevronDown size={13} /></div>
+        <Badge tone="success" dot>{context.environment.name === "TEST" ? "本地受控环境" : context.environment.name}</Badge>
+        <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "服务状态正常" : "主体状态异常"}</span>
+        <NotificationCenter />
+        <div className="trusted-user-menu"><span className="trusted-avatar"><UserRound size={15} /></span><span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span><ChevronDown size={13} /></div>
         <Button variant="ghost" size="sm" className="trusted-logout" onClick={() => { logout(); navigate("/login"); }}>退出</Button>
       </div>
     </header>
@@ -110,7 +128,7 @@ export function TrustedSpaceShell() {
       </div>
     </nav>
 
-    <div className="trusted-context-bar"><div><span>隐链明算</span><b>/</b><span>{activeGroup}</span><b>/</b><strong>{title}</strong></div><div className="trusted-context-right"><span className="trusted-mono">{did}</span><span>·</span><span>会话有效</span><button type="button" onClick={() => setAgentOpen(true)}><Search size={13} />查找资产</button></div></div>
+    <div className="trusted-context-bar"><div><span>隐链明算</span><b>/</b><span>{activeGroup}</span><b>/</b><strong>{title}</strong></div><div className="trusted-context-right"><span className="trusted-mono">{did}</span><span>·</span><span>会话有效</span><button type="button" onClick={() => goTo(`${routeForView("catalog")}?focus=search`)}><Search size={13} />查找资产</button></div></div>
 
     <main className="trusted-main" key={location.pathname}>{renderView(view)}</main>
 

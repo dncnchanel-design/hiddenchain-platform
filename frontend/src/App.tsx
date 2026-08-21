@@ -6,6 +6,7 @@ import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
 import { ForbiddenPage, NotFoundPage, SessionExpiredPage, UnavailablePage } from "./pages/StatusPages";
 import { pages } from "./routes";
+import { TrustedSpaceProvider } from "./features/trusted-energy/trusted-space-context";
 
 const {
   agents: AgentsPage,
@@ -53,7 +54,7 @@ function TrustedSpaceGate() {
   if (sessionExpired) return <Navigate to="/session-expired" replace />;
   if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
   if (!session) return <Navigate to="/login" replace />;
-  return <Suspense fallback={<div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>}><TrustedSpaceShell /></Suspense>;
+  return <Suspense fallback={<div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>}><TrustedSpaceProvider><TrustedSpaceShell /></TrustedSpaceProvider></Suspense>;
 }
 
 function Allowed({ path, children }: { path: string; children: React.ReactNode }) {

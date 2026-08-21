@@ -41,6 +41,7 @@ from .adapters import (
 from .common import add_audit_log, model_dict, trace_id
 from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
+from .notifications import publish_audit_report, publish_result_confirmation
 from .trust_domain import authorize_agent_tool
 from ..trust_models import (
     AgentPermission,
@@ -1314,6 +1315,7 @@ def run_settlement_workflow(
     )
     db.add(summary_result)
     db.flush()
+    scoped_results: list[tuple[SettlementResult, str]] = []
     for participant in participants:
         role_result = {
             "capsule_id": task.capsule_id,
@@ -1334,6 +1336,7 @@ def run_settlement_workflow(
             confirm_status="UNCONFIRMED",
         )
         db.add(scoped_result)
+        scoped_results.append((scoped_result, participant.org_id))
         participant.confirm_status = "PENDING"
 
     TtcStateMachine.transition(
@@ -1556,6 +1559,19 @@ def run_settlement_workflow(
     )
     if commit:
         db.commit()
+        for scoped_result, org_id in scoped_results:
+            publish_result_confirmation(
+                db,
+                task_id=task.task_id,
+                result_id=scoped_result.result_id,
+                attempt_id=scoped_result.attempt_id,
+                org_ids=[org_id],
+            )
+        publish_audit_report(
+            db,
+            report,
+            actor_user_id=actor.user_id if actor is not None else None,
+        )
         emit_settlement_lineage(
             task,
             uploads=list({item.upload_id: item for item in [*uploads_by_role.values(), *scenario_uploads.values()]}.values()),
