@@ -8,7 +8,8 @@ import re
 import zipfile
 from dataclasses import dataclass
 from typing import Any
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

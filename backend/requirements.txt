@@ -6,6 +6,7 @@ PyJWT==2.13.0
 asgi-correlation-id==5.0.1
 slowapi==0.1.10
 python-multipart==0.0.32
+defusedxml==0.7.1
 idna==3.18
 httpx==0.28.1
 numpy==2.2.6
