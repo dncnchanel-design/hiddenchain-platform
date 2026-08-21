@@ -1,11 +1,13 @@
 # Release Synchronization
 
-## Current checkpoint — 2026-08-21 (pre-commit; Render not run)
+## Current checkpoint — 2026-08-21 (post-publish review/test; docs-only sync)
 
 ```text
+CODE_PAYLOAD_COMMIT = a8fac1aa06647dc5e1343d5a269af475ae333d1a
+SYNC_TARGET = CURRENT_BRANCH_HEAD
 LOCAL_BRANCH = agent/deep-brand-green
-LOCAL_BASE_COMMIT = 6d0a48c52de4254b8d9a76aa9181276230c5557a
-LOCAL_IMPLEMENTATION_COMMIT = NOT_CREATED_THIS_CHECKPOINT
+LOCAL_PRODUCT_PAYLOAD = a8fac1aa06647dc5e1343d5a269af475ae333d1a
+LOCAL_DOCUMENTATION_SYNC = THIS_DOCS_ONLY_COMMIT
 LOCAL_BUILD = PASS (frontend production guard, brand guard and Vite build)
 LOCAL_TEST = PASS (backend full pytest; frontend 49; Excel focused 3)
 LOCAL_EXCEL_FIXTURE = PASS (10 sheets x 100 rows = 1,000 rows; formula errors = 0)
@@ -15,21 +17,30 @@ LOCAL_DIFF_CHECK = PASS
 
 GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
 GITHUB_BRANCH = agent/deep-brand-green
-GITHUB_TRACKING_REF_AT_CHECKPOINT = 6d0a48c52de4254b8d9a76aa9181276230c5557a
-GITHUB_LS_REMOTE = NOT_VERIFIED (connection reset during this checkpoint)
-GITHUB_PUSH = NOT_RUN_THIS_CHECKPOINT
+GITHUB_CODE_PAYLOAD_SHA = a8fac1aa06647dc5e1343d5a269af475ae333d1a
+GITHUB_CODE_PAYLOAD_PUSH = PASS
+GITHUB_DOCUMENTATION_SYNC_PUSH = PASS (this docs-only sync commit)
 
 RENDER_SERVICE = hiddenchain-platform
 RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
-RENDER_DEPLOYMENT = NOT_RUN_THIS_CHECKPOINT
-RENDER_DEPLOY_COMMIT = NOT_APPLICABLE
-RENDER_STATUS = NOT_RUN_THIS_CHECKPOINT
+RENDER_DEPLOYMENT = EXTERNAL_FINAL_RELEASE_EVIDENCE
+RENDER_DEPLOY_COMMIT = a8fac1aa06647dc5e1343d5a269af475ae333d1a
+RENDER_STATUS = LIVE_REVIEW_TEST
+RENDER_HEALTH = PASS (live/readiness/version; build_sha matches CODE_PAYLOAD_COMMIT)
+RENDER_URL = https://hiddenchain-platform.onrender.com
 
-SHA_CONVERGENCE = NOT_ESTABLISHED_PRE_COMMIT
-TRIPLE_SYNC = NOT_RELEASED_THIS_CHECKPOINT
+ONLINE_SMOKE_TEST = PASS_PARTIAL_DESKTOP
+ONLINE_SMOKE_COVERAGE = login, Dashboard, identity, catalog, Excel upload, asset passport, apply, contract/negotiation, TTC, MPC, results/evidence
+ONLINE_SMOKE_VIEWPORT = approximately 1707px wide; covered pages root scrollWidth <= innerWidth
+ONLINE_SMOKE_UNCOVERED = audit center and Agent Sheet (Chrome form/control timeout); IAB unavailable; 390px mobile not verified online
+ONLINE_SMOKE_EVIDENCE = runtime/online-smoke-a8fac1aa/desktop/dashboard-1707x842.png; asset-passport-1707x842.png; excel-upload-1707x842.png; mpc-task-1707x842.png
+SHA_CONVERGENCE = CODE_PAYLOAD_SYNC_VERIFIED; DOCS_SYNC_TARGET_PENDING_RENDER_DEPLOYMENT
+TRIPLE_SYNC = CODE_PAYLOAD_PASS_REVIEW_TEST_ONLY; CURRENT_BRANCH_HEAD_PENDING_RENDER_DEPLOYMENT
 ```
 
-This section records only the current pre-commit evidence. The prior `9e40ac7` Render review/test deployment below is historical evidence and is not presented as the result of this checkpoint. No final commit SHA, deployment ID or production release claim is asserted here.
+This section records the current product-payload and review/test evidence. The dynamic Render deployment identifier is intentionally external to this docs-only commit. `SYNC_TARGET = CURRENT_BRANCH_HEAD` must be deployed and checked before final three-way convergence is claimed for the documentation-sync head. No production release claim is asserted here.
+
+## Historical sync checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 Updated: 2026-08-20, verified GitHub CI and Render review/test deployment checkpoint.
 
@@ -70,13 +81,14 @@ SHA_CONVERGENCE = PASS (local=9e40ac7; GitHub=9e40ac7; Render build_sha=9e40ac7)
 TRIPLE_SYNC = PASS_REVIEW_TEST_ONLY; PRODUCTION_BLOCKED
 ```
 
-Required convergence remains:
+Required code-payload convergence remains:
 
 ```text
 LOCAL_CODE_RELEASE_SHA = GITHUB_REVIEWED_SHA = RENDER_DEPLOY_COMMIT_SHA
 ```
 
-The current Render service is free review/test infrastructure with `APP_ENV=test`, SQLite, fixture seeding, single-instance memory rate limiting and local OPA fallback. The deployed commit, health endpoints and version build SHA were verified on 2026-08-20. This is not production evidence: no durable PostgreSQL/Redis/object storage, remote fail-closed OPA, HA, backup or external finality is provided. No secret or credential values are recorded here.
-## Frontend handoff checkpoint — 2026-08-20
+The current Render service is free review/test infrastructure with `APP_ENV=test`, SQLite, fixture seeding, single-instance memory rate limiting and local OPA fallback. The deployed commit, health endpoints and version build SHA were verified on 2026-08-21. This is not production evidence: no durable PostgreSQL/Redis/object storage, remote fail-closed OPA, HA, backup or external finality is provided. No secret or credential values are recorded here.
 
-- Local typecheck, 49 tests, lint, production build, and independent 1440×900/390×844 visual checks passed; `agent/deep-brand-green` publication is pending precise staging/commit/push, with no Render action in this checkpoint.
+## Historical frontend handoff checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
+
+- Local typecheck, 49 tests, lint, production build, and independent 1440×900/390×844 visual checks passed at that historical checkpoint; publication was pending precise staging/commit/push, with no Render action in that checkpoint.

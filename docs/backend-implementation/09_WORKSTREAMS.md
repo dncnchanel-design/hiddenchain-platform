@@ -1,17 +1,17 @@
 # Workstreams and File Ownership
 
-## Current execution checkpoint — 2026-08-21 (pre-commit)
+## Current execution checkpoint — 2026-08-21 (post-publish review/test; docs-only sync)
 
 | Workstream | Execution boundary | Evidence | Status |
 | --- | --- | --- | --- |
-| Excel batch upload and sample asset | `/root/luna_worker` under `/root` release coordination; `backend/app/services/excel_upload.py`, `backend/tests/test_excel_upload.py`, `frontend/public/sample-data/hiddenchain-excel-batch-data.xlsx`, `tools/build_excel_batch_data.mjs` | Excel focused tests PASS; deterministic 10 × 100 workbook/parser validation PASS | LOCAL_VERIFIED |
-| Permission and route convergence | `/root/luna_worker` under `/root` release coordination; auth/data routers, access policy, route map, `ExcelUploadPage`, Workbench and regression scripts | Backend full pytest PASS; frontend 49 tests, lint, typecheck and build PASS; functional regression 104/0 | LOCAL_VERIFIED |
-| Release documentation and staging | `/root/luna_worker` performs the delegated documentation/staging checkpoint; `/root` retains commit, push, Render and final release ownership | Three release ledgers updated; exact staging is pending this checkpoint | PRE_COMMIT_REVIEW |
-| Render review/test verification | `/root` release owner | No deployment attempted in this checkpoint | NOT_RUN_THIS_ROUND |
+| Excel batch upload and sample asset | `/root/luna_worker` under `/root` release coordination; `backend/app/services/excel_upload.py`, `backend/tests/test_excel_upload.py`, `frontend/public/sample-data/hiddenchain-excel-batch-data.xlsx`, `tools/build_excel_batch_data.mjs` | Excel focused tests PASS; deterministic 10 × 100 workbook/parser validation PASS; product payload `a8fac1aa…` published | PUBLISHED_REVIEW_TEST |
+| Permission and route convergence | `/root/luna_worker` under `/root` release coordination; auth/data routers, access policy, route map, `ExcelUploadPage`, Workbench and regression scripts | Backend full pytest PASS; frontend 49 tests, lint, typecheck and build PASS; functional regression 104/0; product payload `a8fac1aa…` published | PUBLISHED_REVIEW_TEST |
+| Release documentation and staging | `/root/luna_worker` performs the delegated documentation-sync checkpoint; `/root` retains commit, push, Render and final release ownership | Three release ledgers updated; this commit is docs-only and is pushed after review | COMMITTED_PUSHED |
+| Render review/test verification | `/root` release owner | `hiddenchain-platform` live; liveness/readiness/version passed; deployed build SHA matches product payload; deployment identifier is retained in the external final report | PASS_PARTIAL_DESKTOP |
 
-The existing ownership and historical release entries below remain unchanged. No commit, push, Render action or production-release claim is made by this checkpoint.
+The existing ownership and historical release entries below remain unchanged. The product payload is `a8fac1aa06647dc5e1343d5a269af475ae333d1a`; this docs-only synchronization head is the next `SYNC_TARGET` for Render before final three-way SHA convergence is claimed. No production-release claim is made.
 
-Date: 2026-08-20
+## Historical execution checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 | Workstream | Owner | Exclusive files | Dependencies | Status |
 | --- | --- | --- | --- | --- |
@@ -30,6 +30,6 @@ Rules:
 - Commit, push, GitHub, Render and release convergence are owned only by `/root`.
 - All writes and generated outputs remain inside `PROJECT_ROOT`.
 - `docs_release` does not edit `06_TEST_REPORT.md` or `10_RELEASE_SYNC.md` and does not assert final test counts, commit, push or deployment outcomes.
-## Frontend delivery checkpoint — 2026-08-20
+## Historical frontend delivery checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
-- Trusted Energy console routes, twelve views, scoped primitives, capability truth fixtures, responsive Agent sheet, and pure tests are complete; precise stage/commit/push remains with `/root`, and Render is out of scope for this checkpoint.
+- Trusted Energy console routes, twelve views, scoped primitives, capability truth fixtures, responsive Agent sheet, and pure tests were complete at that historical checkpoint; precise stage/commit/push remained with `/root`, and Render was out of scope for that checkpoint.

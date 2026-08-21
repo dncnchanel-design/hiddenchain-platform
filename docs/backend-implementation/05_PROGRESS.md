@@ -1,6 +1,6 @@
 # Progress Ledger
 
-## Current checkpoint — 2026-08-21 (pre-commit)
+## Current checkpoint — 2026-08-21 (post-publish review/test; docs-only sync)
 
 ### Completed in this checkpoint
 
@@ -18,12 +18,21 @@
 - Local functional regression: PASS, 104 passes / 0 failures; evidence: `runtime/functional-regression-20260821-local/report.json`.
 - `git diff --check`: PASS.
 
+### Published review/test evidence
+
+- The product payload is committed as `a8fac1aa06647dc5e1343d5a269af475ae333d1a` on `agent/deep-brand-green`; the GitHub push and exact code-payload SHA verification passed.
+- Render service `hiddenchain-platform` is live at `https://hiddenchain-platform.onrender.com` for review/test use. Public liveness/readiness and `/api/version` checks passed, and the reported `build_sha` matches the product payload commit.
+- `ONLINE_SMOKE = PASS_PARTIAL_DESKTOP`: the live desktop smoke covered login, Dashboard, identity center, data catalog, Excel batch upload, asset passport, use-application wizard, contract/negotiation, TTC, MPC, and results/evidence. The observed Chrome viewport was about 1707px wide; covered pages had no root horizontal overflow and no captured console error/warning.
+- Online smoke evidence retained outside the release staging set: `runtime/online-smoke-a8fac1aa/desktop/dashboard-1707x842.png`, `asset-passport-1707x842.png`, `excel-upload-1707x842.png`, and `mpc-task-1707x842.png`.
+- Audit center and the global Agent Sheet were not completed because the Chrome form/control channel timed out; IAB was unavailable, and 390px mobile was not verified online in this round. No complete twelve-module or mobile-online pass is claimed.
+
 ### Release boundary
 
-- This checkpoint is worktree-only on base `6d0a48c`; no commit or push has been made yet.
-- Render remains a review/test execution plane. No Render deployment was triggered in this checkpoint, and no new deployed SHA or deployment ID is claimed here.
+- The current product payload is published as `a8fac1aa06647dc5e1343d5a269af475ae333d1a`; this checkpoint adds only release-ledger synchronization and does not change product code, tests, or configuration.
+- Render remains a review/test execution plane, not production evidence. The dynamic deployment identifier is intentionally kept in the external final release report rather than this docs-only synchronization commit, so it cannot become stale or create a self-referential release cycle.
+- `CODE_PAYLOAD_COMMIT` remains the stable application SHA, while `SYNC_TARGET = CURRENT_BRANCH_HEAD` identifies the documentation-sync head that must be deployed before claiming final three-way convergence for that head.
 
-## Current checkpoint — 2026-08-20
+## Historical checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 ### Completed
 
@@ -64,6 +73,6 @@
 ### Next step
 
 - Keep the Render review/test service pinned to the verified SHA for review, and provision separate production infrastructure before any production release claim.
-## Frontend delivery checkpoint — 2026-08-20
+## Historical frontend delivery checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 - Trusted Energy console implementation, responsive visual verification, and pure frontend tests completed; precise publication remains pending and no Render deployment was performed in this checkpoint.
