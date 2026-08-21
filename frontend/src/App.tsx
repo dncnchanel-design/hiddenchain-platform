@@ -12,8 +12,8 @@ const {
   anomalies: AnomaliesPage,
   audit: AuditPage,
   compute: ComputePage,
-  data: DataPage,
   dataSpace: DataSpacePage,
+  excelUpload: ExcelUploadPage,
   evidence: EvidencePage,
   login: LoginPage,
   logs: LogsPage,
@@ -85,16 +85,17 @@ function SessionExpiredGate() {
 export default function App() {
   return (
     <Routes>
-        <Route path="/login" element={<LoginGate />} />
-        <Route path="/session-expired" element={<SessionExpiredGate />} />
-        <Route path="/trusted-space/*" element={<TrustedSpaceGate />} />
-        <Route element={<ProtectedShell />}>
+      <Route path="/login" element={<LoginGate />} />
+      <Route path="/session-expired" element={<SessionExpiredGate />} />
+      <Route path="/trusted-space/*" element={<TrustedSpaceGate />} />
+      <Route element={<ProtectedShell />}>
           <Route index element={<WorkspaceHome />} />
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="/overview" element={<Allowed path="/overview"><OverviewPage /></Allowed>} />
           <Route path="/workbench" element={<Allowed path="/workbench"><WorkbenchPage /></Allowed>} />
-          <Route path="/data/generation" element={<Allowed path="/data/generation"><DataPage mode="generation" /></Allowed>} />
-          <Route path="/data/retail" element={<Allowed path="/data/retail"><DataPage mode="retail" /></Allowed>} />
+          <Route path="/data/upload" element={<Allowed path="/data/upload"><ExcelUploadPage /></Allowed>} />
+          <Route path="/data/generation" element={<Navigate to="/data/upload" replace />} />
+          <Route path="/data/retail" element={<Navigate to="/data/upload" replace />} />
           <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
           <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
           <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />

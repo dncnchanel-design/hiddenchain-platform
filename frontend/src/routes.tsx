@@ -2,8 +2,6 @@ import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
 type Loader = () => Promise<Record<string, unknown>>;
 type LazyPage<P = any> = LazyExoticComponent<ComponentType<P>> & { preload: () => Promise<unknown> };
-type DataPageProps = { mode: "generation" | "retail" };
-
 function lazyNamed<P>(loader: Loader, exportName: string): LazyPage<P> {
   let promise: Promise<{ default: ComponentType<P> }> | undefined;
   const load = () => {
@@ -20,7 +18,7 @@ export const pages = {
   anomalies: lazyNamed(() => import("./pages/AnomaliesPage"), "AnomaliesPage"),
   audit: lazyNamed(() => import("./pages/AuditPage"), "AuditPage"),
   compute: lazyNamed(() => import("./pages/ComputePage"), "ComputePage"),
-  data: lazyNamed<DataPageProps>(() => import("./pages/DataPage"), "DataPage"),
+  excelUpload: lazyNamed(() => import("./pages/ExcelUploadPage"), "ExcelUploadPage"),
   dataSpace: lazyNamed(() => import("./pages/DataSpacePage"), "DataSpacePage"),
   evidence: lazyNamed(() => import("./pages/EvidencePage"), "EvidencePage"),
   login: lazyNamed(() => import("./pages/LoginPage"), "LoginPage"),
@@ -44,7 +42,7 @@ const routePages: Array<[string, LazyPage]> = [
   ["/anomalies", pages.anomalies],
   ["/audit", pages.audit],
   ["/compute", pages.compute],
-  ["/data/", pages.data],
+  ["/data/upload", pages.excelUpload],
   ["/data-space", pages.dataSpace],
   ["/evidence", pages.evidence],
   ["/logs", pages.logs],

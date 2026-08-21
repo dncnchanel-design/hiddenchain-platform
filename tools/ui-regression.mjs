@@ -24,8 +24,7 @@ function exchangeRoutes(taskId) {
   return [
   "/workbench",
   `/data-space?${query}`,
-  "/data/generation",
-  "/data/retail",
+  "/data/upload",
   `/rules?${query}`,
   `/compute?${query}`,
   "/settlements",

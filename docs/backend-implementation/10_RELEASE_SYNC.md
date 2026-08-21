@@ -1,5 +1,36 @@
 # Release Synchronization
 
+## Current checkpoint — 2026-08-21 (pre-commit; Render not run)
+
+```text
+LOCAL_BRANCH = agent/deep-brand-green
+LOCAL_BASE_COMMIT = 6d0a48c52de4254b8d9a76aa9181276230c5557a
+LOCAL_IMPLEMENTATION_COMMIT = NOT_CREATED_THIS_CHECKPOINT
+LOCAL_BUILD = PASS (frontend production guard, brand guard and Vite build)
+LOCAL_TEST = PASS (backend full pytest; frontend 49; Excel focused 3)
+LOCAL_EXCEL_FIXTURE = PASS (10 sheets x 100 rows = 1,000 rows; formula errors = 0)
+LOCAL_FUNCTIONAL_REGRESSION = PASS (104 passes / 0 failures)
+LOCAL_FUNCTIONAL_EVIDENCE = runtime/functional-regression-20260821-local/report.json
+LOCAL_DIFF_CHECK = PASS
+
+GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
+GITHUB_BRANCH = agent/deep-brand-green
+GITHUB_TRACKING_REF_AT_CHECKPOINT = 6d0a48c52de4254b8d9a76aa9181276230c5557a
+GITHUB_LS_REMOTE = NOT_VERIFIED (connection reset during this checkpoint)
+GITHUB_PUSH = NOT_RUN_THIS_CHECKPOINT
+
+RENDER_SERVICE = hiddenchain-platform
+RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
+RENDER_DEPLOYMENT = NOT_RUN_THIS_CHECKPOINT
+RENDER_DEPLOY_COMMIT = NOT_APPLICABLE
+RENDER_STATUS = NOT_RUN_THIS_CHECKPOINT
+
+SHA_CONVERGENCE = NOT_ESTABLISHED_PRE_COMMIT
+TRIPLE_SYNC = NOT_RELEASED_THIS_CHECKPOINT
+```
+
+This section records only the current pre-commit evidence. The prior `9e40ac7` Render review/test deployment below is historical evidence and is not presented as the result of this checkpoint. No final commit SHA, deployment ID or production release claim is asserted here.
+
 Updated: 2026-08-20, verified GitHub CI and Render review/test deployment checkpoint.
 
 ```text

@@ -1,5 +1,28 @@
 # Progress Ledger
 
+## Current checkpoint — 2026-08-21 (pre-commit)
+
+### Completed in this checkpoint
+
+- Consolidated the latest product changes for controlled Excel batch upload and permission-aware routing: `ExcelUploadPage` is the upload surface, the retired `DataPage` is removed, `/data/upload` is the canonical route, and legacy data routes redirect to it.
+- Preserved the frozen `trusted-energy` visual layer; changes are limited to the approved backend/API/DTO/state/auth/loading/error and route integration boundary.
+- Added the product sample workbook and Excel parser tests. The deterministic generator/validator produced 10 sheets × 100 rows = 1,000 rows; parser validation passed and formula-error inspection returned zero matches.
+- Verified the role/route matrix and backend permission redirects remain aligned with the frontend route map.
+
+### Verification evidence
+
+- Backend full `pytest`: PASS (warnings only).
+- Frontend ESLint, TypeScript typecheck and production guard/build: PASS.
+- Frontend unit tests: PASS, 49 tests.
+- Excel upload focused tests: PASS, 3 tests.
+- Local functional regression: PASS, 104 passes / 0 failures; evidence: `runtime/functional-regression-20260821-local/report.json`.
+- `git diff --check`: PASS.
+
+### Release boundary
+
+- This checkpoint is worktree-only on base `6d0a48c`; no commit or push has been made yet.
+- Render remains a review/test execution plane. No Render deployment was triggered in this checkpoint, and no new deployed SHA or deployment ID is claimed here.
+
 ## Current checkpoint — 2026-08-20
 
 ### Completed

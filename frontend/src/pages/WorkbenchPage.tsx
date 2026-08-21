@@ -1,5 +1,5 @@
 import type { ElementType } from "react";
-import { ArrowRight, BarChart3, Building2, Database, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowRight, BarChart3, Building2, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -16,7 +16,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
   GENERATOR: {
     title: "发电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
     actions: [
-      { title: "登记发电数据", path: "/data/generation", icon: Database },
+      { title: "Excel 批量上传", path: "/data/upload", icon: FileClock },
       { title: "确认结果", path: "/results", icon: FileCheck2 },
       { title: "查看审计凭证", path: "/evidence", icon: FileClock },
     ],
@@ -24,7 +24,7 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
   RETAILER: {
     title: "售电企业工作台", nextStep: "查看待办任务", nextPath: "/settlements",
     actions: [
-      { title: "登记用电数据", path: "/data/retail", icon: Database },
+      { title: "Excel 批量上传", path: "/data/upload", icon: FileClock },
       { title: "发起隐私分析", path: "/compute", icon: LockKeyhole },
       { title: "确认聚合结果", path: "/results", icon: FileCheck2 },
     ],

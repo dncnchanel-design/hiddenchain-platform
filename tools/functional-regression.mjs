@@ -16,16 +16,16 @@ const credentials = {
 };
 
 const routes = [
-  "/workbench", "/data-space", "/data/generation", "/data/retail", "/rules", "/compute",
+  "/workbench", "/data-space", "/data/upload", "/rules", "/compute",
   "/settlements", "/settlements/new", "/results", "/evidence", "/audit", "/reports",
   "/anomalies", "/trusted-execution", "/overview", "/system", "/agents", "/metrics", "/logs",
 ];
 
 const allowed = {
-  generator: new Set(["/workbench", "/data-space", "/data/generation", "/settlements", "/compute", "/results", "/evidence"]),
-  retailer: new Set(["/workbench", "/data-space", "/data/retail", "/settlements", "/compute", "/results", "/evidence"]),
-  exchange: new Set(["/workbench", "/data-space", "/data/generation", "/data/retail", "/rules", "/compute", "/settlements", "/settlements/new", "/results", "/evidence", "/audit", "/reports", "/anomalies", "/trusted-execution"]),
-  regulator: new Set(["/workbench", "/data-space", "/data/generation", "/data/retail", "/rules", "/compute", "/settlements", "/results", "/evidence", "/audit", "/reports", "/anomalies", "/trusted-execution"]),
+  generator: new Set(["/workbench", "/data-space", "/data/upload", "/settlements", "/compute", "/results", "/evidence"]),
+  retailer: new Set(["/workbench", "/data-space", "/data/upload", "/settlements", "/compute", "/results", "/evidence"]),
+  exchange: new Set(["/workbench", "/data-space", "/data/upload", "/rules", "/compute", "/settlements", "/settlements/new", "/results", "/evidence", "/audit", "/reports", "/anomalies", "/trusted-execution"]),
+  regulator: new Set(["/workbench", "/data-space", "/data/upload", "/rules", "/compute", "/settlements", "/results", "/evidence", "/audit", "/reports", "/anomalies", "/trusted-execution"]),
   admin: new Set(routes.filter((path) => path !== "/settlements/new")),
 };
 
@@ -133,12 +133,10 @@ async function testGenerator(browser) {
   const page = await context.newPage();
   try {
     await login(page, "generator");
-    await page.goto(`${baseUrl}/data/generation`);
+    await page.goto(`${baseUrl}/data/upload`);
     await settle(page);
-    await page.getByRole("button", { name: "登记数据", exact: true }).click();
-    const dialog = await expectDialog(page, "登记数据引用");
-    record("generator.open-upload");
-    await closeDialog(dialog);
+    await page.getByRole("button", { name: "校验并导入", exact: true }).waitFor({ state: "visible", timeout: 8_000 });
+    record("generator.open-excel-upload");
     await page.goto(`${baseUrl}/results`);
     await settle(page);
     record("generator.results-loaded", { hasConfirm: await page.getByRole("button", { name: "签名确认", exact: true }).count() > 0 });
@@ -151,12 +149,10 @@ async function testRetailer(browser) {
   const page = await context.newPage();
   try {
     await login(page, "retailer");
-    await page.goto(`${baseUrl}/data/retail`);
+    await page.goto(`${baseUrl}/data/upload`);
     await settle(page);
-    await page.getByRole("button", { name: "登记数据", exact: true }).click();
-    const dialog = await expectDialog(page, "登记数据引用");
-    record("retailer.open-upload");
-    await closeDialog(dialog);
+    await page.getByRole("button", { name: "校验并导入", exact: true }).waitFor({ state: "visible", timeout: 8_000 });
+    record("retailer.open-excel-upload");
     await page.goto(`${baseUrl}/compute?tab=analysis`);
     await settle(page);
     await page.getByRole("button", { name: "发起分析", exact: true }).click();

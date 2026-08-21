@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import math
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +20,15 @@ from ..services.datapackage import FrictionlessCatalogAdapter
 from ..services.dataspace import DataspaceProtocolAdapter
 from ..services.vault import LocalDomainVault
 from ..services.trust_domain import TrustDomainError, verify_active_identity
+from ..services.excel_upload import (
+    MAX_EXCEL_BYTES,
+    SHEET_SPECS,
+    ExcelWorkbookError,
+    ParsedExcelRow,
+    ParsedExcelWorkbook,
+    normalize_row_values,
+    parse_excel_workbook,
+)
 from ..services.asset_registry import (
     project_upload_to_asset_registry,
     redacted_asset_projection,
@@ -43,6 +57,356 @@ def _active_owner_identity(db: Session, org_id: str) -> DidIdentity:
             status_code=403,
             detail={"code": exc.code, "message": exc.detail},
         ) from exc
+
+
+GENERATOR_ASSETS = {"GENERATION_DATA", "RENEWABLE_FORECAST"}
+RETAILER_ASSETS = {"RETAIL_DATA", "USER_LOAD_CURVE", "VPP_RESOURCE"}
+ALL_ASSETS = GENERATOR_ASSETS | RETAILER_ASSETS | {"GRID_CONSTRAINT"}
+EXCEL_METADATA_FIELDS = {
+    "function_scope",
+    "task_reference",
+    "rule_version",
+    "algorithm_code",
+    "audit_requirement",
+    "risk_level",
+    "expected_action",
+    "recommended_role",
+    "sample_marker",
+}
+
+
+def _asset_access_error(asset_type: str, role_code: str, *, allow_admin_grid: bool = False) -> str | None:
+    if role_code == "REGULATOR":
+        return "监管角色仅可查看数据，不能执行上传"
+    if asset_type not in ALL_ASSETS:
+        return "资产类型不在系统支持范围内"
+    if role_code == "GENERATOR" and asset_type not in GENERATOR_ASSETS:
+        return "发电企业只能上传发电计量或新能源预测"
+    if role_code == "RETAILER" and asset_type not in RETAILER_ASSETS:
+        return "售电企业只能上传售电履约、用户负荷或虚拟电厂资源"
+    if asset_type == "GRID_CONSTRAINT" and role_code != "EXCHANGE" and not (allow_admin_grid and role_code == "ADMIN"):
+        return "调度安全边界只能由交易中心或管理员受控接入"
+    if asset_type == "USER_LOAD_CURVE" and role_code not in {"RETAILER", "EXCHANGE", "ADMIN"}:
+        return "用户负荷曲线只能由售电企业、交易中心或管理员接入"
+    return None
+
+
+def _owner_context(
+    db: Session,
+    payload: DataUploadCreate,
+    user: User,
+) -> tuple[Organization, DidIdentity]:
+    owner_org_id = user.org_id
+    if payload.owner_org_id and payload.owner_org_id != owner_org_id:
+        raise HTTPException(status_code=403, detail="不能以其他组织名义登记或签署数据")
+    owner = db.get(Organization, owner_org_id)
+    if owner is None:
+        raise HTTPException(status_code=404, detail="数据提供方不存在")
+    if owner.status != "ACTIVE":
+        raise HTTPException(status_code=403, detail="数据提供方组织不可用")
+    access_error = _asset_access_error(payload.asset_type, user.role_code)
+    if access_error:
+        raise HTTPException(status_code=403, detail=access_error)
+    return owner, _active_owner_identity(db, owner_org_id)
+
+
+def _persist_upload(
+    db: Session,
+    payload: DataUploadCreate,
+    user: User,
+    *,
+    owner: Organization | None = None,
+    signer_identity: DidIdentity | None = None,
+    upload_id: str | None = None,
+    excel_metadata: dict[str, Any] | None = None,
+) -> tuple[DataUpload, str]:
+    if owner is None or signer_identity is None:
+        owner, signer_identity = _owner_context(db, payload, user)
+    record_kwargs: dict[str, Any] = {
+        "asset_type": payload.asset_type,
+        "owner_org_id": owner.org_id,
+        "trade_batch_no": payload.trade_batch_no,
+        "label": payload.label,
+        "data_ref": "pending",
+        "data_hash": "pending",
+        "commitment": "pending",
+        "schema_version": payload.schema_version,
+        "validation_status": "PENDING",
+        "summary_json": {},
+        "ingress_json": payload.ingress.model_dump(),
+    }
+    if upload_id:
+        record_kwargs["upload_id"] = upload_id
+    record = DataUpload(**record_kwargs)
+    db.add(record)
+    db.flush()
+    data_ref, data_hash, commitment = LocalDomainVault.write(
+        owner.org_id, record.upload_id, payload.local_payload
+    )
+    record.data_ref = data_ref
+    record.data_hash = data_hash
+    record.commitment = commitment
+    record.validation_status = "PASSED"
+    record.summary_json = {
+        "record_count": payload.local_payload.get("record_count", 1),
+        "period": payload.local_payload.get("period"),
+        "raw_data_stored_in_business_db": False,
+        "trusted_acquisition": True,
+        "secure_transport": payload.ingress.model_dump(),
+        **({"excel_import": excel_metadata} if excel_metadata else {}),
+    }
+    record.signature_value = sign_value(
+        {"upload_id": record.upload_id, "data_hash": data_hash},
+        signer_identity.did_id,
+    )
+    db.add(
+        Signature(
+            signer_org_id=owner.org_id,
+            signer_did=signer_identity.did_id,
+            target_type="DATA_UPLOAD",
+            target_id=record.upload_id,
+            target_hash=data_hash,
+            signature_value=record.signature_value,
+            verify_status="VALID",
+        )
+    )
+    project_upload_to_asset_registry(db, record)
+    add_audit_log(
+        db,
+        action="UPLOAD_DATA_REFERENCE",
+        target_type="DATA_UPLOAD",
+        target_id=record.upload_id,
+        result="SUCCESS",
+        user=user,
+        details={
+            "asset_type": payload.asset_type,
+            "data_hash": data_hash,
+            "raw_payload_in_db": False,
+            "excel_batch": bool(excel_metadata),
+        },
+    )
+    return record, data_ref
+
+
+def _upload_response(db: Session, record: DataUpload, owner: Organization) -> dict:
+    return {
+        **model_dict(record),
+        "owner_org_name": owner.org_name,
+        "raw_payload_exposed": False,
+        "formal_asset": redacted_asset_projection(db, record),
+    }
+
+
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _as_number(value: Any, field: str, errors: list[dict[str, Any]], row: ParsedExcelRow) -> float | None:
+    if isinstance(value, bool) or value is None or _as_text(value) == "":
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": field, "message": "必须填写非负数"})
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float("nan")
+    if not math.isfinite(number) or number < 0:
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": field, "message": "必须填写非负数"})
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _as_positive_int(value: Any, field: str, errors: list[dict[str, Any]], row: ParsedExcelRow) -> int | None:
+    number = _as_number(value, field, errors, row)
+    if number is None or not float(number).is_integer() or number <= 0:
+        if number is not None:
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": field, "message": "必须填写大于 0 的整数"})
+        return None
+    return int(number)
+
+
+def _as_bool(value: Any, field: str, errors: list[dict[str, Any]], row: ParsedExcelRow) -> bool | None:
+    normalized = _as_text(value).upper()
+    if normalized in {"TRUE", "1", "是", "通过", "PASS", "PASSED"}:
+        return True
+    if normalized in {"FALSE", "0", "否", "未通过", "FAIL", "FAILED"}:
+        return False
+    errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": field, "message": "请填写通过/未通过或 TRUE/FALSE"})
+    return None
+
+
+def _row_to_payload(
+    row: ParsedExcelRow,
+    workbook: ParsedExcelWorkbook,
+    user: User,
+) -> tuple[DataUploadCreate | None, dict[str, Any], list[dict[str, Any]]]:
+    values = normalize_row_values(row.values)
+    errors: list[dict[str, Any]] = []
+    allowed_types = SHEET_SPECS[row.sheet_name]
+    asset_type = _as_text(values.get("asset_type")) or (allowed_types[0] if len(allowed_types) == 1 else "")
+    if asset_type not in allowed_types:
+        errors.append({
+            "sheet": row.sheet_name,
+            "row": row.row_number,
+            "field": "资产类型",
+            "message": f"该工作表只允许：{'、'.join(allowed_types)}",
+        })
+    # The Excel page is a controlled batch boundary.  It may be used by an
+    # administrator to load the complete template into the administrator's
+    # own organization for review; direct single-record grid registration
+    # remains exchange-only in _owner_context.
+    role_error = _asset_access_error(asset_type, user.role_code, allow_admin_grid=True) if asset_type else None
+    if role_error:
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "资产类型", "message": role_error})
+
+    label = _as_text(values.get("label"))
+    batch = _as_text(values.get("trade_batch_no"))
+    period = _as_text(values.get("period"))
+    if len(label) < 2 or len(label) > 128:
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "数据资产名称", "message": "长度必须在 2 至 128 个字符之间"})
+    if len(batch) < 3 or len(batch) > 64:
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "批次编号", "message": "长度必须在 3 至 64 个字符之间"})
+    if not period:
+        errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "数据期间", "message": "必须填写数据期间"})
+    record_count = _as_positive_int(values.get("record_count"), "记录数", errors, row)
+    local_payload: dict[str, Any] = {"record_count": record_count or 1, "period": period}
+
+    if asset_type in {"GENERATION_DATA", "RETAIL_DATA"}:
+        energy = _as_number(values.get("energy_mwh"), "电量MWh", errors, row)
+        if energy is not None:
+            local_payload["energy_mwh"] = energy
+    elif asset_type == "RENEWABLE_FORECAST":
+        forecast_energy = _as_number(values.get("forecast_energy_mwh"), "预测电量MWh", errors, row)
+        accuracy = _as_number(values.get("forecast_accuracy_pct"), "预测准确率%", errors, row)
+        if accuracy is not None and accuracy > 100:
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "预测准确率%", "message": "不能超过 100"})
+        if forecast_energy is not None:
+            local_payload["forecast_energy_mwh"] = forecast_energy
+        if accuracy is not None:
+            local_payload["forecast_accuracy_pct"] = accuracy
+    elif asset_type == "USER_LOAD_CURVE":
+        curve: list[float | int] = []
+        for hour in range(24):
+            value = _as_number(values.get(f"load_{hour:02d}"), f"负荷{hour:02d}时", errors, row)
+            curve.append(value if value is not None else 0)
+        if len(curve) == 24 and not any(
+            error["field"].startswith("负荷") for error in errors
+        ):
+            local_payload["load_curve"] = curve
+    elif asset_type == "VPP_RESOURCE":
+        for source_key, field_name in (
+            ("adjustable_capacity_mw", "可调容量MW"),
+            ("storage_energy_mwh", "储能电量MWh"),
+            ("response_minutes", "响应时间分钟"),
+        ):
+            value = _as_number(values.get(source_key), field_name, errors, row)
+            if value is not None:
+                local_payload[source_key] = value
+    elif asset_type == "GRID_CONSTRAINT":
+        passed = _as_bool(values.get("n_minus_one_passed"), "N-1校核", errors, row)
+        residual = _as_number(values.get("max_residual_imbalance_mwh"), "剩余偏差上限MWh", errors, row)
+        margin = _as_number(values.get("congestion_margin_pct"), "拥塞裕度%", errors, row)
+        if margin is not None and margin > 100:
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "拥塞裕度%", "message": "不能超过 100"})
+        if passed is not None:
+            local_payload["n_minus_one_passed"] = passed
+        if residual is not None:
+            local_payload["max_residual_imbalance_mwh"] = residual
+        if margin is not None:
+            local_payload["congestion_margin_pct"] = margin
+
+    metadata = {
+        key: _as_text(values[key])
+        for key in EXCEL_METADATA_FIELDS
+        if key in values and _as_text(values[key])
+    }
+    metadata.update({"sheet_name": row.sheet_name, "excel_row": row.row_number, "file_digest": workbook.file_digest})
+    ingress = {
+        "source_type": _as_text(values.get("source_type")) or "EXCEL_BATCH_UPLOAD",
+        "protocol": _as_text(values.get("protocol")) or "HTTPS",
+        "stage": "BUSINESS",
+        "encryption": _as_text(values.get("encryption")) or "TLS1.3",
+        "attestation": _as_text(values.get("attestation")) or "NOT_PROVIDED",
+    }
+    try:
+        payload = DataUploadCreate.model_validate({
+            "asset_type": asset_type,
+            "trade_batch_no": batch,
+            "label": label,
+            "schema_version": "v1.0",
+            "ingress": ingress,
+            "local_payload": local_payload,
+        })
+    except ValidationError as exc:
+        for item in exc.errors():
+            location = ".".join(str(part) for part in item.get("loc", ())) or "数据"
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": location, "message": str(item.get("msg", "格式错误"))})
+        payload = None
+    return payload if not errors else None, metadata, errors
+
+
+def _prepare_excel(
+    content: bytes,
+    user: User,
+) -> tuple[ParsedExcelWorkbook | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    try:
+        workbook = parse_excel_workbook(content)
+    except ExcelWorkbookError as exc:
+        return None, [], [{"sheet": "工作簿", "row": 0, "field": "文件", "message": str(exc)}]
+    prepared: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for row in workbook.rows:
+        payload, metadata, row_errors = _row_to_payload(row, workbook, user)
+        errors.extend(row_errors)
+        if payload is not None:
+            deterministic_id = str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"hiddenchain:excel:{user.org_id}:{workbook.file_digest}:{row.sheet_name}:{row.row_number}",
+            ))
+            prepared.append({"payload": payload, "metadata": metadata, "upload_id": deterministic_id, "row": row})
+    return workbook, prepared, errors
+
+
+def _excel_result(
+    workbook: ParsedExcelWorkbook | None,
+    prepared: list[dict[str, Any]],
+    errors: list[dict[str, Any]],
+    *,
+    file_name: str,
+    user: User,
+    imported_count: int = 0,
+    idempotent_replay: bool = False,
+) -> dict[str, Any]:
+    return {
+        "valid": workbook is not None and not errors and len(prepared) == sum((workbook.sheet_row_counts if workbook else {}).values()),
+        "file_name": file_name,
+        "file_digest": workbook.file_digest if workbook else None,
+        "role_code": user.role_code,
+        "owner_org_id": user.org_id,
+        "sheet_count": len(workbook.sheet_names) if workbook else 0,
+        "row_count": sum((workbook.sheet_row_counts if workbook else {}).values()),
+        "prepared_count": len(prepared),
+        "imported_count": imported_count,
+        "idempotent_replay": idempotent_replay,
+        "sheets": [
+            {"name": name, "row_count": workbook.sheet_row_counts[name], "allowed_asset_types": list(SHEET_SPECS[name])}
+            for name in (workbook.sheet_names if workbook else ())
+        ],
+        "errors": errors[:500],
+    }
+
+
+async def _read_excel_file(file: UploadFile) -> tuple[str, bytes]:
+    file_name = file.filename or ""
+    if not file_name.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=415, detail="只支持 .xlsx 格式的 Excel 文件")
+    content = await file.read(MAX_EXCEL_BYTES + 1)
+    if len(content) > MAX_EXCEL_BYTES:
+        raise HTTPException(status_code=413, detail="Excel 文件不能超过 8 MB")
+    return file_name, content
 
 
 @router.get("/catalog")
@@ -181,94 +545,102 @@ def create_upload(
     user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE", "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
-    owner_org_id = user.org_id
-    if payload.owner_org_id and payload.owner_org_id != user.org_id:
-        raise HTTPException(status_code=403, detail="不能以其他组织名义登记或签署数据")
-    owner = db.get(Organization, owner_org_id)
-    if owner is None:
-        raise HTTPException(status_code=404, detail="数据提供方不存在")
-    if owner.status != "ACTIVE":
-        raise HTTPException(status_code=403, detail="数据提供方组织不可用")
-    signer_identity = _active_owner_identity(db, owner_org_id)
-    if user.role_code == "GENERATOR" and payload.asset_type not in {
-        "GENERATION_DATA",
-        "RENEWABLE_FORECAST",
-    }:
-        raise HTTPException(status_code=403, detail="发电企业只能登记计量数据或新能源出力预测")
-    if user.role_code == "RETAILER" and payload.asset_type not in {
-        "RETAIL_DATA",
-        "USER_LOAD_CURVE",
-        "VPP_RESOURCE",
-    }:
-        raise HTTPException(status_code=403, detail="售电企业只能登记售电、用户负荷或虚拟电厂资源数据")
-    if payload.asset_type == "GRID_CONSTRAINT" and user.role_code != "EXCHANGE":
-        raise HTTPException(status_code=403, detail="调度安全边界只能由交易中心受控接入")
-
-    if payload.asset_type == "USER_LOAD_CURVE" and user.role_code not in {"RETAILER", "EXCHANGE", "ADMIN"}:
-        raise HTTPException(status_code=403, detail="用户负荷曲线只能由售电企业或受控管理角色接入")
-
-    record = DataUpload(
-        asset_type=payload.asset_type,
-        owner_org_id=owner_org_id,
-        trade_batch_no=payload.trade_batch_no,
-        label=payload.label,
-        data_ref="pending",
-        data_hash="pending",
-        commitment="pending",
-        schema_version=payload.schema_version,
-        validation_status="PENDING",
-        summary_json={},
-        ingress_json=payload.ingress.model_dump(),
-    )
-    db.add(record)
-    db.flush()
-    data_ref, data_hash, commitment = LocalDomainVault.write(
-        owner_org_id, record.upload_id, payload.local_payload
-    )
-    record.data_ref = data_ref
-    record.data_hash = data_hash
-    record.commitment = commitment
-    record.validation_status = "PASSED"
-    record.summary_json = {
-        "record_count": payload.local_payload.get("record_count", 1),
-        "period": payload.local_payload.get("period"),
-        "raw_data_stored_in_business_db": False,
-        "trusted_acquisition": True,
-        "secure_transport": payload.ingress.model_dump(),
-    }
-    record.signature_value = sign_value(
-        {"upload_id": record.upload_id, "data_hash": data_hash},
-        signer_identity.did_id,
-    )
-    db.add(
-        Signature(
-            signer_org_id=owner_org_id,
-            signer_did=signer_identity.did_id,
-            target_type="DATA_UPLOAD",
-            target_id=record.upload_id,
-            target_hash=data_hash,
-            signature_value=record.signature_value,
-            verify_status="VALID",
-        )
-    )
-    project_upload_to_asset_registry(db, record)
-    add_audit_log(
+    owner, signer_identity = _owner_context(db, payload, user)
+    record, _ = _persist_upload(
         db,
-        action="UPLOAD_DATA_REFERENCE",
-        target_type="DATA_UPLOAD",
-        target_id=record.upload_id,
-        result="SUCCESS",
-        user=user,
-        details={"asset_type": payload.asset_type, "data_hash": data_hash, "raw_payload_in_db": False},
+        payload,
+        user,
+        owner=owner,
+        signer_identity=signer_identity,
     )
     db.commit()
     db.refresh(record)
-    return {
-        **model_dict(record),
-        "owner_org_name": owner.org_name,
-        "raw_payload_exposed": False,
-        "formal_asset": redacted_asset_projection(db, record),
-    }
+    return _upload_response(db, record, owner)
+
+
+@router.post("/uploads/excel/validate")
+async def validate_excel_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+) -> dict[str, Any]:
+    file_name, content = await _read_excel_file(file)
+    workbook, prepared, errors = _prepare_excel(content, user)
+    return _excel_result(workbook, prepared, errors, file_name=file_name, user=user)
+
+
+@router.post("/uploads/excel/import")
+async def import_excel_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE", "ADMIN")),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    file_name, content = await _read_excel_file(file)
+    workbook, prepared, errors = _prepare_excel(content, user)
+    result = _excel_result(workbook, prepared, errors, file_name=file_name, user=user)
+    if not workbook or errors or not prepared or not result["valid"]:
+        raise HTTPException(status_code=422, detail=f"Excel 校验失败，共 {len(errors)} 个错误")
+
+    upload_ids = [item["upload_id"] for item in prepared]
+    existing = db.scalars(select(DataUpload).where(DataUpload.upload_id.in_(upload_ids))).all()
+    if existing:
+        matching = [
+            item for item in existing
+            if item.summary_json.get("excel_import", {}).get("file_digest") == workbook.file_digest
+        ]
+        if len(existing) == len(prepared) and len(matching) == len(prepared):
+            result["idempotent_replay"] = True
+            result["imported_count"] = 0
+            return result
+        raise HTTPException(status_code=409, detail="该 Excel 批次已经部分存在，请更换文件或批次后重试")
+
+    owner: Organization | None = None
+    signer_identity: DidIdentity | None = None
+    data_refs: list[str] = []
+    try:
+        owner = db.get(Organization, user.org_id)
+        if owner is None or owner.status != "ACTIVE":
+            raise HTTPException(status_code=403, detail="当前组织不可用")
+        signer_identity = _active_owner_identity(db, user.org_id)
+        for item in prepared:
+            data_refs.append(f"{LocalDomainVault.scheme}{owner.org_id}/{item['upload_id']}")
+            record, data_ref = _persist_upload(
+                db,
+                item["payload"],
+                user,
+                owner=owner,
+                signer_identity=signer_identity,
+                upload_id=item["upload_id"],
+                excel_metadata=item["metadata"],
+            )
+        add_audit_log(
+            db,
+            action="UPLOAD_EXCEL_BATCH",
+            target_type="EXCEL_IMPORT",
+            target_id=workbook.file_digest,
+            result="SUCCESS",
+            user=user,
+            details={
+                "file_name": file_name,
+                "sheet_count": len(workbook.sheet_names),
+                "row_count": len(prepared),
+                "atomic": True,
+            },
+        )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        for data_ref in data_refs:
+            LocalDomainVault.delete(data_ref)
+        raise
+    except Exception as exc:
+        db.rollback()
+        for data_ref in data_refs:
+            LocalDomainVault.delete(data_ref)
+        raise HTTPException(status_code=500, detail="Excel 批量导入失败，数据库未写入数据") from exc
+
+    result["imported_count"] = len(prepared)
+    result["idempotent_replay"] = False
+    return result
 
 
 @router.post("/{upload_id}/sign")

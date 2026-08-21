@@ -1,5 +1,16 @@
 # Workstreams and File Ownership
 
+## Current execution checkpoint — 2026-08-21 (pre-commit)
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Excel batch upload and sample asset | `/root/luna_worker` under `/root` release coordination; `backend/app/services/excel_upload.py`, `backend/tests/test_excel_upload.py`, `frontend/public/sample-data/hiddenchain-excel-batch-data.xlsx`, `tools/build_excel_batch_data.mjs` | Excel focused tests PASS; deterministic 10 × 100 workbook/parser validation PASS | LOCAL_VERIFIED |
+| Permission and route convergence | `/root/luna_worker` under `/root` release coordination; auth/data routers, access policy, route map, `ExcelUploadPage`, Workbench and regression scripts | Backend full pytest PASS; frontend 49 tests, lint, typecheck and build PASS; functional regression 104/0 | LOCAL_VERIFIED |
+| Release documentation and staging | `/root/luna_worker` performs the delegated documentation/staging checkpoint; `/root` retains commit, push, Render and final release ownership | Three release ledgers updated; exact staging is pending this checkpoint | PRE_COMMIT_REVIEW |
+| Render review/test verification | `/root` release owner | No deployment attempted in this checkpoint | NOT_RUN_THIS_ROUND |
+
+The existing ownership and historical release entries below remain unchanged. No commit, push, Render action or production-release claim is made by this checkpoint.
+
 Date: 2026-08-20
 
 | Workstream | Owner | Exclusive files | Dependencies | Status |
