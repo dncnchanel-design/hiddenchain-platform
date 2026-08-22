@@ -45,6 +45,9 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert generator_body["capabilities"]["data_space_connector"]["readiness"] == "NOT_CONFIGURED"
     assert generator_body["capabilities"]["tee"]["capability_state"] == "BLOCKED"
     assert generator_body["capabilities"]["blockchain_anchor"]["capability_state"] == "DEMO"
+    upload_menu = next(menu for menu in generator_body["visible_menus"] if menu["code"] == "excel-upload")
+    assert upload_menu["title"] == "数据上传"
+    assert upload_menu["path"] == "/trusted-space/upload"
 
 
 def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, auth_headers):

@@ -253,6 +253,7 @@ TRUST_SPACE_MENUS: tuple[dict[str, Any], ...] = (
     {"code": "workbench", "path": "/workbench", "title": "工作台", "roles": sorted(ALL_ROLES)},
     {"code": "identity", "path": "/trusted-space/identity", "title": "身份中心", "roles": sorted(ALL_ROLES)},
     {"code": "catalog", "path": "/trusted-space/catalog", "title": "数据目录", "roles": sorted(ALL_ROLES)},
+    {"code": "excel-upload", "path": "/trusted-space/upload", "title": "数据上传", "roles": sorted(ALL_ROLES)},
     {"code": "asset-passport", "path": "/trusted-space/assets/:assetId", "title": "数据资产护照", "roles": sorted(ALL_ROLES)},
     {"code": "access-requests", "path": "/data/access-requests", "title": "使用申请", "roles": sorted(APPLICANT_ROLES | OVERSIGHT_ROLES)},
     {"code": "settlements", "path": "/settlements", "title": "合同与结算", "roles": sorted(ALL_ROLES)},

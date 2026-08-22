@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Activity, BadgeCheck, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, UserRound, X, type LucideIcon } from "lucide-react";
+import { Activity, BadgeCheck, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, Upload, UserRound, X, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { AgentSheet } from "../components/AgentSheet";
 import { NotificationCenter } from "../components/NotificationCenter";
@@ -12,6 +12,7 @@ import { useTrustedSpaceContext } from "../trusted-space-context";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
+import { ExcelUploadPage } from "../../../pages/ExcelUploadPage";
 import { AssetPassportPage } from "../pages/AssetPassportPage";
 import { ApplyPage } from "../pages/ApplyPage";
 import { AuthorizationsPage } from "../pages/AuthorizationsPage";
@@ -30,12 +31,14 @@ const iconMap: Record<string, LucideIcon> = {
   Network,
   BadgeCheck,
   ScanSearch,
+  Upload,
 };
 
 const titles: Record<TrustedViewKey, string> = {
   workbench: "工作台",
   identity: "身份中心",
   catalog: "数据目录",
+  upload: "数据上传",
   authorizations: "授权记录",
   asset: "数据资产护照",
   apply: "使用申请",
@@ -50,6 +53,7 @@ function renderView(view: TrustedViewKey) {
   switch (view) {
     case "identity": return <IdentityPage />;
     case "catalog": return <CatalogPage />;
+    case "upload": return <ExcelUploadPage />;
     case "authorizations": return <AuthorizationsPage />;
     case "asset": return <AssetPassportPage />;
     case "apply": return <ApplyPage />;
@@ -93,7 +97,7 @@ export function TrustedSpaceShell() {
   const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
   const roleLabel = context.actor.role_label || context.actor.role_code;
   const did = context.identity_ref.did || "未配置 DID";
-  const activeGroup = currentNav?.key === "identity" ? "主体与身份" : currentNav?.key === "catalog" || currentNav?.key === "authorizations" ? "数据空间" : currentNav?.key === "contract" || currentNav?.key === "mpc" ? "协作与计算" : currentNav?.key === "audit" || currentNav?.key === "results" ? "证据与审计" : "工作台";
+  const activeGroup = currentNav?.key === "identity" ? "主体与身份" : currentNav?.key === "catalog" || currentNav?.key === "upload" || currentNav?.key === "authorizations" ? "数据空间" : currentNav?.key === "contract" || currentNav?.key === "mpc" ? "协作与计算" : currentNav?.key === "audit" || currentNav?.key === "results" ? "证据与审计" : "工作台";
 
   function goTo(path: string) {
     setMobileNavOpen(false);

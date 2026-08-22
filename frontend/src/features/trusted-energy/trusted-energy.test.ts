@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isKnownTrustedPath, trustedEntityId, trustedMenuCodeForView, getTrustedView, routeForView, TRUSTED_BASE } from "./types";
+import { isKnownTrustedPath, navItems, trustedEntityId, trustedMenuCodeForView, getTrustedView, routeForView, TRUSTED_BASE } from "./types";
 import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes } from "./trusted-energy.test-fixtures";
 
 describe("trusted energy console model", () => {
@@ -15,6 +15,11 @@ describe("trusted energy console model", () => {
       expect(route.label.length).toBeGreaterThan(1);
     }
     expect(routeForView("asset", "asset-power-output-001")).toBe(`${TRUSTED_BASE}/assets/asset-power-output-001`);
+    expect(navItems).toEqual(expect.arrayContaining([expect.objectContaining({ key: "upload", menuCode: "excel-upload", label: "数据上传" })]));
+    expect(routeForView("upload")).toBe(`${TRUSTED_BASE}/upload`);
+    expect(getTrustedView(`${TRUSTED_BASE}/upload`)).toBe("upload");
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/upload`)).toBe(true);
+    expect(trustedMenuCodeForView("upload")).toBe("excel-upload");
     expect(routeForView("mpc", "com-20260518-001")).toBe(`${TRUSTED_BASE}/mpc/com-20260518-001`);
     expect(getTrustedView(`${TRUSTED_BASE}/results/res-20260518-001`)).toBe("results");
     expect(routeForView("contract")).toBe(`${TRUSTED_BASE}/contracts`);
