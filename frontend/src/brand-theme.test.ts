@@ -34,8 +34,8 @@ describe("deployment brand theme", () => {
     });
     expect(contrastRatio(variables["--brand-on-primary"], variables["--brand-primary"])).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(variables["--brand-primary-text"], "#FFFFFF")).toBeGreaterThanOrEqual(4.5);
-    expect(variables["--brand-primary"]).toBe("#00524B");
-    expect(variables["--brand-border"]).toBe("#A8C5C1");
+    expect(variables["--brand-primary"]).toBe("#0A806C");
+    expect(variables["--brand-border"]).toBe("#91C8B9");
   });
 
   it("rebuilds every primitive and semantic token from a neutral blue deployment override", () => {
@@ -50,7 +50,7 @@ describe("deployment brand theme", () => {
   it("sanitizes untrusted theme metadata and rejects invalid color input", () => {
     expect(normalizeBrandTheme({ themeId: " Client Theme / 01 ", primary: "not-a-color" })).toEqual({
       themeId: "client-theme-01",
-      primary: "#00524B",
+      primary: "#0A806C",
     });
   });
 });

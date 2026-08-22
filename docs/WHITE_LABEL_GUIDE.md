@@ -11,7 +11,7 @@
 | `PRODUCT_LOGO_COMPACT` | 折叠侧栏 Logo | 空 |
 | `PRODUCT_FAVICON` | favicon URL/站内路径 | 空 |
 | `BRAND_THEME_ID` | 部署主题技术标识，不在普通用户界面展示 | power-grid-green |
-| `BRAND_PRIMARY` | 品牌视觉基准色，由前端统一生成完整色阶与语义 Token | #00524B |
+| `BRAND_PRIMARY` | 品牌视觉基准色，由前端统一生成完整色阶与语义 Token | #0A806C |
 | `CUSTOMER_NAME` | 客户单位 | 空 |
 | `OPERATOR_NAME` | 运营单位 | 空 |
 | `BUILDER_NAME` | 建设单位 | 空 |

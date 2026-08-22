@@ -5,23 +5,23 @@ colors:
   system-charcoal: "#26363d"
   grid-green-950: "#002621"
   grid-green-900: "#00312c"
-  grid-green-800: "#003d37"
-  grid-green-700: "#004840"
-  grid-green-600: "#00524b"
-  grid-green-500: "#00524b"
-  grid-green-400: "#6f9994"
-  grid-green-300: "#a8c5c1"
-  grid-green-200: "#d9e7e5"
-  grid-green-100: "#e7f0ef"
-  grid-green-50: "#f3f7f6"
-  brand-primary: "#00524b"
-  brand-primary-hover: "#004840"
-  brand-primary-active: "#003d37"
-  brand-primary-soft: "#e7f0ef"
-  brand-primary-subtle: "#f3f7f6"
-  brand-primary-selected: "#d9e7e5"
-  brand-primary-border: "#a8c5c1"
-  brand-primary-focus: "rgba(0, 82, 75, 0.18)"
+  grid-green-800: "#006151"
+  grid-green-700: "#007462"
+  grid-green-600: "#0a806c"
+  grid-green-500: "#0a806c"
+  grid-green-400: "#61ac9a"
+  grid-green-300: "#91c8b9"
+  grid-green-200: "#bdded5"
+  grid-green-100: "#def0eb"
+  grid-green-50: "#effaf6"
+  brand-primary: "#0a806c"
+  brand-primary-hover: "#007462"
+  brand-primary-active: "#006151"
+  brand-primary-soft: "#def0eb"
+  brand-primary-subtle: "#effaf6"
+  brand-primary-selected: "#bdded5"
+  brand-primary-border: "#91c8b9"
+  brand-primary-focus: "rgba(10, 128, 108, 0.18)"
   brand-text-on-primary: "#ffffff"
   canvas: "#f2f4f5"
   surface: "#ffffff"
@@ -148,12 +148,12 @@ components:
 
 这是一个严肃、稳定、受监管且高信息密度的 Operate 界面。它把大型电网企业传统生产内网的栏目秩序现代化：先确认机构、角色和运行环境，再进入业务域处理任务，最后沿数据、规则、计算、确认与证据链完成核验和追溯。可信度来自事实密度、精确对齐、清晰权限和可定位记录，而不是技术表演。
 
-整体采用深灰蓝系统栏、白色横向业务栏目、冷灰工作面、`#00524B` 沉稳电网深绿品牌识别、1px 结构线和小圆角。系统拒绝通用 SaaS/AI 后台、紫色或蓝紫科技感、玻璃质感、营销 Hero、横幅式欢迎区、超大数据展示，以及对旧式门户的表面仿古。
+整体采用深灰蓝系统栏、白色横向业务栏目、冷灰工作面、`#0A806C` 明亮电网绿品牌识别、1px 结构线和小圆角。系统拒绝通用 SaaS/AI 后台、紫色或蓝紫科技感、玻璃质感、营销 Hero、横幅式欢迎区、超大数据展示，以及对旧式门户的表面仿古。
 
 **Key Characteristics:**
 
 - 48px 深色系统栏、42px 白色一级导航、34px 面包屑栏构成稳定的 124px 顶部上下文。
-- `#00524B` 品牌深绿只承担当前项、主操作、链接、焦点和少量结构提示；大面积内容保持中性。
+- `#0A806C` 品牌绿只承担当前项、主操作、链接、焦点和少量结构提示；大面积内容保持中性。
 - 4px 间距节奏、1px 边框、2–4px 圆角和紧凑表格共同服务高频检索与复核。
 - 编号、时间、状态、证据引用、Trace ID 和事实边界始终可定位、可复制或可核验。
 - 使用离线系统字体与本地图标，不依赖外部字体、CDN 或装饰素材。
@@ -164,10 +164,10 @@ components:
 
 ### Primary
 
-- **完整原始色阶**（`grid-green-50` 至 `grid-green-950`）：默认品牌基准与主操作统一为 `#00524B`，仅供主题生成器使用。
+- **完整原始色阶**（`grid-green-50` 至 `grid-green-950`）：默认品牌基准与主操作统一为 `#0A806C`，仅供主题生成器使用。
 - **品牌操作层**（`brand-primary` / `brand-primary-hover` / `brand-primary-active`）：主按钮、链接、导航高亮和操作反馈只能读取语义 Token，不直接读取原始色阶。
 - **品牌结构层**（`brand-primary-soft` / `brand-primary-subtle` / `brand-primary-selected` / `brand-primary-border`）：分别承担悬停、轻装饰、选中和品牌描边，禁止混用为业务成功状态。
-- **焦点与反白层**（`brand-primary-focus` / `brand-text-on-primary`）：焦点环统一为 `rgba(0, 82, 75, 0.18)`，主色表面文字统一为白色。
+- **焦点与反白层**（`brand-primary-focus` / `brand-text-on-primary`）：焦点环统一为 `rgba(10, 128, 108, 0.18)`，主色表面文字统一为白色。
 
 ### Neutral
 

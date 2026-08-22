@@ -10,18 +10,18 @@ export interface BrandThemeConfig {
 
 export const DEFAULT_BRAND_THEME: BrandThemeConfig = {
   themeId: "power-grid-green",
-  primary: "#00524B",
+  primary: "#0A806C",
 };
 
 export const POWER_GRID_GREEN_TOKENS = {
-  primary: "#00524B",
-  primaryHover: "#004840",
-  primaryActive: "#003D37",
-  bgSoft: "#E7F0EF",
-  bgSubtle: "#F3F7F6",
-  bgSelected: "#D9E7E5",
-  border: "#A8C5C1",
-  focusRing: "rgba(0, 82, 75, 0.18)",
+  primary: "#0A806C",
+  primaryHover: "#007462",
+  primaryActive: "#006151",
+  bgSoft: "#DEF0EB",
+  bgSubtle: "#EFFAF6",
+  bgSelected: "#BDDED5",
+  border: "#91C8B9",
+  focusRing: "rgba(10, 128, 108, 0.18)",
   textOnPrimary: "#FFFFFF",
 } as const;
 
@@ -36,13 +36,13 @@ export const POWER_GRID_GREEN_SCALE: BrandScale = {
   100: POWER_GRID_GREEN_TOKENS.bgSoft,
   200: POWER_GRID_GREEN_TOKENS.bgSelected,
   300: POWER_GRID_GREEN_TOKENS.border,
-  400: "#6F9994",
+  400: "#61AC9A",
   500: POWER_GRID_GREEN_TOKENS.primary,
   600: POWER_GRID_GREEN_TOKENS.primary,
   700: POWER_GRID_GREEN_TOKENS.primaryHover,
   800: POWER_GRID_GREEN_TOKENS.primaryActive,
-  900: "#00312C",
-  950: "#002621",
+  900: "#00372D",
+  950: "#00261F",
 };
 
 type Oklch = { l: number; c: number; h: number };

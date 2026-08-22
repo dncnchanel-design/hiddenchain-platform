@@ -50,14 +50,14 @@ if (!rootBoundary || rootBoundary.index === undefined) {
       .map((match) => [match[1], match[2].trim().toLowerCase()]),
   );
   const requiredDefaults = {
-    "--brand-primary": "#00524b",
-    "--brand-primary-hover": "#004840",
-    "--brand-primary-active": "#003d37",
-    "--brand-primary-soft": "#e7f0ef",
-    "--brand-primary-subtle": "#f3f7f6",
-    "--brand-primary-selected": "#d9e7e5",
-    "--brand-primary-border": "#a8c5c1",
-    "--brand-primary-focus": "rgba(0, 82, 75, 0.18)",
+    "--brand-primary": "#0a806c",
+    "--brand-primary-hover": "#007462",
+    "--brand-primary-active": "#006151",
+    "--brand-primary-soft": "#def0eb",
+    "--brand-primary-subtle": "#effaf6",
+    "--brand-primary-selected": "#bdded5",
+    "--brand-primary-border": "#91c8b9",
+    "--brand-primary-focus": "rgba(10, 128, 108, 0.18)",
     "--brand-text-on-primary": "#ffffff",
   };
   for (const [token, expected] of Object.entries(requiredDefaults)) {
