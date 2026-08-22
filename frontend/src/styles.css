@@ -69,6 +69,7 @@
   --brand-primary-darker: var(--brand-900);
   --brand-focus-ring-soft: var(--brand-primary-focus);
   --brand-on-primary: var(--brand-text-on-primary);
+  --system-bar: #0b7768;
   --chrome-900: #26363d;
   --chrome-800: #30434a;
   --sidebar: #26363d;
@@ -4826,7 +4827,7 @@ summary:focus-visible {
   height: 48px;
   color: #eef4f1;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  background: var(--chrome-900);
+  background: var(--system-bar);
 }
 
 .system-bar-inner,

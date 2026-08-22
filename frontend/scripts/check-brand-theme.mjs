@@ -50,6 +50,7 @@ if (!rootBoundary || rootBoundary.index === undefined) {
       .map((match) => [match[1], match[2].trim().toLowerCase()]),
   );
   const requiredDefaults = {
+    "--system-bar": "#0b7768",
     "--brand-primary": "#0a806c",
     "--brand-primary-hover": "#007462",
     "--brand-primary-active": "#006151",

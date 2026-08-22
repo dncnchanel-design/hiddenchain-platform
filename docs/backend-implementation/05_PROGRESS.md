@@ -1,5 +1,28 @@
 # Progress Ledger
 
+## Current frontend batch — 2026-08-22 (翡翠绿系统栏; local verified)
+
+### Completed in this batch
+
+- 将主壳层最上方 48px 系统栏由深炭灰 `#26363D` 调整为高端翡翠绿 `#0B7768`，新增独立 `--system-bar` Token，不改变登录页侧栏和业务工作区的中性底盘。
+- 将可信数据空间的 48px 顶部栏、登录品牌栏、浏览器 `theme-color` 与本地图标同步到同一翡翠绿；主品牌操作色 `#0A806C` 保持不变。
+- 更新设计规范、顶部系统栏对比度审计和主题生产守卫，白字在 `#0B7768` 上的对比度约为 `5.45:1`。
+
+### Verification evidence
+
+- Frontend production guard: PASS.
+- Brand theme audit: PASS.
+- TypeScript typecheck: PASS.
+- ESLint: PASS, 0 warnings.
+- Frontend unit tests: PASS, 66 tests.
+- Vite production build: PASS.
+- Impeccable detector regex fallback: no findings; local browser rendered desktop and 390px checks both showed `#0B7768`, 48px height and no horizontal overflow.
+- Backend Python compilation: PASS (`python -m compileall -q app`).
+
+### Release boundary
+
+- This batch is ready for the main agent's commit, GitHub synchronization and Render review/test deployment. No production-release claim is made.
+
 ## Current backend batch — 2026-08-21 (Trusted Space residual closure; local only)
 
 ### Completed in this batch

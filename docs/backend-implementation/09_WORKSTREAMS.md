@@ -1,5 +1,15 @@
 # Workstreams and File Ownership
 
+## Current frontend batch — 2026-08-22 (翡翠绿系统栏)
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Main shell system bar | Main agent; `frontend/src/styles.css`, `frontend/index.html` | 48px system bar uses `#0B7768`; browser theme color and favicon aligned; neutral sidebar/work surface retained | IMPLEMENTED_LOCAL_FRONTEND |
+| Trusted Space system bar | Main agent; `frontend/src/features/trusted-energy/trusted-energy.css` | Trusted Space top bar and login brand bar use the same `#0B7768` token | IMPLEMENTED_LOCAL_FRONTEND |
+| Theme audit and documentation | Main agent; production guard, `DESIGN.md`, `BRAND_THEME_AUDIT.md` | Token guard, contrast note and Chinese visual specification updated | VERIFIED_LOCAL_FRONTEND |
+| Verification | Main agent | Production guard, brand audit, typecheck, ESLint, 66 frontend tests, Vite build, browser desktop/390px checks and backend compileall passed | VERIFIED_LOCAL |
+| Release/deployment | Main agent retains commit, push, Render and final convergence ownership | Application commit and hosted review/test deployment pending | PENDING |
+
 ## Current backend batch — 2026-08-21 (Trusted Space residual closure; local only)
 
 | Workstream | Execution boundary | Evidence | Status |
