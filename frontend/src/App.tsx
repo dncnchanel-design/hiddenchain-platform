@@ -45,7 +45,7 @@ function LoginGate() {
   const { session, loading, sessionError } = useAuth();
   if (loading) return <div className="boot-screen"><LoadingState /></div>;
   if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
-  return session ? <Navigate to="/trusted-space/workbench" replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : <Suspense fallback={<div className="boot-screen"><LoadingState /></div>}><LoginPage /></Suspense>;
 }
 
 function TrustedSpaceGate() {
@@ -75,7 +75,7 @@ function ExchangeOnly({ children }: { children: React.ReactNode }) {
 
 function WorkspaceHome() {
   const { session } = useAuth();
-  return session ? <Navigate to="/trusted-space/workbench" replace /> : null;
+  return session ? <Navigate to={getDefaultPath(session)} replace /> : null;
 }
 
 function SessionExpiredGate() {

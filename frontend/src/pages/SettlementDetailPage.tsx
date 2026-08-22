@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Database, FileCheck2, Gavel, Network, Play, RefreshCw, ShieldCheck, UsersRound } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Database, FileCheck2, FileText, Gavel, Network, Play, RefreshCw, RotateCcw, ShieldCheck, UsersRound } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, post, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../api";
 import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DateTimeText, EmptyState, ErrorState, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { taskNextAction, taskStatusLabel, trustedChain } from "../settlement-model";
+import { auditApprovalPending, taskNextAction, taskStatusLabel, trustedChain } from "../settlement-model";
 import { ALGORITHM_LABELS, labelForCode, type JsonRecord, type ResultConfirmationCommand } from "../types";
 
 type DetailData = {
@@ -64,11 +64,29 @@ export function SettlementDetailPage() {
   const cannotRunTtc = ["REJECTED", "CANCELLED", "EXPIRED", "ARCHIVED"].includes(ttcState);
   const allowedActions = Array.isArray(task.allowed_actions) ? task.allowed_actions : [];
   const backendAllowsRun = !task.ttc?.authoritative || allowedActions.some((action: string) => ["RUN_SETTLEMENT", "RETRY_SETTLEMENT"].includes(action));
-  const runnableBusinessState = task.status === "READY" || allowedActions.includes("RUN_SETTLEMENT");
+  const runnableBusinessState = task.status === "READY" || allowedActions.some((action: string) => ["RUN_SETTLEMENT", "RETRY_SETTLEMENT"].includes(action));
   const canRun = role === "EXCHANGE" && runnableBusinessState && task.readiness?.preflight_passed && !cannotRunTtc && backendAllowsRun;
-  const canConfirm = ["GENERATOR", "RETAILER"].includes(role) && ownResult?.confirm_status === "UNCONFIRMED";
+  const auditReportPending = auditApprovalPending(task);
+  const canReviewAudit = ["REGULATOR", "ADMIN"].includes(role) && task.audit_summary?.status === "GENERATED";
+  const canConfirm = ["GENERATOR", "RETAILER"].includes(role) && ownResult?.confirm_status === "UNCONFIRMED" && !auditReportPending;
+  const canRestart = role === "EXCHANGE" && ["AUDITED", "EXCEPTION", "REJECTED", "REWORK"].includes(String(task.status));
   const verification = task.verification_profile || {};
   const summaryResult = data.results.find((item) => item.result_scope === "SUMMARY");
+  const currentAction = canReviewAudit
+    ? { label: "审核审计报告", responsible: "监管方", blocker: "计算已完成，审计报告等待签署批准。" }
+    : auditReportPending
+      ? { label: "等待监管方批准审计报告", responsible: "监管方", blocker: "当前风险等级需要先通过审计关口，再进行最终结果确认。" }
+      : nextAction;
+  const currentActionPath = canReviewAudit
+    ? `/reports?task_id=${encodeURIComponent(taskId)}`
+    : canConfirm
+      ? `/results?task_id=${encodeURIComponent(taskId)}`
+      : canRun
+        ? `/settlements/${encodeURIComponent(taskId)}#trusted-chain`
+        : task.status === "AUDITED"
+          ? `/evidence?task_id=${encodeURIComponent(taskId)}`
+          : "";
+  const currentActionCta = canReviewAudit ? "进入审计审批" : canConfirm ? "进入结果确认" : canRun ? (task.status === "EXCEPTION" ? "打开重试确认" : "打开启动确认") : task.status === "AUDITED" ? "查看证据台账" : "";
 
   async function executeAction() {
     setActionError("");
@@ -111,8 +129,10 @@ export function SettlementDetailPage() {
         actions={<>
           <Link className="button button-secondary" to="/settlements"><ArrowLeft size={16} />返回任务中心</Link>
           <Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button>
-          {canRun && <Button icon={Play} variant="primary" onClick={() => setConfirmAction("run")}>启动结算</Button>}
+          {canReviewAudit && <Link className="button button-primary" to={`/reports?task_id=${encodeURIComponent(taskId)}`}><FileText size={16} />审核审计报告</Link>}
+          {canRun && <Button icon={Play} variant="primary" onClick={() => setConfirmAction("run")}>{task.status === "EXCEPTION" ? "重试结算" : "启动结算"}</Button>}
           {canConfirm && <Button icon={CheckCircle2} variant="primary" onClick={() => setConfirmAction("confirm")}>确认本方结果</Button>}
+          {canRestart && <Link className="button button-secondary" to="/settlements/new?template=ready"><RotateCcw size={16} />重新开始本次流程</Link>}
         </>}
       />
 
@@ -129,14 +149,17 @@ export function SettlementDetailPage() {
           <div><span>任务编号</span><IdText value={task.capsule_id || task.task_id} /></div>
           <div><span>发起机构</span><strong>{task.creator_org_name || "—"}</strong></div>
           <div><span>当前责任方</span><strong>{nextAction.responsible}</strong></div>
+          <div><span>审计报告</span>{task.audit_summary ? <StatusTag value={task.audit_summary.status} /> : <strong>计算后生成</strong>}</div>
           <div><span>更新时间</span><DateTimeText value={task.updated_at || task.created_at} /></div>
         </div>
-        <div className="task-next-action"><span>下一步</span><strong>{nextAction.label}</strong><em>{nextAction.responsible}</em>{nextAction.blocker && <small>{nextAction.blocker}</small>}</div>
+        <div className="task-next-action"><span>下一步</span><strong>{currentAction.label}</strong><em>{currentAction.responsible}</em>{currentAction.blocker && <small>{currentAction.blocker}</small>}{currentActionPath && <Link className="task-next-action-link" to={currentActionPath}>{currentActionCta}<ArrowRight size={14} /></Link>}</div>
       </Surface>
+
+      {auditReportPending && <Notice tone="warning">审计报告已经生成，但尚未完成监管批准。当前账号只能等待或进入对应审计页面，不能绕过审计关口直接完成最终确认。</Notice>}
 
       {task.blocking_conditions?.length > 0 && <div className="task-blockers" role="alert"><AlertTriangle size={19} /><div><strong>当前阻断项</strong><ul>{task.blocking_conditions.map((item: string) => <li key={item}>{item}</li>)}</ul></div></div>}
 
-      <Surface title="可信执行链" meta="按任务事实生成">
+      <Surface id="trusted-chain" title="可信执行链" meta="按任务事实生成">
         <ol className="trusted-chain">
           {chain.map((item, index) => <li key={item.code} className={`chain-${item.state}`}><span className="chain-index">{index + 1}</span><Link to={item.path}><strong>{item.title}</strong><small>{item.detail}</small><span className="chain-metadata"><span>执行主体：{item.owner}</span><span>完成时间：{item.completedAt ? <DateTimeText value={item.completedAt} /> : "未记录"}</span><span>关联证据：{item.evidenceCount} 项</span><span>异常：{item.abnormal ? "是" : "未关联"}</span></span></Link><StatusTag value={item.state === "complete" ? "PASSED" : item.state === "blocked" ? "BLOCKED" : item.state === "current" ? "CURRENT" : "PENDING"} label={{ complete: "已完成", current: "当前", blocked: "受阻", pending: "待处理" }[item.state]} /></li>)}
         </ol>

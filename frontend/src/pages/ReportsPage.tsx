@@ -30,7 +30,8 @@ export function ReportsPage() {
   };
   const { data, loading, refreshing, error, reload } = useRemote(loader, []);
   const audited = useMemo(() => data?.tasks.filter((item) => item.status === "AUDITED") || [], [data]);
-  const selectedTask = audited.find((item) => item.task_id === taskId);
+  const linkedTask = data?.tasks.find((item) => item.task_id === linkedTaskId);
+  const selectedTask = audited.find((item) => item.task_id === taskId) || linkedTask;
   const visibleReports = linkedTaskId ? data?.reports.filter((item) => item.task_id === linkedTaskId) || [] : data?.reports || [];
 
   async function generate() {
@@ -87,7 +88,11 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="审计报告" actions={<>{linkedTaskId && <Link className="button button-secondary" to={`/settlements/${linkedTaskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
-      {canGenerate && !linkedTaskId && <Surface title="生成审计报告">
+      {linkedTaskId && linkedTask && visibleReports[0]?.status === "GENERATED" && <Notice tone="warning">受控计算已完成，当前处于审计关口。监管方需要在本页批准或驳回报告；批准后，参与主体才能完成最终结果确认。</Notice>}
+      {linkedTaskId && linkedTask && visibleReports[0]?.status === "APPROVED" && <Notice tone="success">审计关口已通过。请返回任务详情，按责任方继续完成结果确认或查看闭环证据。</Notice>}
+      {linkedTaskId && linkedTask && !visibleReports.length && <Notice tone="info">当前任务尚未生成审计报告。请先完成受控计算，系统会基于本次执行尝试自动形成报告。</Notice>}
+      {canGenerate && !linkedTaskId && <Surface title="补充生成审计报告">
+        <p className="muted report-generator-note">主审计报告会在受控计算完成后自动生成；此处仅用于对已归档任务补充生成一份报告。</p>
         <div className="report-generator"><label className="field"><span>已审计任务</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">请选择</option>{audited.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label><Button icon={FilePlus2} variant="primary" busy={busy} disabled={!taskId} onClick={() => setConfirmGenerate(true)}>生成报告</Button></div>
       </Surface>}
       {message && <Notice tone={messageTone}>{message}</Notice>}

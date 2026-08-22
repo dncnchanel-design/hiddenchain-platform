@@ -1,6 +1,7 @@
 import {
   ALGORITHM_LABELS,
   TTC_ABNORMAL_STATES,
+  labelForCode,
   type JsonRecord,
   type RoleCode,
   type TaskNextAction,
@@ -152,7 +153,7 @@ function statePath(state: string, taskId: string, viewerRole?: RoleCode): string
   if (state === "RULE_FROZEN") return canReview ? `/rules${query}` : taskPath;
   if (state === "COMPUTE_EXEC") return `/compute${query}`;
   if (state === "RESULT_CONFIRM") return `/results${query}`;
-  if (state === "AUDIT_GATE") return canReview ? `/audit${query}` : taskPath;
+  if (state === "AUDIT_GATE") return canReview ? `/reports${query}` : taskPath;
   if (["EVIDENCE_STAGE", "EVIDENCE_ANCHOR", "ANCHOR_RETRY"].includes(state)) return `/evidence${query}`;
   return taskPath;
 }
@@ -191,11 +192,38 @@ export const TASK_STATUS_META: Record<string, { label: string; tone: TaskTone }>
   EXCEPTION: { label: "异常", tone: "red" },
   REJECTED: { label: "已驳回", tone: "red" },
   INVALID: { label: "已失效", tone: "red" },
+  REWORK: { label: "返工处理中", tone: "red" },
+  ARCHIVED: { label: "已归档", tone: "green" },
 };
 
 export function taskStatusLabel(status: unknown) {
   const value = String(status || "UNKNOWN");
-  return TASK_STATUS_META[value]?.label || value;
+  return TASK_STATUS_META[value]?.label || labelForCode(value, "待识别状态");
+}
+
+export function auditApprovalPending(task: JsonRecord) {
+  const audit = isRecord(task.audit_summary) ? task.audit_summary : null;
+  const risk = String(audit?.risk_level || task.risk_level || "UNKNOWN").toUpperCase();
+  return audit?.status === "GENERATED" && ["MEDIUM", "HIGH", "CRITICAL"].includes(risk);
+}
+
+export function taskActionPath(task: JsonRecord, role: RoleCode, orgId?: string) {
+  const taskId = String(task.task_id || "");
+  if (!taskId) return "/settlements";
+  if (["REGULATOR", "ADMIN"].includes(role) && task.audit_summary?.status === "GENERATED") {
+    return `/reports?task_id=${encodeURIComponent(taskId)}`;
+  }
+  if (["GENERATOR", "RETAILER"].includes(role) && auditApprovalPending(task)) {
+    return `/settlements/${encodeURIComponent(taskId)}`;
+  }
+  if (["GENERATOR", "RETAILER"].includes(role) && ownConfirmationPending(task, role, orgId)) {
+    return `/results?task_id=${encodeURIComponent(taskId)}`;
+  }
+  if (role === "EXCHANGE" && ["READY", "EXCEPTION", "REJECTED", "REWORK"].includes(String(task.status))) {
+    return `/settlements/${encodeURIComponent(taskId)}`;
+  }
+  if (task.status === "AUDITED") return `/evidence?task_id=${encodeURIComponent(taskId)}`;
+  return `/settlements/${encodeURIComponent(taskId)}`;
 }
 
 function ownConfirmationPending(task: JsonRecord, role: RoleCode, orgId?: string) {
@@ -216,6 +244,9 @@ export function taskTabFor(task: JsonRecord, role: RoleCode, orgId?: string): Ta
 }
 
 export function taskNextAction(task: JsonRecord, role: RoleCode, orgId?: string) {
+  if (auditApprovalPending(task)) {
+    return fallbackAction("等待监管方批准审计报告", "监管方", "当前风险等级需要先通过审计关口，再进行最终结果确认。", "WAIT_FOR_AUDIT_APPROVAL");
+  }
   const backendAction = authoritativeNextAction(task);
   if (backendAction) return backendAction;
   const status = String(task.status || "");

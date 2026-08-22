@@ -506,6 +506,25 @@ def task_summary(
                 "blocked": False,
                 "reasons": [],
             }
+    elif ttc_state_value == TTCState.REWORK.value:
+        if viewer_role == "EXCHANGE":
+            allowed_actions = ["RUN_SETTLEMENT"]
+            next_action = {
+                "code": "RETRY_SETTLEMENT",
+                "label": "修正后重新执行可信结算",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
+        else:
+            allowed_actions = []
+            next_action = {
+                "code": "WAIT_FOR_REWORK",
+                "label": "等待交易中心重新执行结算",
+                "responsible": "交易中心",
+                "blocked": False,
+                "reasons": [],
+            }
     elif ttc_state_value == TTCState.FAILED.value or effective_status == "EXCEPTION":
         if viewer_role == "EXCHANGE":
             allowed_actions = ["RUN_SETTLEMENT"]

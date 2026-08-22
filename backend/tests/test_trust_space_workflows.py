@@ -575,6 +575,14 @@ def test_audit_scope_and_server_exports_are_real_and_typed(client, auth_headers)
     assert json_export.status_code == 200
     assert json_export.headers["content-type"].startswith("application/json")
     assert "BATCH3_AUDIT_EVENT" in json_export.text
+    json_payload = json_export.json()
+    audit_event = next(
+        item for item in json_payload["items"] if item["action_code"] == "BATCH3_AUDIT_EVENT"
+    )
+    assert audit_event["action_code_label"] == "登记动作（BATCH3_AUDIT_EVENT）"
+    assert audit_event["result"] == "SUCCESS"
+    assert audit_event["result_label"] == "成功"
+    assert json_payload["field_labels"]["record_type"] == "记录类型"
     csv_export = client.get(
         "/api/trust-space/audit/export?format=csv", headers=auth_headers["exchange"]
     )
@@ -582,6 +590,8 @@ def test_audit_scope_and_server_exports_are_real_and_typed(client, auth_headers)
     assert csv_export.headers["content-type"].startswith("text/csv")
     assert "记录类型,记录编号" in csv_export.text
     assert "执行结果" in csv_export.text
+    assert "登记动作（BATCH3_AUDIT_EVENT）" in csv_export.text
+    assert "SUCCESS" not in csv_export.text
     denied = client.get("/api/trust-space/audit", headers=auth_headers["generator"])
     assert denied.status_code == 403
     with SessionLocal() as db:

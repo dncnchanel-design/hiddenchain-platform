@@ -42,25 +42,110 @@ _AUDIT_EXPORT_HEADERS = {
 
 _AUDIT_EXPORT_LABELS = {
     "AUDIT_LOG": "审计日志",
+    "AUDIT_REPORT": "审计报告",
+    "AUDIT_EXPORT": "审计导出记录",
     "LOGIN": "登录平台",
     "EXPORT_AUDIT_RECORDS": "导出审计记录",
     "RUN_TRUSTED_SETTLEMENT_WORKFLOW": "执行可信结算流程",
     "GENERATE_AUDIT_REPORT": "生成审计报告",
     "VERIFY_CHAIN_EVIDENCE": "核验证据台账",
     "REVIEW_AUDIT_REPORT": "审核审计报告",
-    "CONFIRM_SETTLEMENT_RESULT": "确认结果回执",
+    "CONFIRM_SETTLEMENT_RESULT": "确认结算结果",
     "CREATE_SETTLEMENT_TASK": "创建结算任务",
+    "CHECK_DATA_SPACE_USAGE_CONTROL": "检查数据空间使用控制",
+    "CREATE_RULE_PACKAGE": "创建使用规则",
+    "ACTIVATE_RULE_PACKAGE": "启用规则版本",
+    "RUN_PRIVACY_LOAD_ANALYSIS": "执行隐私负荷分析",
+    "INVOKE_DEEPSEEK_AGENT": "调用智能助手",
+    "AGENT_AUDIT_QUERY": "发起审计查询",
+    "INJECT_TEST_ANOMALY": "注入测试风险事件",
+    "RESOLVE_ANOMALY": "处置风险事件",
+    "UPLOAD_DATA_REFERENCE": "登记数据引用",
+    "UPLOAD_EXCEL_BATCH": "导入表格数据",
+    "SIGN_DATA_COMMITMENT": "签署数据承诺",
+    "TRUSTED_SETTLEMENT_ATTEMPT_FAILED": "可信结算尝试失败",
+    "REJECT_SETTLEMENT_RESULT": "驳回结算结果",
+    "IMPORT_AND_RUN_SETTLEMENT": "导入并执行结算",
+    "DATA_USAGE_REQUEST_SUBMITTED": "提交数据使用申请",
+    "DATA_USAGE_REQUEST_EXPIRED": "数据使用申请过期",
+    "DATA_USAGE_REQUEST_APPROVE": "批准数据使用申请",
+    "DATA_USAGE_REQUEST_REJECT": "拒绝数据使用申请",
+    "DATA_USAGE_REQUEST_REVOKE": "撤销数据使用授权",
+    "CANCEL_PRIVACY_COMPUTE": "取消隐私计算任务",
+    "CONFIRM_TRUSTED_EXECUTION_REVIEW": "确认可信执行复核",
+    "REJECT_TRUSTED_EXECUTION_REVIEW": "驳回可信执行复核",
+    "TRUSTED_EXECUTION_CLOSED_LOOP": "完成可信执行闭环",
+    "ASSISTANT_MESSAGE_PLANNED": "生成智能助手计划",
+    "ASSISTANT_WRITE_REVIEW_REQUESTED": "提交智能助手写入复核",
+    "ASSISTANT_TOOL_INVOKE": "调用智能助手工具",
+    "ASSISTANT_PLAN_CANCEL": "取消智能助手计划",
+    "ASSISTANT_PLAN_RETRY": "重试智能助手计划",
     "USER": "用户",
-    "AUDIT_REPORT": "审计报告",
-    "AUDIT_EXPORT": "审计导出记录",
     "SETTLEMENT_TASK": "结算任务",
     "SETTLEMENT_RESULT": "结果回执",
     "BLOCKCHAIN_EVIDENCE": "证据台账记录",
+    "DATA_UPLOAD": "数据引用",
+    "EXCEL_IMPORT": "表格导入记录",
+    "DATA_SPACE_AGREEMENT": "数据调用协议",
+    "SETTLEMENT_RULE": "使用规则",
+    "PRIVACY_ANALYSIS_JOB": "隐私分析任务",
+    "DATA_USAGE_REQUEST": "数据使用申请",
+    "TRUSTED_EXECUTION_REVIEW": "可信执行复核",
+    "TRUSTED_EXECUTION": "可信执行任务",
+    "DATA_CONTRACT": "数据协议",
+    "PRIVACY_COMPUTE_JOB": "隐私计算任务",
+    "ASSISTANT_SESSION": "智能助手会话",
+    "ASSISTANT_PLAN_STEP": "智能助手计划步骤",
+    "ASSISTANT_PLAN": "智能助手计划",
+    "ANOMALY_EVENT": "风险事件",
+    "AGENT": "能力模块",
     "SUCCESS": "成功",
+    "SUCCEEDED": "已完成",
     "GENERATED": "已生成",
     "FAILED": "失败",
     "REJECTED": "已拒绝",
+    "DENIED": "已拒绝",
+    "PASS": "通过",
+    "PASSED": "已通过",
+    "VALID": "有效",
+    "INVALID": "无效",
+    "CONFIRMED": "已确认",
+    "AUDITED": "已审计",
+    "RESOLVED": "已处理",
+    "ACTIVE": "已启用",
+    "READY": "已就绪",
+    "RUNNING": "执行中",
+    "PROCESSING": "处理中",
+    "IN_PROGRESS": "进行中",
+    "OPEN": "待处置",
     "PENDING": "待处理",
+    "PENDING_REVIEW": "待复核",
+    "PENDING_CONFIRMATION": "待双方确认",
+    "PARTIALLY_CONFIRMED": "部分已确认",
+    "UNCONFIRMED": "待确认",
+    "CANCELLED": "已取消",
+    "EXPIRED": "已过期",
+    "DRAFT": "草稿",
+    "REVIEW_REQUIRED": "需要复核",
+    "HUMAN_REVIEW": "人工复核",
+    "REWORK": "返工处理中",
+    "ARCHIVED": "已归档",
+    "NOT_CONFIGURED": "未配置",
+    "BLOCKED": "已阻断",
+    "PERMIT": "已授权",
+    "LOW": "低风险",
+    "MEDIUM": "中风险",
+    "HIGH": "高风险",
+    "CRITICAL": "严重风险",
+}
+
+_AUDIT_EXPORT_JSON_FIELD_LABELS = {
+    **_AUDIT_EXPORT_HEADERS,
+    "details": "附加详情",
+    "record_type_label": "记录类型（中文）",
+    "action_code_label": "操作动作（中文）",
+    "target_type_label": "对象类型（中文）",
+    "result_label": "执行结果（中文）",
 }
 
 
@@ -68,11 +153,24 @@ def _audit_export_label(value: Any, fallback: str = "未登记") -> str:
     normalized = str(value or "").strip()
     if not normalized:
         return fallback
-    if normalized in _AUDIT_EXPORT_LABELS:
-        return _AUDIT_EXPORT_LABELS[normalized]
+    lookup_key = normalized.upper()
+    if lookup_key in _AUDIT_EXPORT_LABELS:
+        return _AUDIT_EXPORT_LABELS[lookup_key]
     if normalized.isupper() and all(char.isalnum() or char == "_" for char in normalized):
-        return fallback
+        return f"{fallback}（{normalized}）"
     return normalized
+
+
+def _localized_audit_export_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Add human-readable labels without changing the raw audit contract."""
+
+    return {
+        **item,
+        "record_type_label": _audit_export_label(item.get("record_type"), "审计记录"),
+        "action_code_label": _audit_export_label(item.get("action_code"), "登记动作"),
+        "target_type_label": _audit_export_label(item.get("target_type"), "登记对象"),
+        "result_label": _audit_export_label(item.get("result"), "未登记结果"),
+    }
 
 
 @router.get("/context")
@@ -620,8 +718,22 @@ def export_audit(
     )
     db.commit()
     if format == "json":
+        localized_items = [
+            _localized_audit_export_item(item)
+            for item in payload["items"]
+        ]
+        localized_reports = [
+            _localized_audit_export_item(item)
+            for item in payload["reports"]
+        ]
+        localized_payload = {
+            **payload,
+            "field_labels": _AUDIT_EXPORT_JSON_FIELD_LABELS,
+            "items": localized_items,
+            "reports": localized_reports,
+        }
         return Response(
-            content=json.dumps(payload, ensure_ascii=False, default=str),
+            content=json.dumps(localized_payload, ensure_ascii=False, default=str),
             media_type="application/json",
             headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%AE%A1%E8%AE%A1%E8%AE%B0.json"},
         )

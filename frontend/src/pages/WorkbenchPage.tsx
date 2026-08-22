@@ -1,11 +1,11 @@
 import type { ElementType } from "react";
-import { ArrowRight, BarChart3, Building2, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowRight, BarChart3, Building2, FileCheck2, FileClock, Gavel, LockKeyhole, Network, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Button, DataTable, DateTimeText, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { taskNextAction, taskTabFor } from "../settlement-model";
+import { taskActionPath, taskNextAction, taskTabFor } from "../settlement-model";
 import type { JsonRecord, RoleCode } from "../types";
 import { loadWorkbench, type WorkbenchQuickAction } from "../features/trusted-energy/trusted-space-api";
 
@@ -84,6 +84,20 @@ export function WorkbenchPage() {
   const activeRule = data.rules.find((item) => item.status === "ACTIVE");
   const latestUpdatedAt = tasks.map((item) => item.updated_at || item.created_at).filter(Boolean).sort().at(-1);
   const primaryAction = data.quick_action_items?.find((item) => item.allowed && item.path?.trim());
+  const workflowTask = pendingTasks[0] || tasks.find((item) => item.status !== "AUDITED");
+  const workflowTaskId = workflowTask ? String(workflowTask.task_id || "") : "";
+  const workflowStartPath = role === "EXCHANGE" ? "/settlements/new?template=ready" : (workflowTaskId ? taskActionPath(workflowTask, role, authenticatedSession.user.org_id) : "/settlements");
+  const workflowStartLabel = role === "EXCHANGE"
+    ? (primaryAction?.label || "发起一笔新结算")
+    : (workflowTask ? (workflowTask.next_action?.label || "处理当前待办") : "查看任务中心");
+  const workflowSteps = [
+    { label: "发起任务", detail: "交易中心登记批次与参与主体" },
+    { label: "数据与授权", detail: "引用数据、确认承诺、锁定用途" },
+    { label: "受控计算", detail: "按规则生成聚合结果和计算回执" },
+    { label: "审计复核", detail: "核对证据、风险和报告" },
+    { label: "多方确认", detail: "发电方与售电方分别签名确认" },
+    { label: "闭环归档", detail: "保留任务、结果和证据追溯" },
+  ];
 
   return (
     <>
@@ -93,8 +107,26 @@ export function WorkbenchPage() {
         <div className="workspace-context-primary"><div className="workspace-icon"><Building2 size={19} /></div><div><span>当前组织</span><strong>{String(authenticatedSession.org.org_name || "—")}</strong></div></div>
         <div className="workspace-context-item"><span>生效规则</span><strong>{activeRule?.rule_version || "—"}</strong></div>
         <div className="workspace-context-item"><span>最近更新</span><strong>{latestUpdatedAt ? <DateTimeText value={String(latestUpdatedAt)} /> : "—"}</strong></div>
-        {primaryAction ? <Link className="button button-primary workspace-action" to={primaryAction.path}>{primaryAction.label}<ArrowRight size={15} /></Link> : <span className="button button-secondary workspace-action" title={data.quick_action_items === null ? "后端快捷动作不可用" : "当前角色暂无可执行动作"}>{data.quick_action_items === null ? "快捷动作不可用" : "暂无可执行动作"}</span>}
+        <Link className="button button-primary workspace-action" to={workflowStartPath}>{workflowStartLabel}<ArrowRight size={15} /></Link>
       </section>
+
+      <Surface className="workflow-launch-surface" title="从任务开始跑通全流程" meta={workflowTask ? `当前待办：${workflowTask.task_name}` : "从一笔新任务开始"}>
+        <div className="workflow-launch-grid">
+          <div className="workflow-launch-copy">
+            <strong>{workflowTask ? "系统已为你定位下一步" : "先创建一笔任务，再沿证据链推进"}</strong>
+            <p>{workflowTask ? `${workflowTask.next_action?.label || "查看当前任务进度"} · 责任方：${workflowTask.next_action?.responsible || "当前角色"}` : "任务会把数据引用、授权、规则、计算、确认和审计记录在同一条链上。"}</p>
+            <div className="workflow-launch-actions">
+              <Link className="button button-primary" to={workflowStartPath}>{workflowStartLabel}<ArrowRight size={15} /></Link>
+              {role === "EXCHANGE" && <Link className="button button-secondary" to="/settlements?view=todo"><RotateCcw size={15} />查看待处理任务</Link>}
+            </div>
+          </div>
+          <ol className="workflow-route-list" aria-label="结算全流程">
+            {workflowSteps.map((step, index) => <li key={step.label} className={index === 0 && role === "EXCHANGE" && !workflowTask ? "current" : undefined}>
+              <span>{index + 1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div>
+            </li>)}
+          </ol>
+        </div>
+      </Surface>
 
       <div className="metrics-grid four workbench-kpis">
         <Metric label="待处理任务" value={pendingTasks.length} tone={pendingTasks.length ? "amber" : "green"} />
@@ -106,7 +138,7 @@ export function WorkbenchPage() {
       <div className="workbench-toolbar">
         <strong>常用操作</strong>
         <div className="workbench-quick-actions">
-          {data.quick_action_items === null && <Notice tone="warning">后端快捷动作暂不可用，未加载旧版静态入口。</Notice>}
+          {data.quick_action_items === null && <Notice tone="warning">角色快捷动作服务暂不可用，已保留任务主线入口。</Notice>}
           {data.quick_action_items && !data.quick_action_items.length && <span className="muted">当前角色暂无快捷动作</span>}
           {data.quick_action_items?.map((action) => {
             const Icon = quickActionIcons[action.code] || ArrowRight;

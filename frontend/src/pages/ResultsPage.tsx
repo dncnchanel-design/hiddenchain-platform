@@ -5,6 +5,7 @@ import { api, formatMoney, formatNumber, post, prepareIdempotencyKey, type Idemp
 import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
+import { auditApprovalPending, taskStatusLabel } from "../settlement-model";
 import { RESULT_SCOPE_LABELS, type JsonRecord, type ResultConfirmationCommand } from "../types";
 
 const amountDirectionLabels: Record<string, string> = {
@@ -93,11 +94,21 @@ export function ResultsPage() {
   if (loading) return <LoadingState label="正在加载结果回执" variant="page" />;
   if (error || !data) return <ErrorState message={error || "结果回执加载失败"} retry={reload} />;
 
-  const canConfirm = ["GENERATOR", "RETAILER"].includes(session!.user.role_code);
+  const auditPending = Boolean(data.task && auditApprovalPending(data.task));
+  const canConfirm = ["GENERATOR", "RETAILER"].includes(session!.user.role_code) && !auditPending && data.task?.status !== "AUDITED";
+  const confirmationSummary = data.task?.confirmation_summary || {};
   return (
     <>
       <PageHeader title="结算结果" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
-      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
+      {taskId && data.task && <div className="workflow-result-context">
+        <div><span>关联结算任务</span><strong>{data.task.task_name || taskId}</strong></div>
+        <div><span>当前状态</span><StatusTag value={data.task.status} label={taskStatusLabel(data.task.status)} /></div>
+        <div><span>确认进度</span><strong>{confirmationSummary.confirmed_count || 0}/{confirmationSummary.required_count || 0} 方已确认</strong></div>
+        <Link className="text-link" to={`/settlements/${taskId}`}>返回流程总览</Link>
+      </div>}
+      {taskId && !data.task && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
+      {auditPending && <Notice tone="warning">当前风险等级需要先完成监管方审计批准，结果页面暂不开放最终确认。<Link className="text-link" to={`/settlements/${taskId}`}>查看任务关口</Link></Notice>}
+      {data.task?.status === "AUDITED" && <Notice tone="success">双方确认和审计关口均已完成，本次结算已闭环归档。<Link className="text-link" to={`/evidence?task_id=${encodeURIComponent(taskId)}`}>查看证据台账</Link></Notice>}
       <div className="metrics-grid three">
         <Metric label="主体结果" value={totals.rows} />
         <Metric label="已确认" value={totals.confirmed} tone="green" />
