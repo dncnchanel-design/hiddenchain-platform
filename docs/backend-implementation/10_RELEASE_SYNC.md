@@ -159,4 +159,28 @@ COLOR_CONTRAST = PASS (white on #0A806C = 4.86:1)
 PRODUCTION_STATUS = NOT_RELEASED
 ```
 
+## Current system bar emerald refresh — 2026-08-22
+
+```text
+LOCAL_CODE_PAYLOAD_SHA = c5126af
+LOCAL_CHANGE = 主壳层与可信数据空间顶部系统栏由 #26363D 调整为 #0B7768 翡翠绿；浏览器主题色与图标同步
+LOCAL_VERIFICATION = PASS (production guard; brand audit; typecheck; ESLint; 66 frontend tests; Vite build; browser desktop/390px/trusted-space checks; backend compileall)
+
+GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
+GITHUB_SOURCE_BRANCHES = main; agent/deep-brand-green
+GITHUB_CODE_PAYLOAD_SHA = 01f7f22f5e4ea0602d1e90395c5db166bb28d6bf
+GITHUB_PUSH = PASS (GitHub API non-force reference update from the verified prior release head)
+
+RENDER_SERVICE = hiddenchain-platform
+RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
+RENDER_SOURCE_BRANCH = main
+RENDER_DEPLOY_COMMIT = CURRENT_DOCUMENTATION_SYNC_HEAD
+RENDER_STATUS = PENDING_DEPLOYMENT
+RENDER_URL = https://hiddenchain-platform.onrender.com
+
+COLOR_CONTRAST = PASS (white on #0B7768 ≈ 5.45:1)
+TRIPLE_SYNC = PENDING_RENDER_REVIEW_TEST_DEPLOYMENT
+PRODUCTION_STATUS = NOT_RELEASED
+```
+
 This record keeps the application payload SHA separate from the documentation-sync head, which is expected to be the final GitHub and Render release head after synchronization. The hosted service remains a review/test plane.
