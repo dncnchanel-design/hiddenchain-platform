@@ -60,7 +60,7 @@ export function SystemPage() {
         {tab === "DIDS" && <DataTable keyField="did_id" rows={data.dids} columns={[
           { key: "owner_id", label: "身份主体", minWidth: 160, render: (row) => <span className="identity-name">{row.owner_type === "AGENT" ? <Workflow size={16} /> : <Fingerprint size={16} />}<IdText value={row.owner_id} /></span> },
           { key: "owner_type", label: "凭证类型", render: (row) => ownerTypeLabels[row.owner_type] || row.owner_type },
-          { key: "did_id", label: "DID", minWidth: 180, render: (row) => <IdText value={row.did_id} length={12} /> },
+          { key: "did_id", label: "去中心化身份标识", minWidth: 180, render: (row) => <IdText value={row.did_id} length={12} /> },
           { key: "public_key_fingerprint", label: "公钥指纹", minWidth: 150, render: (row) => <IdText value={row.public_key_fingerprint} /> },
           { key: "chain_address", label: "链地址", minWidth: 150, render: (row) => <IdText value={row.chain_address} /> },
           { key: "credential_status", label: "凭证状态", render: (row) => <StatusTag value={row.credential_status} /> },

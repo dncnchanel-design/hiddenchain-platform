@@ -113,7 +113,7 @@ def dashboard_summary(
         {
             "code": "CONTROLLED_USE",
             "name": "可控使用",
-            "description": "DID、数据合同与用途策略",
+            "description": "去中心化身份标识、数据合同与用途策略",
             "status": "RECORDED" if active_agreements else "NOT_CONFIGURED",
             "metric": f"{active_agreements} 份授权协议" if active_agreements else "等待授权调用",
         },

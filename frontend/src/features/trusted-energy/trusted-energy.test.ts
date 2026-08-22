@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isKnownTrustedPath, navItems, trustedEntityId, trustedMenuCodeForView, getTrustedView, routeForView, TRUSTED_BASE } from "./types";
+import { labelForCode } from "../../types";
 import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes } from "./trusted-energy.test-fixtures";
 
 describe("trusted energy console model", () => {
@@ -51,5 +52,16 @@ describe("trusted energy console model", () => {
     expect(demoFixtureMetadata.anchoring).toContain("DEMO");
     expect(demoAssets.every((asset) => asset.name.length > 0 && asset.updatedAt.length > 0)).toBe(true);
     expect(demoAssets.find((asset) => asset.id === "asset-power-output-001")?.quality).toBe(98.5);
+  });
+
+  it("localizes user-facing codes while preserving machine identifiers", () => {
+    expect(labelForCode("RENEWABLE_FORECAST")).toBe("新能源预测数据");
+    expect(labelForCode("GENERATION_DATA")).toBe("发电计量数据");
+    expect(labelForCode("DEMO")).toBe("演示能力");
+    expect(labelForCode("LOCAL_REAL")).toBe("本地真实能力");
+    expect(labelForCode("VerifiableCredential")).toBe("可验证凭证");
+    expect(labelForCode("EnergyMarketParticipantCredential")).toBe("能源市场参与方凭证");
+    expect(labelForCode("HCDS_CONNECTOR_1_0")).toBe("HCDS 1.0 连接器");
+    expect(labelForCode("did:hiddenchain:org:org-generator-t01")).toBe("did:hiddenchain:org:org-generator-t01");
   });
 });

@@ -126,7 +126,7 @@ export function ReportsPage() {
       <ConfirmDialog
         open={confirmDecision} title={decision === "APPROVE" ? "确认批准审计报告" : "确认驳回审计报告"}
         objectName={decisionTarget?.report_title || decisionTarget?.report_id || "—"} currentState={decisionTarget?.status}
-        consequence={decision === "APPROVE" ? "批准结论和审核意见将以当前监管主体 DID 签名并写入审计证据，随后允许完成多方结果确认。" : "驳回结论和审核意见将写入审计证据，关联任务进入返工流程，不能继续完成本次结算。"}
+        consequence={decision === "APPROVE" ? "批准结论和审核意见将以当前监管主体的去中心化身份标识签名并写入审计证据，随后允许完成多方结果确认。" : "驳回结论和审核意见将写入审计证据，关联任务进入返工流程，不能继续完成本次结算。"}
         confirmLabel={decision === "APPROVE" ? "确认批准" : "确认驳回"} danger={decision === "REJECT"}
         busy={Boolean(decisionTarget && decisionBusy === decisionTarget.report_id)} onCancel={() => setConfirmDecision(false)} onConfirm={submitDecision}
       />

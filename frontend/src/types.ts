@@ -422,6 +422,11 @@ export const SOURCE_OF_TRUTH_LABELS: Record<string, string> = {
   "organizations/users": "组织与用户记录",
   did_identities: "去中心化身份记录",
   data_sources: "数据源记录",
+  data_assets: "数据资产记录",
+  data_asset_versions: "数据资产版本记录",
+  "data_assets/data_asset_versions": "数据资产与版本记录",
+  "organizations/users/did_identities/data_sources": "组织、用户、身份与数据源记录",
+  blockchain_anchors: "区块链锚定记录",
   ttc_state_transitions: "可信任务状态转移记录",
   settlement_tasks: "结算任务记录",
   backend: "后端登记记录",
@@ -459,6 +464,15 @@ export const TECHNICAL_TERM_LABELS: Record<string, string> = {
   TEE: "可信执行环境",
   TTC: "可信任务链",
   VC: "可验证凭证",
+  VerifiableCredential: "可验证凭证",
+  EnergyMarketParticipantCredential: "能源市场参与方凭证",
+  AgentCapabilityCredential: "智能助手能力凭证",
+  DataSpaceConnectorAdapter: "数据空间连接器适配器",
+  HCDS_CONNECTOR_1_0: "HCDS 1.0 连接器",
+  HCDS_CONNECTOR_WITH_OPA_V1: "HCDS 1.0 连接器与策略控制",
+  "Provider Connector": "提供方连接器",
+  "DID Provider": "去中心化身份服务方",
+  "Trusted Energy Data & Privacy Computing Space": "能源可信数据与隐私计算空间",
 };
 
 export function labelForCode(value: unknown, fallback = "未登记") {

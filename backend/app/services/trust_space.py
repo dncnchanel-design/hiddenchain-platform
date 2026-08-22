@@ -119,12 +119,12 @@ TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
     },
     "identity": {
         "title": "身份中心",
-        "summary": "身份、组织、DID、证书摘要和连接器 readiness 来自后端登记。",
+        "summary": "身份、组织、去中心化身份标识、证书摘要和连接器就绪状态来自后端登记。",
         "entries": [
             {
                 "id": "boundary",
                 "title": "能力边界",
-                "body": "没有真实证书文件、Connector 控制面或 TEE 时，页面必须显示 NOT_CONFIGURED、ADAPTER 或 BLOCKED。",
+                "body": "没有真实证书文件、连接器控制面或可信执行环境时，页面必须显示“未配置”“适配器能力”或“已阻断”。",
                 "related_paths": ["/api/trust-space/identity", "/api/trust-space/context"],
                 "allowed_actions": ["view", "copy_identity_reference"],
             }
@@ -209,13 +209,13 @@ TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
         ],
     },
     "mpc": {
-        "title": "MPC 计算",
+        "title": "多方安全计算",
         "summary": "计算任务、参与方、进度、回执和日志来自隐私计算任务记录。",
         "entries": [
             {
                 "id": "external-boundary",
                 "title": "外部能力边界",
-                "body": "没有真实跨域参与方或 TEE 时显示 ADAPTER/BLOCKED；不会生成静态参与方或链上回执。",
+                "body": "没有真实跨域参与方或可信执行环境时显示“适配器能力”或“已阻断”；不会生成静态参与方或链上回执。",
                 "related_paths": ["/api/trust-space/computations", "/api/trust-space/computations/{job_id}/events"],
                 "allowed_actions": ["view", "poll_logs"],
             }
