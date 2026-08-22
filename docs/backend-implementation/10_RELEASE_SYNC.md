@@ -106,3 +106,31 @@ COMMIT = NOT_REQUESTED
 PUSH = NOT_REQUESTED
 DEPLOYMENT = NOT_REQUESTED
 ```
+
+## Current end-to-end settlement release — 2026-08-22
+
+```text
+LOCAL_CODE_PAYLOAD_SHA = 98ebed1d4222dc1c20b53146c757bba9f2ae670f
+LOCAL_VERIFICATION = PASS (frontend 66 tests; typecheck; ESLint; Vite build; production/brand guards; backend compile; 20 focused backend tests)
+
+GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
+GITHUB_SOURCE_BRANCH = main
+GITHUB_WORKING_BRANCH = agent/deep-brand-green
+GITHUB_MAIN_AND_WORKING_BRANCH = SYNCED_TO_CODE_PAYLOAD_SHA
+GITHUB_PUSH = PASS (non-force)
+GITHUB_ACTIONS_STATUS = NOT_READABLE_FROM_CURRENT_CONNECTOR (GitHub API returned 404)
+
+RENDER_SERVICE = hiddenchain-platform
+RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
+RENDER_SOURCE_BRANCH = main
+RENDER_DEPLOY_COMMIT = CURRENT_MAIN_RELEASE
+RENDER_STATUS = LIVE_REVIEW_TEST
+RENDER_HEALTH = PASS (live/readiness/version; build_sha matched the deployed release)
+RENDER_URL = https://hiddenchain-platform.onrender.com
+
+FLOW_SCOPE = 发起 → 授权 → 执行 → 结算 → 审计 → 结果确认；支持异常重试与补件
+TRIPLE_SYNC = PASS_REVIEW_TEST_ONLY_FOR_CURRENT_MAIN_RELEASE
+PRODUCTION_STATUS = NOT_RELEASED
+```
+
+This record separates the application payload from the later documentation-sync head. The current Render service is a review/test plane with test configuration and does not provide production evidence. No secret or credential values are recorded here.

@@ -193,3 +193,18 @@
 - Backend scope: access-request list query adds an explicit applicant-owned scope; service import and Python compilation passed. The focused authorization pytest passed with a temporary in-memory test-only alias for the host's missing `defusedxml` package; production code and test files were not changed for that workaround.
 - Frontend verification: TypeScript, ESLint, 65 unit tests, Vite production build, `git diff --check`, the Impeccable detector and mocked-response browser QA at 1440×900 all passed.
 - Release/deployment: not requested and not performed.
+
+## Current end-to-end settlement release — 2026-08-22
+
+### Completed
+
+- 将工作台、结算创建、结算详情、审计报告和结果页串成可重复操作的“发起 → 授权 → 执行 → 结算 → 审计 → 结果确认”流程；异常状态可回到重试或补件路径。
+- 让审计报告成为中高风险结果确认的前置门槛，并在详情、审计、结果页面展示下一步动作、角色交接、证据和审计状态。
+- 将主流程中的状态、能力、来源和动作改为中文可读标签；协议内部值保持兼容，未把外部适配、未核验能力伪装成已部署能力。
+- 本地验证通过：前端类型检查、ESLint、66 项前端测试、生产构建与生产配置检查；后端编译及结算/安全/可信空间 20 项聚焦测试通过。
+- 应用代码已提交为 `98ebed1d4222dc1c20b53146c757bba9f2ae670f`，GitHub `main` 与工作分支均已同步；Render 服务已手动从 `main` 构建该版本并通过就绪检查。
+
+### 发布边界
+
+- Render 仍是评审/测试环境，不构成生产发布证据；线上只确认公开健康检查、版本构建号和服务就绪状态。
+- 本地未追踪的截图、运行时目录、工具缓存和压缩包均未纳入本次发布。

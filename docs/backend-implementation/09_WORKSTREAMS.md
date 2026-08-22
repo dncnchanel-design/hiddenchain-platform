@@ -99,3 +99,15 @@ Rules:
 | Authorization record scopes and labels | Main agent; `frontend/src/features/trusted-energy/pages/AuthorizationsPage.tsx`, `ApplyPage.tsx`, shared labels/API, `backend/app/services/data_usage_requests.py`, `backend/app/routers/data.py` | Applicant-owned `mine=true` scope, Chinese labels and distinct review/application actions implemented | VERIFIED_LOCAL_FRONTEND_AND_CODE |
 | Verification | Main agent; frontend typecheck, ESLint, 65 tests, Vite build, detector, diff check, mocked 1440×900 browser QA and 7 focused backend authorization tests passed; host lacks `defusedxml`, so backend test used an in-memory test-only alias | Production code was not altered for the environment workaround | VERIFIED_LOCAL |
 | Release/deployment | Main agent retains commit, push, deployment and release-ledger convergence ownership | Not requested | NOT_STARTED |
+
+## Current end-to-end settlement workflow — 2026-08-22
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Settlement lifecycle | Main agent; `frontend/src/pages/WorkbenchPage.tsx`, `SettlementCreatePage.tsx`, `SettlementDetailPage.tsx`, `ResultsPage.tsx`, `ReportsPage.tsx`, settlement model and workflow service | Repeatable start-to-result path, role handoff, evidence, audit gate, exception/rework and retry actions are wired | VERIFIED_LOCAL |
+| Chinese product language | Main agent; settlement pages, labels and status/action mappings | Main flow no longer exposes the requested English state/capability labels; internal protocol values remain compatible | VERIFIED_LOCAL |
+| Verification | Main agent | Frontend 66 tests, typecheck, ESLint, Vite build, production/brand guards; backend compile and 20 focused workflow/security/trusted-space tests passed | VERIFIED_LOCAL |
+| GitHub synchronization | Main agent owns release convergence | `main` and `agent/deep-brand-green` point to the same pushed release; no force push | SYNCED |
+| Render review/test deployment | Main agent owns hosted deployment | `hiddenchain-platform` built the current `main` commit, passed the production guard and readiness probe | LIVE_REVIEW_TEST |
+
+This entry records the current application flow and hosted review/test synchronization. It does not claim production infrastructure, external finality, or a fully deployed cross-domain privacy-compute network.
