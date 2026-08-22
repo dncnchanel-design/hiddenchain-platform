@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronRight, CornerDownLeft, FileSearch, Send, ShieldCheck, X } from "lucide-react";
+import { Bot, Check, ChevronRight, ClipboardList, CornerDownLeft, Database, FileSearch, FileText, Send, ShieldCheck, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { ApiError, createIdempotencyKey, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
 import { Badge, Button, Dialog, DialogContent, DialogDescription, DialogTitle, IconButton, Input, RemoteState } from "./ui-primitives";
@@ -14,6 +14,14 @@ const SHORTCUTS = [
   { label: "检查TTC状态", icon: ChevronRight },
   { label: "核验证据摘要", icon: ShieldCheck },
   { label: "解释审计报告", icon: FileSearch },
+] as const;
+
+const AGENT_NAV = [
+  { label: "常用指令", icon: FileSearch, command: "检查资产完整性" },
+  { label: "数据查询", icon: Database, command: "查询当前数据资产" },
+  { label: "任务创建", icon: ClipboardList, command: "查看可创建的结算任务" },
+  { label: "报告生成", icon: FileText, command: "解释审计报告" },
+  { label: "帮助", icon: ShieldCheck, command: "查看当前助手能力边界" },
 ] as const;
 
 function entityContext(pathname: string) {
@@ -160,6 +168,9 @@ export function AgentSheet({ open, onOpenChange }: { open: boolean; onOpenChange
         </>}
       </div>
       <div className="energy-agent-composer"><Input value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void send(); }} placeholder="输入受支持的本地查询或需求…" aria-label="输入智能助手指令" disabled={loading || Boolean(error) || !session} /><Button variant="primary" size="icon" busy={busy} disabled={!message.trim() || !session} onClick={() => void send()} aria-label="发送"><Send size={15} /></Button></div>
+      <nav className="energy-agent-nav" aria-label="助手快捷入口">
+        {AGENT_NAV.map(({ label, icon: Icon, command }) => <button type="button" key={label} disabled={busy || !session} onClick={() => void send(command)}><Icon size={14} /><span>{label}</span></button>)}
+      </nav>
       <footer className="energy-agent-footer"><span><span className="energy-status-dot" />{capabilityLabel(session?.capability_state)}</span><span>{session?.state_version ? `会话 V${session.state_version}` : "会话未建立"}</span><CornerDownLeft size={13} /></footer>
     </DialogContent>
   </Dialog>;

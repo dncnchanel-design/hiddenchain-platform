@@ -60,9 +60,9 @@
 .trusted-user-copy small { color: #c4d0d1; font-size: 10px; }
 .trusted-mobile-menu { display: none; }
 
-.trusted-primary-nav { height: 44px; background: var(--energy-surface); border-bottom: 1px solid var(--energy-line); }
+.trusted-primary-nav { height: 42px; background: var(--energy-surface); border-bottom: 1px solid var(--energy-line); }
 .trusted-nav-inner { max-width: 1840px; height: 100%; margin: 0 auto; padding: 0 20px; gap: 2px; }
-.trusted-nav-item, .trusted-nav-agent { height: 100%; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--energy-secondary); display: inline-flex; align-items: center; gap: 7px; padding: 0 15px; font-size: 12px; font-weight: 600; transition: background 140ms ease, color 140ms ease; }
+.trusted-nav-item, .trusted-nav-agent { height: 100%; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--energy-secondary); display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; transition: background 140ms ease, color 140ms ease; }
 .trusted-nav-item:hover, .trusted-nav-agent:hover { background: var(--energy-brand-soft); color: var(--energy-brand); }
 .trusted-nav-item-active { color: var(--energy-brand); border-bottom-color: var(--energy-brand); background: #fbfdfd; }
 .trusted-nav-spacer { flex: 1; }
@@ -73,9 +73,9 @@
 .trusted-context-bar strong { color: var(--energy-secondary); font-weight: 650; }
 .trusted-context-right { white-space: nowrap; }
 .trusted-context-right button { border: 0; background: none; color: var(--energy-brand); display: inline-flex; align-items: center; gap: 4px; padding: 3px 0; }
-.trusted-main { max-width: 1840px; margin: 0 auto; padding: 20px 20px 36px; }
+.trusted-main { max-width: 1840px; margin: 0 auto; padding: 14px 20px 30px; }
 
-.trusted-page-heading { min-height: 58px; justify-content: space-between; gap: 20px; margin-bottom: 15px; }
+.trusted-page-heading { min-height: 50px; justify-content: space-between; gap: 20px; margin-bottom: 11px; }
 .trusted-heading-copy { min-width: 0; }
 .trusted-heading-copy h1 { font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -.02em; }
 .trusted-heading-copy p { margin-top: 5px; color: var(--energy-muted); font-size: 12px; }
@@ -102,8 +102,8 @@
 .energy-spin { animation: energy-spin 1s linear infinite; }
 @keyframes energy-spin { to { transform: rotate(360deg); } }
 .energy-card { background: var(--energy-surface); border: 1px solid var(--energy-line); border-radius: 4px; min-width: 0; }
-.energy-card-header { min-height: 55px; padding: 11px 14px 9px; border-bottom: 1px solid var(--energy-line-soft); background: #fbfcfc; }
-.energy-card-content { padding: 14px; }
+.energy-card-header { min-height: 46px; padding: 9px 12px 8px; border-bottom: 1px solid var(--energy-line-soft); background: #fbfcfc; }
+.energy-card-content { padding: 11px 12px; }
 .energy-card-title { font-size: 14px; font-weight: 700; }
 .energy-card-description { margin-top: 3px; color: var(--energy-muted); font-size: 11px; }
 .energy-surface-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -133,7 +133,7 @@
 .energy-select-shell > svg { position: absolute; top: 50%; right: 9px; transform: translateY(-50%); pointer-events: none; color: var(--energy-muted); }
 .energy-divider { height: 1px; background: var(--energy-line-soft); margin: 14px 0; }
 
-.trusted-subject-strip { min-height: 78px; padding: 13px 16px; margin-bottom: 12px; justify-content: space-between; gap: 16px; background: #fff; border: 1px solid var(--energy-line); border-radius: 4px; }
+.trusted-subject-strip { min-height: 68px; padding: 10px 14px; margin-bottom: 10px; justify-content: space-between; gap: 16px; background: #fff; border: 1px solid var(--energy-line); border-radius: 4px; }
 .trusted-subject-identity { gap: 10px; min-width: 230px; }
 .trusted-subject-avatar { width: 36px; height: 36px; background: var(--energy-brand-soft); color: var(--energy-brand); }
 .trusted-subject-identity strong, .trusted-subject-identity span { display: block; }
@@ -144,7 +144,7 @@
 .trusted-subject-facts small { color: var(--energy-muted); font-size: 10px; }
 .trusted-subject-facts b, .trusted-subject-facts code { color: var(--energy-secondary); font-size: 11px; font-weight: 600; }
 .energy-metric-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #fff; border: 1px solid var(--energy-line); border-radius: 4px; margin-bottom: 12px; }
-.energy-metric-cell { min-height: 84px; padding: 12px 16px; border-right: 1px solid var(--energy-line-soft); display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.energy-metric-cell { min-height: 70px; padding: 9px 14px; border-right: 1px solid var(--energy-line-soft); display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .energy-metric-cell:last-child { border-right: 0; }
 .energy-metric-cell > span { color: var(--energy-muted); font-size: 11px; }
 .energy-metric-cell strong { color: var(--energy-ink); font-size: 21px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -159,7 +159,7 @@
 .trusted-table-wrap { overflow-x: auto; padding: 0; }
 .energy-table { width: 100%; border-collapse: collapse; min-width: 600px; }
 .energy-table th { height: 36px; padding: 0 14px; color: var(--energy-muted); background: #f7f9f9; border-bottom: 1px solid var(--energy-line); text-align: left; font-size: 10px; font-weight: 650; white-space: nowrap; }
-.energy-table td { height: 48px; padding: 7px 14px; border-bottom: 1px solid var(--energy-line-soft); color: var(--energy-secondary); font-size: 11px; vertical-align: middle; }
+.energy-table td { height: 42px; padding: 6px 12px; border-bottom: 1px solid var(--energy-line-soft); color: var(--energy-secondary); font-size: 11px; vertical-align: middle; }
 .energy-table tbody tr { cursor: pointer; transition: background 140ms ease; }
 .energy-table tbody tr:hover { background: #f0f8f5; }
 .energy-table tbody tr:last-child td { border-bottom: 0; }
@@ -169,7 +169,7 @@
 .trusted-number { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--energy-brand); }
 .trusted-muted { color: var(--energy-muted) !important; }
 .trusted-task-list { display: flex; flex-direction: column; }
-.trusted-task-row { width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--energy-line-soft); background: transparent; display: grid; grid-template-columns: 29px minmax(0, 1fr) auto; align-items: center; gap: 9px; text-align: left; }
+.trusted-task-row { width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid var(--energy-line-soft); background: transparent; display: grid; grid-template-columns: 29px minmax(0, 1fr) auto; align-items: center; gap: 9px; text-align: left; }
 .trusted-task-row:last-child { border-bottom: 0; }
 .trusted-task-row:hover .trusted-task-copy strong { color: var(--energy-brand); }
 .trusted-task-icon { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid #b9ded4; border-radius: 3px; color: var(--energy-brand); background: var(--energy-brand-soft); }
@@ -196,6 +196,15 @@
 .trusted-boundary-list span { display: inline-flex; align-items: center; gap: 7px; color: var(--energy-secondary); font-size: 11px; }
 
 .trusted-detail-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, .9fr); gap: 12px; margin-bottom: 12px; }
+.trusted-identity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trusted-identity-grid .trusted-detail-main, .trusted-identity-grid .trusted-detail-side { display: contents; }
+.trusted-identity-grid > .energy-card { min-height: 0; }
+.trusted-identity-layout { display: grid; grid-template-columns: 126px minmax(0, 1fr); gap: 12px; align-items: start; }
+.trusted-identity-nav { position: sticky; top: 14px; display: flex; flex-direction: column; gap: 2px; padding: 6px 0; background: #fff; border: 1px solid var(--energy-line); border-radius: 3px; }
+.trusted-identity-nav a { min-height: 33px; display: flex; align-items: center; gap: 7px; padding: 0 10px; color: var(--energy-secondary); font-size: 10px; }
+.trusted-identity-nav a:hover { color: var(--energy-brand); background: var(--energy-brand-soft); }
+.trusted-identity-nav a.is-active { color: var(--energy-brand); font-weight: 700; background: var(--energy-brand-soft); box-shadow: inset 2px 0 0 var(--energy-brand); }
+.trusted-identity-content { min-width: 0; }
 .trusted-detail-main, .trusted-detail-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .trusted-profile-block { gap: 12px; }
 .trusted-profile-avatar { width: 48px; height: 48px; background: var(--energy-brand-soft); color: var(--energy-brand); }
@@ -459,6 +468,10 @@
 .energy-agent-plan { padding: 13px; background: #fff; border: 1px solid var(--energy-line); border-radius: 4px; }.energy-agent-section-heading { display: flex; justify-content: space-between; gap: 10px; }.energy-section-kicker { color: var(--energy-muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; letter-spacing: .08em; }.energy-agent-section-heading h3, .energy-agent-shortcuts h3 { margin-top: 2px; font-size: 12px; }.energy-agent-plan ol { list-style: none; padding: 0; margin: 13px 0 0; }.energy-agent-plan li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--energy-line-soft); color: var(--energy-secondary); font-size: 11px; }.energy-agent-plan li:last-child { border-bottom: 0; }.energy-agent-plan li > span:first-child { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--energy-line); border-radius: 50%; color: var(--energy-muted); font-size: 9px; }.energy-agent-plan li .energy-plan-done { color: #fff; border-color: var(--energy-success); background: var(--energy-success); }.energy-agent-plan-note { margin-top: 12px; display: flex; align-items: flex-start; gap: 6px; color: var(--energy-warning); font-size: 10px; }.energy-agent-plan-note code { color: var(--energy-warning); font-size: 9px; }
 .energy-agent-shortcuts { margin-top: 19px; }.energy-agent-shortcuts > div { display: grid; grid-template-columns: repeat(2,1fr); gap: 7px; margin-top: 9px; }.energy-agent-shortcuts button { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--energy-line); border-radius: 3px; background: #fff; color: var(--energy-secondary); font-size: 10px; }.energy-agent-shortcuts button:hover { color: var(--energy-brand); border-color: #86c7b6; background: var(--energy-brand-soft); }
 .energy-agent-composer { display: flex; gap: 7px; padding: 12px 16px; border-top: 1px solid var(--energy-line); background: #fff; }.energy-agent-composer .energy-input { flex: 1; }.energy-agent-footer { min-height: 32px; padding: 0 16px; display: flex; align-items: center; gap: 12px; color: var(--energy-muted); border-top: 1px solid var(--energy-line-soft); background: #fbfcfc; font-size: 10px; }.energy-agent-footer > span:first-child { display: inline-flex; align-items: center; gap: 6px; }.energy-agent-footer > span:nth-child(2) { margin-left: auto; }
+.energy-agent-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--energy-line-soft); background: #fff; }
+.energy-agent-nav button { min-height: 42px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 4px 2px; border: 0; background: transparent; color: var(--energy-muted); font-size: 9px; }
+.energy-agent-nav button:hover:not(:disabled) { color: var(--energy-brand); background: var(--energy-brand-soft); }
+.energy-agent-nav button:disabled { cursor: not-allowed; opacity: .5; }
 @keyframes energy-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes energy-dialog-in { from { opacity: 0; transform: translate(-50%,-48%); } to { opacity: 1; transform: translate(-50%,-50%); } }
 @keyframes energy-sheet-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
@@ -473,6 +486,7 @@
 }
 @media (max-width: 900px) {
   .trusted-system-bar { padding: 0 12px; }.trusted-system-right .trusted-system-pulse, .trusted-logout { display: none; }.trusted-brand { min-width: 0; }.trusted-nav-inner { padding: 0 12px; }.trusted-nav-item { padding: 0 9px; }.trusted-main { padding: 16px 12px 28px; }.trusted-workbench-grid, .trusted-lower-grid, .trusted-detail-grid, .trusted-contract-grid, .trusted-ttc-grid, .trusted-mpc-grid, .trusted-result-grid { grid-template-columns: 1fr; }.trusted-audit-layout { grid-template-columns: 1fr; }.trusted-audit-list { position: static; }.trusted-audit-items { display: grid; grid-template-columns: repeat(2,1fr); gap: 0 12px; }.trusted-audit-item.is-selected { margin-left: 0; padding-left: 8px; }.trusted-subject-strip { align-items: flex-start; flex-direction: column; }.trusted-subject-facts { width: 100%; justify-content: space-between; }.trusted-task-banner > .energy-card-content { grid-template-columns: repeat(3,1fr); }.trusted-topology { min-height: 300px; }.trusted-chain-record { grid-template-columns: repeat(2,1fr); }.trusted-chain-record .energy-button { grid-column: 1 / -1; }.trusted-contract-conditions { grid-template-columns: 1fr; }
+  .trusted-identity-layout { grid-template-columns: 1fr; }.trusted-identity-nav { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; }.trusted-identity-nav a { border-bottom: 1px solid var(--energy-line-soft); }.trusted-identity-nav a:nth-last-child(-n+1) { grid-column: 1 / -1; }
 }
 @media (max-width: 700px) {
   .trusted-mobile-menu { display: inline-flex; color: #fff; }.trusted-system-bar { gap: 8px; }.trusted-system-left { gap: 8px; }.trusted-brand-mark { width: 25px; height: 25px; font-size: 14px; }.trusted-brand strong { font-size: 12px; }.trusted-brand small { font-size: 9px; }.trusted-user-copy { display: none; }.trusted-primary-nav { display: none; height: auto; position: absolute; z-index: 50; top: 48px; left: 0; right: 0; box-shadow: 0 5px 12px rgba(21,37,40,.12); }.trusted-primary-nav-open { display: block; }.trusted-nav-inner { min-height: 0; height: auto; padding: 5px 8px 8px; display: grid; grid-template-columns: repeat(2,1fr); gap: 3px; }.trusted-nav-item, .trusted-nav-agent { height: 35px; justify-content: flex-start; border: 1px solid var(--energy-line-soft); padding: 0 10px; }.trusted-nav-spacer { display: none; }.trusted-nav-agent { color: var(--energy-brand); }.trusted-context-bar { padding: 0 12px; }.trusted-context-right { display: none; }.trusted-main { padding: 14px 10px 24px; }.trusted-page-heading { align-items: flex-start; flex-direction: column; gap: 9px; margin-bottom: 12px; }.trusted-page-actions { width: 100%; justify-content: flex-end; }.trusted-heading-copy h1 { font-size: 18px; }.energy-metric-band { grid-template-columns: repeat(2,1fr); }.energy-metric-cell:nth-child(2) { border-right: 0; }.energy-metric-cell:nth-child(-n+2) { border-bottom: 1px solid var(--energy-line-soft); }.trusted-subject-facts { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }.trusted-quick-grid { grid-template-columns: repeat(2,1fr); }.trusted-filter-row { align-items: stretch; flex-wrap: wrap; }.trusted-search-field { flex-basis: 100%; }.trusted-filter-row .energy-select-wrap { flex: 1; min-width: 130px; }.trusted-filter-summary { align-items: flex-start; flex-direction: column; gap: 7px; }.trusted-asset-row > .energy-card-content { align-items: flex-start; flex-direction: column; }.trusted-asset-stats { width: 100%; grid-template-columns: repeat(3,1fr); gap: 8px; padding-top: 10px; border-top: 1px solid var(--energy-line-soft); }.trusted-asset-actions { grid-column: auto; grid-column: 1 / -1; }.trusted-asset-actions .energy-button { flex: 1; }.trusted-passport-title { flex-direction: column; }.trusted-asset-hero > .energy-card-content { flex-direction: column; }.trusted-passport-tags { justify-content: flex-start; }.trusted-definition-grid { grid-template-columns: 1fr; gap: 11px; }.trusted-capability-row { grid-template-columns: 1fr auto; gap: 6px; padding: 10px 0; }.trusted-capability-row .trusted-muted { grid-column: 1 / -1; }.trusted-capability-row > svg { grid-column: 2; grid-row: 1; }.trusted-application-meta { display: grid; grid-template-columns: repeat(2,1fr); }.energy-steps { overflow-x: auto; grid-template-columns: repeat(4, minmax(116px,1fr)); }.trusted-option-grid { grid-template-columns: 1fr; }.trusted-contract-meta > .energy-card-content { display: grid; grid-template-columns: repeat(2,1fr); }.trusted-task-banner > .energy-card-content { grid-template-columns: repeat(2,1fr); }.trusted-state-tracker { margin-right: -14px; }.trusted-receipt-table > div { grid-template-columns: 1fr auto; gap: 5px; padding: 8px 0; }.trusted-receipt-table > div > code { grid-column: 1; }.trusted-receipt-table > div > .energy-badge { grid-column: 2; grid-row: 1; }.trusted-receipt-table > div > svg { display: none; }.trusted-chain-record { grid-template-columns: 1fr 1fr; }.trusted-audit-items { grid-template-columns: 1fr; }.trusted-audit-graph { margin-right: -14px; }.trusted-audit-source { flex-wrap: wrap; }.trusted-audit-source code { margin-left: 0; }.trusted-audit-facts { grid-template-columns: 1fr; }.trusted-audit-conclusion { align-items: flex-start; }.energy-agent-sheet { width: calc(100vw - 8px); }.energy-agent-heading { min-height: 58px; }.energy-agent-body { padding: 13px 12px; }.energy-agent-composer { padding: 10px 12px; }
@@ -502,6 +516,14 @@
 .trusted-did-login-panel .field select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid var(--energy-line); border-radius: 3px; color: var(--energy-ink); background: #fff; }
 .trusted-did-notice { display: flex; gap: 7px; padding: 9px 10px; border: 1px solid #f0d59e; border-radius: 3px; color: var(--energy-warning); background: var(--energy-warning-soft); font-size: 10px; }
 .trusted-login-screen .login-security-note { color: var(--energy-muted); }
+.trusted-login-form .login-form-options { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -2px 0 12px; color: var(--energy-muted); font-size: 11px; }
+.trusted-login-form .login-form-options label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.trusted-login-form .login-form-options input { width: 13px; height: 13px; accent-color: var(--energy-brand); }
+.trusted-login-form .login-form-options button { padding: 0; border: 0; background: transparent; color: var(--energy-muted); font-size: inherit; }
+.trusted-login-form .login-form-options button:hover { color: var(--energy-brand); text-decoration: underline; text-underline-offset: 3px; }
+.trusted-login-form .login-form-divider { display: flex; align-items: center; gap: 10px; margin: 13px 0; color: var(--energy-muted); font-size: 10px; }
+.trusted-login-form .login-form-divider::before, .trusted-login-form .login-form-divider::after { height: 1px; flex: 1; content: ""; background: var(--energy-line-soft); }
+.trusted-login-form > .button.button-secondary { width: 100%; min-height: 38px; }
 
 .trusted-notification-trigger { position: relative; display: inline-flex; }
 .trusted-notification-count { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 3px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--energy-system-bar); border-radius: 10px; color: #fff; background: var(--energy-danger); font-size: 9px; font-weight: 700; line-height: 1; }

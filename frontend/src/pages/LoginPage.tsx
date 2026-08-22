@@ -12,6 +12,7 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
@@ -82,6 +83,10 @@ export function LoginPage() {
           </label>
 
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
+          <div className="login-form-options">
+            <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />记住我</label>
+            <button type="button" onClick={() => setError("密码重置由组织管理员处理，请联系管理员重新配置凭证。")}>忘记密码？</button>
+          </div>
           </> : <div className="trusted-did-login-panel">
             <label className="field"><span>选择主体身份标识</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置身份标识（请联系管理员）</option></select></label>
             <label className="field"><span>凭证引用</span><input value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="输入部署端提供的凭证引用" autoComplete="off" /></label>
@@ -89,6 +94,10 @@ export function LoginPage() {
           </div>}
           {error && <Notice tone="warning">{error}</Notice>}
           <Button type="submit" variant="primary" busy={busy}>{mode === "did" ? "验证身份凭证" : "登录"}</Button>
+          <div className="login-form-divider" aria-hidden="true"><span>或</span></div>
+          <Button type="button" variant="secondary" onClick={() => { setMode((value) => value === "account" ? "did" : "account"); setError(""); }}>
+            {mode === "account" ? "使用DID身份认证" : "使用账号密码登录"}
+          </Button>
 
           {product.loginNotice && <Notice>{product.loginNotice}</Notice>}
           <div className="login-security-note"><ShieldCheck size={15} /><span>请使用授权账号登录，离开终端时及时退出系统。</span></div>

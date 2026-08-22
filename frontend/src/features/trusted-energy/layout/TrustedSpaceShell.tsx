@@ -5,7 +5,7 @@ import { useAuth } from "../../../auth";
 import { AgentSheet } from "../components/AgentSheet";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { ROLE_LABELS, labelForCode } from "../../../types";
-import { isKnownTrustedPath, navItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
+import { isKnownTrustedPath, navItems, primaryNavItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
 import { cn } from "../utils";
 import { Badge, Button, IconButton } from "../components/ui-primitives";
 import { RemoteState } from "../components/ui-primitives";
@@ -81,7 +81,7 @@ export function TrustedSpaceShell() {
   const context = trustedContext.context;
   const quickLinks = useMemo(() => {
     const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
-    return navItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
+    return primaryNavItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
   }, [context?.visible_menus]);
 
   useEffect(() => {
@@ -129,7 +129,7 @@ export function TrustedSpaceShell() {
       <div className="trusted-nav-inner tw-flex tw-items-center">
         {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
         <span className="trusted-nav-spacer" />
-        <button type="button" className="trusted-nav-agent" onClick={() => setAgentOpen(true)}><Activity size={15} />智能助手</button>
+        <button type="button" className="trusted-nav-agent" onClick={() => setAgentOpen(true)}><Activity size={15} />Agent助手</button>
       </div>
     </nav>
 

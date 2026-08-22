@@ -26,6 +26,10 @@ export const navItems = [
   { key: "audit" as const, menuCode: "audit", label: "审计中心", icon: "ScanSearch" },
 ];
 
+// The blueprint keeps data upload and authorization records discoverable from
+// their parent flows instead of consuming a primary-nav slot on desktop.
+export const primaryNavItems = navItems.filter((item) => item.key !== "upload" && item.key !== "authorizations");
+
 export function routeForView(key: TrustedViewKey, id?: string) {
   if (key === "asset") return id ? `${TRUSTED_BASE}/assets/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
   if (key === "apply") return id ? `${TRUSTED_BASE}/apply/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
