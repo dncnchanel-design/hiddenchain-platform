@@ -6,7 +6,7 @@ import { useAuth } from "../auth";
 import { AmountText, Button, ConfirmDialog, DateTimeText, EmptyState, ErrorState, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { taskNextAction, taskStatusLabel, trustedChain } from "../settlement-model";
-import { ALGORITHM_LABELS, type JsonRecord, type ResultConfirmationCommand } from "../types";
+import { ALGORITHM_LABELS, labelForCode, type JsonRecord, type ResultConfirmationCommand } from "../types";
 
 type DetailData = {
   task: JsonRecord;
@@ -122,7 +122,7 @@ export function SettlementDetailPage() {
       <Surface className="task-identity-surface">
         <div className="task-identity-row">
           <div><span>业务状态</span><StatusTag value={task.status} label={taskStatusLabel(task.status)} /></div>
-          <div><span>当前环节</span><strong>{task.current_stage || "—"}</strong></div>
+          <div><span>当前环节</span><strong>{labelForCode(task.current_stage, "—")}</strong></div>
           <div><span>交易批次</span><IdText value={task.trade_batch_no} /></div>
           <div><span>结算周期</span><strong>{task.period_start} 至 {task.period_end}</strong></div>
           <div><span>风险等级</span><StatusTag value={task.risk_level} /></div>
@@ -170,8 +170,8 @@ export function SettlementDetailPage() {
       </div> : <div className="task-detail-grid technical-detail-grid">
         <Surface title="执行边界">
           <dl className="technical-facts">
-            <div><dt>执行适配器</dt><dd>{verification.compute_adapter || task.compute_summary?.adapter_code || "NOT_PROVIDED"}</dd></div>
-            <div><dt>执行环境</dt><dd>{data.jobs[0]?.execution_attestation_json?.runtime || "NOT_PROVIDED"}</dd></div>
+            <div><dt>执行适配器</dt><dd>{labelForCode(verification.compute_adapter || task.compute_summary?.adapter_code, "未提供")}</dd></div>
+            <div><dt>执行环境</dt><dd>{labelForCode(data.jobs[0]?.execution_attestation_json?.runtime, "未提供")}</dd></div>
             <div><dt>远程证明</dt><dd><StatusTag value={data.jobs[0]?.execution_attestation_json?.attestation_status || "NOT_PROVIDED"} /></dd></div>
             <div><dt>接口返回原始记录</dt><dd>{verification.api_raw_records_returned === false ? "否" : "未记录"}</dd></div>
             <div><dt>跨域不出域证明</dt><dd><StatusTag value={verification.cross_domain_non_export_verified ? "PASSED" : "UNVERIFIED"} /></dd></div>
@@ -183,7 +183,7 @@ export function SettlementDetailPage() {
             <div><dt>规则哈希</dt><dd><IdText value={task.rule?.rule_hash} /></dd></div>
             <div><dt>计算输出哈希</dt><dd><IdText value={task.compute_summary?.output_hash} /></dd></div>
             <div><dt>结果哈希</dt><dd><IdText value={summaryResult?.result_hash} /></dd></div>
-            <div><dt>证据后端</dt><dd>{verification.evidence_ledger || "NOT_PROVIDED"}</dd></div>
+            <div><dt>证据后端</dt><dd>{labelForCode(verification.evidence_ledger, "未提供")}</dd></div>
             <div><dt>证据记录</dt><dd>{task.evidence_count || 0} 项</dd></div>
             <div><dt>最近更新</dt><dd><DateTimeText value={task.updated_at || task.created_at} /></dd></div>
           </dl>

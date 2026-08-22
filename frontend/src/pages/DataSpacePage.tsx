@@ -4,7 +4,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button, DataTable, DateTimeText, DetailDrawer, FilterBar, IdText, Metric, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { ALGORITHM_LABELS, SCENARIO_LABELS, type JsonRecord } from "../types";
+import { ALGORITHM_LABELS, SCENARIO_LABELS, labelForCode, type JsonRecord } from "../types";
 
 const assetNames: Record<string, string> = {
   GENERATION_DATA: "发电计量",
@@ -82,7 +82,7 @@ export function DataSpacePage() {
           columns={[
             { key: "data_product_id", label: "数据产品编号", minWidth: 160, render: (row) => <IdText value={row.data_product_id} /> },
             { key: "label", label: "数据产品", minWidth: 170 },
-            { key: "asset_type", label: "资产类型", render: (row) => assetNames[row.asset_type] || row.asset_type || "—" },
+            { key: "asset_type", label: "资产类型", render: (row) => assetNames[row.asset_type] || labelForCode(row.asset_type, "已登记资产类型") },
             { key: "owner_org_name", label: "提供方", minWidth: 140 },
             { key: "trade_batch_no", label: "批次编号", minWidth: 135, render: (row) => <IdText value={row.trade_batch_no} length={8} /> },
             { key: "unit", label: "单位" },
@@ -99,8 +99,8 @@ export function DataSpacePage() {
             { key: "agreement_id", label: "协议编号", minWidth: 160, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}><IdText value={row.agreement_id} copyable={false} /></button> },
             { key: "provider_org_id", label: "提供方", minWidth: 170, render: (row) => row.provider_org_name || <IdText value={row.provider_org_id} /> },
             { key: "consumer_org_id", label: "使用方", minWidth: 170, render: (row) => row.consumer_org_name || <IdText value={row.consumer_org_id} /> },
-            { key: "requested_purpose", label: "用途", minWidth: 140, render: (row) => purposeNames[row.requested_purpose] || SCENARIO_LABELS[row.requested_purpose] || row.requested_purpose || "—" },
-            { key: "algorithm_code", label: "计算方式", minWidth: 160, render: (row) => ALGORITHM_LABELS[row.algorithm_code] || row.algorithm_code || "—" },
+            { key: "requested_purpose", label: "用途", minWidth: 140, render: (row) => purposeNames[row.requested_purpose] || SCENARIO_LABELS[row.requested_purpose] || labelForCode(row.requested_purpose, "任务约定用途") },
+            { key: "algorithm_code", label: "计算方式", minWidth: 160, render: (row) => ALGORITHM_LABELS[row.algorithm_code] || labelForCode(row.algorithm_code, "已登记计算方式") },
             { key: "state", label: "状态", render: (row) => <StatusTag value={row.state} /> },
             { key: "use_count", label: "调用次数", align: "right", render: (row) => `${row.use_count ?? 0} / ${row.max_uses ?? "—"}` },
             { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={Eye} onClick={() => setSelected(row)}>详情</Button> },
@@ -118,8 +118,8 @@ export function DataSpacePage() {
           <div><span>协议版本</span><strong>{selected.protocol_version || "—"}</strong></div>
           <div><span>生效时间</span><DateTimeText value={selected.valid_from} /></div>
           <div><span>失效时间</span><DateTimeText value={selected.expires_at} /></div>
-          <div><span>用途</span><strong>{purposeNames[selected.requested_purpose] || SCENARIO_LABELS[selected.requested_purpose] || selected.requested_purpose || "—"}</strong></div>
-          <div><span>计算方式</span><strong>{ALGORITHM_LABELS[selected.algorithm_code] || selected.algorithm_code || "—"}</strong></div>
+          <div><span>用途</span><strong>{purposeNames[selected.requested_purpose] || SCENARIO_LABELS[selected.requested_purpose] || labelForCode(selected.requested_purpose, "任务约定用途")}</strong></div>
+          <div><span>计算方式</span><strong>{ALGORITHM_LABELS[selected.algorithm_code] || labelForCode(selected.algorithm_code, "已登记计算方式")}</strong></div>
           <div><span>数据产品数</span><strong>{selected.data_product_ids_json?.length ?? 0}</strong></div>
           <div><span>追踪编号</span><IdText value={selected.trace_id} /></div>
         </div>

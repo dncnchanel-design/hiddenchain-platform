@@ -580,7 +580,8 @@ def test_audit_scope_and_server_exports_are_real_and_typed(client, auth_headers)
     )
     assert csv_export.status_code == 200
     assert csv_export.headers["content-type"].startswith("text/csv")
-    assert "record_type,record_id" in csv_export.text
+    assert "记录类型,记录编号" in csv_export.text
+    assert "执行结果" in csv_export.text
     denied = client.get("/api/trust-space/audit", headers=auth_headers["generator"])
     assert denied.status_code == 403
     with SessionLocal() as db:

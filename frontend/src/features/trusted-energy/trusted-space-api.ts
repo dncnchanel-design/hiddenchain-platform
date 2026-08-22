@@ -376,6 +376,7 @@ export type UsageRequestList = {
   page: number;
   page_size: number;
   inbox?: boolean;
+  mine?: boolean;
 };
 
 export type OrganizationRef = {
@@ -922,7 +923,7 @@ export function createUsageRequest(
 }
 
 export function loadUsageRequests(
-  params: { page?: number; pageSize?: number; status?: string; inbox?: boolean },
+  params: { page?: number; pageSize?: number; status?: string; inbox?: boolean; mine?: boolean },
   signal?: AbortSignal,
 ) {
   return api<UsageRequestList>(`/data/access-requests${queryString({
@@ -930,6 +931,7 @@ export function loadUsageRequests(
     page_size: params.pageSize ?? 20,
     status: params.status,
     inbox: params.inbox ? true : undefined,
+    mine: params.mine ? true : undefined,
   })}`, { signal, cacheTtlMs: 1_500 });
 }
 
@@ -1080,7 +1082,10 @@ export async function downloadAudit(format: "json" | "csv", signal?: AbortSignal
     throw new ApiError(message, response.status);
   }
   const disposition = response.headers.get("content-disposition") || "";
-  const filename = disposition.match(/filename=([^;]+)/i)?.[1]?.replace(/["']/g, "") || `audit-records.${format}`;
+  const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const filename = encodedFilename
+    ? decodeURIComponent(encodedFilename)
+    : disposition.match(/filename=([^;]+)/i)?.[1]?.replace(/["']/g, "") || `审计记录.${format}`;
   return { blob: await response.blob(), filename, contentType: response.headers.get("content-type") || "" };
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invalidateApiCache } from "../../api";
-import { confirmResult, controlComputation, createAssistantSession, createUsageRequest, downloadAudit, loadAsset, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, loadAudit, loadAuditTask, loadCatalog, loadComputation, loadComputationEvents, loadComputations, loadContract, loadContracts, loadNotifications, loadResult, loadResults, loadTtc, loadTtcEvents, loadTtcList, loadTrustedContext, loadTrustedHelp, markAllNotificationsRead, markNotificationRead, postAssistantMessage, postContractAction, runAssistantPlanAction, transitionTtc, transitionUsageRequest, verifyEvidence } from "./trusted-space-api";
+import { confirmResult, controlComputation, createAssistantSession, createUsageRequest, downloadAudit, loadAsset, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, loadAudit, loadAuditTask, loadCatalog, loadComputation, loadComputationEvents, loadComputations, loadContract, loadContracts, loadNotifications, loadResult, loadResults, loadTtc, loadTtcEvents, loadTtcList, loadTrustedContext, loadTrustedHelp, loadUsageRequests, markAllNotificationsRead, markNotificationRead, postAssistantMessage, postContractAction, runAssistantPlanAction, transitionTtc, transitionUsageRequest, verifyEvidence } from "./trusted-space-api";
 import { notificationPath, quickActionPath } from "./trusted-space-ui";
 
 function stubRuntime() {
@@ -51,6 +51,23 @@ describe("Trusted Space API client", () => {
     expect(value.actor.role_code).toBe("EXCHANGE");
     expect(value.current_subject.org_id).toBe("org-exchange");
     expect(value.identity_ref.did).toBeNull();
+  });
+
+  it("keeps authorization inbox and applicant-owned lists distinct", async () => {
+    stubRuntime();
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      requests.push(String(url));
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 12, empty_state: true }), { status: 200 });
+    }));
+
+    await loadUsageRequests({ inbox: true, page: 1, pageSize: 12 });
+    await loadUsageRequests({ mine: true, page: 1, pageSize: 12 });
+
+    expect(requests[0]).toContain("inbox=true");
+    expect(requests[0]).not.toContain("mine=true");
+    expect(requests[1]).toContain("mine=true");
+    expect(requests[1]).not.toContain("inbox=true");
   });
 
   it("loads notifications/help/TTC list and maps only safe real entity routes", async () => {

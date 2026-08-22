@@ -6,17 +6,17 @@ import { api, formatNumber, post } from "../api";
 import { useAuth } from "../auth";
 import { AmountText, Button, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, IdText, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { ALGORITHM_LABELS, SCENARIO_LABELS } from "../types";
+import { ALGORITHM_LABELS, SCENARIO_LABELS, labelForCode } from "../types";
 import type { JsonRecord } from "../types";
 
 type ComputeTab = "SETTLEMENT" | "LOAD";
 
 function strategyName(code: unknown) {
-  return ALGORITHM_LABELS[String(code)] || String(code || "—");
+  return ALGORITHM_LABELS[String(code)] || labelForCode(code, "未登记计算方式");
 }
 
 function purposeName(code: unknown) {
-  return ({ POWER_SETTLEMENT: "电力结算", MARKET_SETTLEMENT: "市场结算" } as Record<string, string>)[String(code)] || "任务约定用途";
+  return ({ POWER_SETTLEMENT: "电力结算", MARKET_SETTLEMENT: "市场结算" } as Record<string, string>)[String(code)] || labelForCode(code, "任务约定用途");
 }
 
 function outputModeName(code: unknown) {
@@ -76,7 +76,7 @@ export function ComputePage() {
       </div>
       <Surface id="compute-strategies" title="计算方案" meta="候选方案不代表运行环境已接入对应协议">
         <DataTable keyField="scenario_code" rows={data.strategies} label="计算方式目录" pageSize={20} columns={[
-          { key: "scenario_code", label: "业务场景", minWidth: 170, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_name || row.scenario_code || "—" },
+          { key: "scenario_code", label: "业务场景", minWidth: 170, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_name || labelForCode(row.scenario_code, "已登记场景") },
           { key: "primary", label: "建议主要方式", minWidth: 180, render: (row) => strategyName(row.primary) },
           { key: "supporting", label: "建议辅助方式", minWidth: 240, render: (row) => (row.supporting || []).map((code: string) => strategyName(code)).join("、") || "—" },
           { key: "implementation_status", label: "运行能力", minWidth: 90, render: (row) => <StatusTag value={row.implementation_status} label={row.execution_capability ? "可执行" : "未接入"} /> },
@@ -104,9 +104,9 @@ export function ComputePage() {
             { key: "action", label: "操作", minWidth: 100, sortable: false, hideable: false, sticky: "right", render: (row) => <Button icon={Eye} onClick={() => setSelected(row)}>查看回执</Button> },
           ] : [
             { key: "analysis_name", label: "分析任务", minWidth: 180, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.analysis_name}</button> },
-            { key: "analysis_type", label: "分析类型", render: (row) => ({ PEAK_VALLEY: "峰谷特征", LOAD_CLUSTER: "负荷聚类", DR_POTENTIAL: "响应潜力" } as Record<string, string>)[row.analysis_type] || row.analysis_type },
+            { key: "analysis_type", label: "分析类型", render: (row) => ({ PEAK_VALLEY: "峰谷特征", LOAD_CLUSTER: "负荷聚类", DR_POTENTIAL: "响应潜力" } as Record<string, string>)[row.analysis_type] || labelForCode(row.analysis_type, "已登记分析类型") },
             { key: "strategy", label: "自适应策略", render: (row) => strategyName(row.result_json?.compute_strategy?.primary) },
-            { key: "privacy_level", label: "隐私级别", render: (row) => ({ AGGREGATED: "聚合输出", K_ANONYMIZED: "匿名化输出", DIFFERENTIAL_PRIVACY: "差分隐私输出" } as Record<string, string>)[row.privacy_level] || row.privacy_level },
+            { key: "privacy_level", label: "隐私级别", render: (row) => ({ AGGREGATED: "聚合输出", K_ANONYMIZED: "匿名化输出", DIFFERENTIAL_PRIVACY: "差分隐私输出" } as Record<string, string>)[row.privacy_level] || labelForCode(row.privacy_level, "已登记隐私级别") },
             { key: "privacy_budget", label: "隐私预算" },
             { key: "dataset_ids_json", label: "参与数据域", render: (row) => `${row.dataset_ids_json?.length || 0} 个` },
             { key: "result_hash", label: "结果摘要", minWidth: 150, render: (row) => <IdText value={row.result_hash} /> },
@@ -135,7 +135,7 @@ function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void 
         <div><span>计算方式</span><strong>{strategyName(job.algorithm_code)}</strong></div>
         <div><span>结算规则</span><strong>{job.rule ? `${job.rule.rule_version} · ${job.rule.rule_name}` : "未提供"}</strong></div>
         <div><span>结果披露</span><strong>{outputModeName(job.disclosure?.output_mode)}</strong></div>
-        <div><span>计算耗时</span><strong>{job.duration_ms === null || job.duration_ms === undefined ? "—" : `${formatNumber(job.duration_ms, 0)} ms`}</strong></div>
+         <div><span>计算耗时</span><strong>{job.duration_ms === null || job.duration_ms === undefined ? "—" : `${formatNumber(job.duration_ms, 0)} 毫秒`}</strong></div>
         <div><span>输出摘要</span><IdText value={job.output_hash} /></div>
         <div><span>状态</span><StatusTag value={job.status} /></div>
       </div>
@@ -182,8 +182,8 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
       <div className="strategy-receipt"><Route size={18} /><div><span>执行策略</span><strong>{strategyName(strategy.primary)}</strong></div><IdText value={strategy.plan_hash} /></div>
       {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><YAxis tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="var(--chart-series-brand)" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
       {result.privacy_controls && <div className="detail-grid privacy-receipt-grid">
-        <div><span>隐私引擎</span><strong>{result.privacy_controls.engine || "—"}</strong></div>
-        <div><span>噪声机制</span><strong>{result.privacy_controls.mechanism || "—"}</strong></div>
+         <div><span>隐私引擎</span><strong>{labelForCode(result.privacy_controls.engine, "—")}</strong></div>
+         <div><span>噪声机制</span><strong>{labelForCode(result.privacy_controls.mechanism, "—")}</strong></div>
         <div><span>每小时预算</span><strong>{result.privacy_controls.epsilon_per_hour_release ?? "—"}</strong></div>
         <div><span>边界约束</span><strong>{result.privacy_controls.bound_mw ? `${result.privacy_controls.bound_mw} MW` : "—"}</strong></div>
       </div>}

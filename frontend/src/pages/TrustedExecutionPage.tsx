@@ -5,6 +5,7 @@ import { useAuth } from "../auth";
 import { Button, DataTable, ErrorState, Field, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { TrustedExecutionReviewPanel } from "../components/TrustedExecutionReviewPanel";
 import { useRemote } from "../hooks";
+import { labelForCode } from "../types";
 import type { JsonRecord } from "../types";
 
 const DEFAULT_QUESTION = "分析上月由于电煤库存变化引起的火电出力与电网负荷平衡趋势";
@@ -42,13 +43,13 @@ const actionLabels: Record<string, string> = {
 };
 
 const methodLabels: Record<string, string> = {
-  DIRECT_CONTROLLED_API: "受控 API",
+  DIRECT_CONTROLLED_API: "受控数据接口",
   DELAYED_CONTROLLED_RELEASE: "延迟交付",
   LOCAL_CONTROLLED_AGGREGATION: "本地受控汇总",
   LOCAL_CONTROLLED_COMPUTE: "本地受控计算（测试适配器）",
   BLOCKED: "未执行",
-  PSI_MPC: "PSI / MPC（候选）",
-  TEE_CONFIDENTIAL_COMPUTE: "TEE 机密计算（候选）",
+  PSI_MPC: "隐私集合求交与多方安全计算（候选）",
+  TEE_CONFIDENTIAL_COMPUTE: "可信执行环境机密计算（候选）",
 };
 
 const stepLabels: Record<string, string> = {
@@ -81,15 +82,15 @@ const fieldOptions = [
 type ExecutionConsoleData = { status: JsonRecord; policy: JsonRecord };
 
 function actionLabel(value: unknown) {
-  return actionLabels[String(value || "")] || String(value || "未知策略");
+  return actionLabels[String(value || "")] || labelForCode(value, "未知策略");
 }
 
 function methodLabel(value: unknown) {
-  return methodLabels[String(value || "")] || String(value || "未指定");
+  return methodLabels[String(value || "")] || labelForCode(value, "未指定");
 }
 
 function textLabel(map: Record<string, string>, value: unknown) {
-  return map[String(value || "")] || String(value || "—");
+  return map[String(value || "")] || labelForCode(value, "—");
 }
 
 function stepDetail(details: unknown) {
@@ -186,7 +187,7 @@ export function TrustedExecutionPage() {
     <>
       <PageHeader
         title="受控数据使用"
-        description="把自然语言需求转为可审计的使用策略；Agent 只解析意图，最终裁决由确定性策略引擎完成。"
+        description="把自然语言需求转为可审计的使用策略；智能助手只解析意图，最终裁决由确定性策略引擎完成。"
         actions={<Button icon={RefreshCw} busy={remote.refreshing} onClick={remote.reload}>刷新能力</Button>}
       />
 
@@ -196,7 +197,7 @@ export function TrustedExecutionPage() {
         <div className="trusted-execution-thesis-meta"><span>当前策略 {policyVersion}</span><StatusTag value={status.availability} label={credentialUnavailable ? "身份不可用" : unavailable ? "未配置可执行节点" : "测试节点可用"} /></div>
       </section>
 
-      {unavailable && <Notice tone="warning">{credentialUnavailable ? `当前主体凭证状态为 ${status.credential_status || "NOT_PROVIDED"}，查询入口保持关闭。` : "当前环境未配置受控能源节点，查询入口保持关闭。"}生产环境不会使用内置测试数据代替真实连接器。</Notice>}
+      {unavailable && <Notice tone="warning">{credentialUnavailable ? `当前主体凭证状态为 ${labelForCode(status.credential_status, "未提供" )}，查询入口保持关闭。` : "当前环境未配置受控能源节点，查询入口保持关闭。"}生产环境不会使用内置测试数据代替真实连接器。</Notice>}
       {actionError && <Notice tone="warning">{actionError}</Notice>}
 
       <div className="trusted-execution-layout">
@@ -230,13 +231,13 @@ export function TrustedExecutionPage() {
 
         <Surface title="能力边界" meta="事实状态，不是宣传指标">
           <div className="trusted-execution-boundary-list">
-            <BoundaryRow icon={Fingerprint} label="DID / VC 身份" value={status.did_verified ? "由请求主体凭证核验" : status.credential_status === "MISSING" ? "未提供主体凭证" : "凭证未通过核验"} state={status.did_verified ? "PASSED" : status.credential_status || "NOT_PROVIDED"} />
-            <BoundaryRow icon={LockKeyhole} label="原始数据 API 返回" value={status.security_boundary?.api_raw_records_returned === false ? "否" : "未提供"} state={status.security_boundary?.api_raw_records_returned === false ? "PASSED" : "NOT_PROVIDED"} />
+            <BoundaryRow icon={Fingerprint} label="去中心化身份与可验证凭证" value={status.did_verified ? "由请求主体凭证核验" : status.credential_status === "MISSING" ? "未提供主体凭证" : "凭证未通过核验"} state={status.did_verified ? "PASSED" : status.credential_status || "NOT_PROVIDED"} />
+            <BoundaryRow icon={LockKeyhole} label="原始数据接口返回" value={status.security_boundary?.api_raw_records_returned === false ? "否" : "未提供"} state={status.security_boundary?.api_raw_records_returned === false ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={Database} label="跨域不出域证明" value={status.security_boundary?.cross_domain_non_export_verified ? "已验证" : "未提供"} state={status.security_boundary?.cross_domain_non_export_verified ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={ShieldCheck} label="结果反推检查" value={status.security_boundary?.anti_inference_check || "未提供"} state="PENDING" />
             <BoundaryRow icon={Database} label="证据后端" value={status.audit?.evidence_backend || "—"} state="RECORDED" />
           </div>
-          <div className="trusted-execution-boundary-note"><strong>系统当前能证明什么？</strong><p>能证明请求经过身份、策略、计算、结果审查和本地摘要台账；不能把本地应用进程内的确定性计算表述为真实 MPC、TEE、区块链共识或跨主体不出域证明。</p></div>
+          <div className="trusted-execution-boundary-note"><strong>系统当前能证明什么？</strong><p>能证明请求经过身份、策略、计算、结果审查和本地摘要台账；不能把本地应用进程内的确定性计算表述为真实多方安全计算、可信执行环境、区块链共识或跨主体不出域证明。</p></div>
         </Surface>
       </div>
 
@@ -266,14 +267,14 @@ function TrustedExecutionResult({ result, resultStatus, resultBody, routing, pol
       </div>
 
       <div className="trusted-execution-result-layout">
-        <Surface title="身份与意图" meta="Agent 解析结果">
+        <Surface title="身份与意图" meta="智能助手解析结果">
           <div className="detail-grid">
             <div><span>调用主体</span><strong>{textLabel(roleLabels, intent.consumer_role)}</strong></div>
             <div><span>使用目的</span><strong>{textLabel(purposeLabels, intent.purpose)}</strong></div>
             <div><span>请求粒度</span><strong>{textLabel(granularityLabels, intent.requested_granularity)}</strong></div>
             <div><span>空间范围</span><strong>{textLabel(scopeLabels, intent.spatial_scope)}</strong></div>
-            <div><span>解析目标</span><strong>{(intent.target_data_types || []).join("、") || "—"}</strong></div>
-            <div><span>调用 DID</span><IdText value={identity.did} length={18} /></div>
+            <div><span>解析目标</span><strong>{(intent.target_data_types || []).map((item: string) => labelForCode(item, "已登记数据目标")).join("、") || "—"}</strong></div>
+            <div><span>调用去中心化身份标识</span><IdText value={identity.did} length={18} /></div>
           </div>
           {Array.isArray(intent.requested_fields) && intent.requested_fields.length > 0 && <div className="trusted-execution-requested-fields"><span>请求字段</span>{intent.requested_fields.map((item: string) => <StatusTag key={item} value="DENY" label={requestedFieldLabel(item)} />)}</div>}
         </Surface>
@@ -283,7 +284,7 @@ function TrustedExecutionResult({ result, resultStatus, resultBody, routing, pol
             {policyHits.map((hit, index) => {
               const permitted = hit.decision === "PERMIT";
               const candidate = Array.isArray(hit.candidate_methods) ? hit.candidate_methods : [];
-              return <article className={`trusted-execution-policy-item${permitted ? " permitted" : " denied"}`} key={`${hit.target_data_type}-${index}`}><header><strong>{String(hit.target_data_type || "数据目标")}</strong><StatusTag value={permitted ? "PERMIT" : "DENY"} label={permitted ? "允许" : "拒绝"} /></header><div className="trusted-execution-policy-action"><span>{actionLabel(hit.action)}</span><small>{String(hit.reason || "—")}</small></div><div className="trusted-execution-policy-method"><span>执行方式</span><strong>{methodLabel(hit.execution_method)}</strong></div>{candidate.length > 0 && <small className="trusted-execution-candidate">候选协议：{candidate.map((item: string) => methodLabel(item)).join("、")}</small>}<small>规则 {shortHash(String(hit.rule_id || "—"), 10)} · {String(hit.release_mode || "—")}</small></article>;
+              return <article className={`trusted-execution-policy-item${permitted ? " permitted" : " denied"}`} key={`${hit.target_data_type}-${index}`}><header><strong>{labelForCode(hit.target_data_type, "数据目标")}</strong><StatusTag value={permitted ? "PERMIT" : "DENY"} label={permitted ? "允许" : "拒绝"} /></header><div className="trusted-execution-policy-action"><span>{actionLabel(hit.action)}</span><small>{String(hit.reason || "—")}</small></div><div className="trusted-execution-policy-method"><span>执行方式</span><strong>{methodLabel(hit.execution_method)}</strong></div>{candidate.length > 0 && <small className="trusted-execution-candidate">候选协议：{candidate.map((item: string) => methodLabel(item)).join("、")}</small>}<small>规则 {shortHash(String(hit.rule_id || "—"), 10)} · {labelForCode(hit.release_mode, "—")}</small></article>;
             })}
           </div>
         </Surface>
@@ -293,7 +294,7 @@ function TrustedExecutionResult({ result, resultStatus, resultBody, routing, pol
         <div className="trusted-execution-step-list">
           {steps.map((step, index) => {
             const status = String(step.status || "UNKNOWN");
-            return <div className={`trusted-execution-step trusted-execution-step-${status.toLowerCase()}`} key={`${step.code}-${index}`}><span className="trusted-execution-step-index">{String(step.step || index + 1).padStart(2, "0")}</span><div><strong>{stepLabels[String(step.code)] || String(step.code || "执行步骤")}</strong><small>{stepStatusLabels[status] || status}{stepDetail(step.details) ? ` · ${stepDetail(step.details)}` : ""}</small></div><StatusIcon status={status} /></div>;
+            return <div className={`trusted-execution-step trusted-execution-step-${status.toLowerCase()}`} key={`${step.code}-${index}`}><span className="trusted-execution-step-index">{String(step.step || index + 1).padStart(2, "0")}</span><div><strong>{stepLabels[String(step.code)] || labelForCode(step.code, "执行步骤")}</strong><small>{stepStatusLabels[status] || labelForCode(status, "未登记状态")}{stepDetail(step.details) ? ` · ${stepDetail(step.details)}` : ""}</small></div><StatusIcon status={status} /></div>;
           })}
         </div>
       </Surface>
@@ -301,12 +302,12 @@ function TrustedExecutionResult({ result, resultStatus, resultBody, routing, pol
       <div className="trusted-execution-result-layout">
         <Surface title="执行路由" meta="策略决定使用方式">
           <div className="detail-grid">
-            <div><span>实际运行环境</span><strong>{String(routing.actual_runtime || resultBody.privacy_controls?.compute_environment || "—")}</strong></div>
+            <div><span>实际运行环境</span><strong>{labelForCode(routing.actual_runtime || resultBody.privacy_controls?.compute_environment, "—")}</strong></div>
             <div><span>本次实际方式</span><strong>{methodLabel(routing.actual_method)}</strong></div>
             <div><span>实现状态</span><StatusTag value={String(routing.implementation_status || "NOT_PROVIDED")} /></div>
             <div><span>外部运行时</span><strong>{routing.external_runtime_required ? "仍需接入" : "本次不需要"}</strong></div>
           </div>
-          {candidateMethods.length > 0 && <Notice tone="warning">本请求的细粒度策略需要 PSI/MPC 或 TEE 等外部运行时才能形成跨主体不出域证明；当前仅记录本地测试适配器结果。候选：{candidateMethods.map((item: string) => methodLabel(item)).join("、")}。</Notice>}
+          {candidateMethods.length > 0 && <Notice tone="warning">本请求的细粒度策略需要隐私集合求交、多方安全计算或可信执行环境等外部运行时才能形成跨主体不出域证明；当前仅记录本地测试适配器结果。候选：{candidateMethods.map((item: string) => methodLabel(item)).join("、")}。</Notice>}
           {!succeeded && resultReason && <Notice tone="warning">未交付原因：{resultReason}</Notice>}
           <div className="section-links"><span>结果摘要</span><IdText value={result.result_hash} length={18} /><span>请求编号</span><IdText value={result.request_id} length={16} /></div>
         </Surface>

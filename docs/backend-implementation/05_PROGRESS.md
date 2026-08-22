@@ -180,3 +180,16 @@
 ## Historical frontend delivery checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 - Trusted Energy console implementation, responsive visual verification, and pure frontend tests completed; precise publication remains pending and no Render deployment was performed in this checkpoint.
+## Current UI authorization-record correction — 2026-08-22
+
+### Current work
+
+- Correcting the Trusted Space authorization-record surface so “待我审核” uses provider-inbox scope while “我的申请” uses current-applicant scope.
+- Replacing user-facing authorization status, purpose, usage-mode, capability, policy-source and optimistic-version English codes with professional Chinese labels; internal IDs and protocol payload values remain unchanged.
+
+### Scope and verification state
+
+- Frontend scope: `frontend/src/features/trusted-energy/pages/AuthorizationsPage.tsx`, `ApplyPage.tsx`, shared trusted-space labels/API query typing.
+- Backend scope: access-request list query adds an explicit applicant-owned scope; service import and Python compilation passed. The focused authorization pytest passed with a temporary in-memory test-only alias for the host's missing `defusedxml` package; production code and test files were not changed for that workaround.
+- Frontend verification: TypeScript, ESLint, 65 unit tests, Vite production build, `git diff --check`, the Impeccable detector and mocked-response browser QA at 1440×900 all passed.
+- Release/deployment: not requested and not performed.

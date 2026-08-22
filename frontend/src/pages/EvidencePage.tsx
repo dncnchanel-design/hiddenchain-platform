@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Button, DataTable, DateTimeText, DetailDrawer, ErrorState, FilterBar, IdText, LoadingState, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { EVIDENCE_TYPE_LABELS, STAGE_LABELS, type JsonRecord } from "../types";
+import { EVIDENCE_TYPE_LABELS, STAGE_LABELS, labelForCode, type JsonRecord } from "../types";
 
 export function EvidencePage() {
   const [searchParams] = useSearchParams();
@@ -79,8 +79,8 @@ export function EvidencePage() {
           keyField="evidence_id" rows={filtered} label="审计凭证清单"
           columns={[
             { key: "block_height", label: "凭证序号", render: (row) => row.block_height === undefined ? "—" : `#${row.block_height}` },
-            { key: "stage", label: "阶段", minWidth: 110, render: (row) => <StatusTag value={row.stage} label={STAGE_LABELS[row.stage] || row.stage} /> },
-            { key: "biz_type", label: "证据类型", minWidth: 130, render: (row) => EVIDENCE_TYPE_LABELS[row.biz_type] || row.biz_type || "—" },
+            { key: "stage", label: "阶段", minWidth: 110, render: (row) => <StatusTag value={row.stage} label={STAGE_LABELS[row.stage] || labelForCode(row.stage, "已登记阶段")} /> },
+            { key: "biz_type", label: "证据类型", minWidth: 130, render: (row) => EVIDENCE_TYPE_LABELS[row.biz_type] || labelForCode(row.biz_type, "已登记证据类型") },
             { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} /></Link> },
             { key: "evidence_hash", label: "证据摘要", minWidth: 150, render: (row) => <IdText value={row.evidence_hash} /> },
             { key: "tx_hash", label: "台账记录摘要", minWidth: 150, render: (row) => <IdText value={row.tx_hash} /> },
@@ -96,12 +96,12 @@ export function EvidencePage() {
           <div><span>凭证编号</span><IdText value={selected.evidence_id} /></div>
           <div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div>
           <div><span>凭证序号</span><strong>{selected.block_height === undefined ? "—" : `#${selected.block_height}`}</strong></div>
-          <div><span>证据阶段</span><StatusTag value={selected.stage} label={STAGE_LABELS[selected.stage] || selected.stage} /></div>
-          <div><span>证据类型</span><strong>{EVIDENCE_TYPE_LABELS[selected.biz_type] || selected.biz_type || "—"}</strong></div>
+          <div><span>证据阶段</span><StatusTag value={selected.stage} label={STAGE_LABELS[selected.stage] || labelForCode(selected.stage, "已登记阶段")} /></div>
+          <div><span>证据类型</span><strong>{EVIDENCE_TYPE_LABELS[selected.biz_type] || labelForCode(selected.biz_type, "已登记证据类型")}</strong></div>
           <div><span>状态</span><StatusTag value={selected.status} /></div>
           <div><span>证据摘要</span><IdText value={selected.evidence_hash} /></div>
           <div><span>台账记录摘要</span><IdText value={selected.tx_hash} /></div>
-          <div><span>证据后端</span><strong>{selected.chain_code || "—"}</strong></div>
+          <div><span>证据后端</span><strong>{labelForCode(selected.chain_code, "—")}</strong></div>
           <div><span>生成时间</span><DateTimeText value={selected.created_at} /></div>
         </div>
         {selected.payload_json && <details className="secondary-details"><summary>查看技术载荷</summary><pre className="json-view">{JSON.stringify(selected.payload_json, null, 2)}</pre></details>}

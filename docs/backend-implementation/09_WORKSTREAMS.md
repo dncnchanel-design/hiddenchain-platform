@@ -92,3 +92,10 @@ Rules:
 ## Historical frontend delivery checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 - Trusted Energy console routes, twelve views, scoped primitives, capability truth fixtures, responsive Agent sheet, and pure tests were complete at that historical checkpoint; precise stage/commit/push remained with `/root`, and Render was out of scope for that checkpoint.
+## Current UI authorization-record correction — 2026-08-22
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Authorization record scopes and labels | Main agent; `frontend/src/features/trusted-energy/pages/AuthorizationsPage.tsx`, `ApplyPage.tsx`, shared labels/API, `backend/app/services/data_usage_requests.py`, `backend/app/routers/data.py` | Applicant-owned `mine=true` scope, Chinese labels and distinct review/application actions implemented | VERIFIED_LOCAL_FRONTEND_AND_CODE |
+| Verification | Main agent; frontend typecheck, ESLint, 65 tests, Vite build, detector, diff check, mocked 1440×900 browser QA and 7 focused backend authorization tests passed; host lacks `defusedxml`, so backend test used an in-memory test-only alias | Production code was not altered for the environment workaround | VERIFIED_LOCAL |
+| Release/deployment | Main agent retains commit, push, deployment and release-ledger convergence ownership | Not requested | NOT_STARTED |

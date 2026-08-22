@@ -104,10 +104,21 @@ def test_access_request_openapi_create_scope_and_idempotency(client, auth_header
         "/api/data/access-requests",
         headers=auth_headers["retailer"],
     )
+    exchange_mine = client.get(
+        "/api/data/access-requests?mine=true&page=1&page_size=1",
+        headers=auth_headers["exchange"],
+    )
+    generator_mine = client.get(
+        "/api/data/access-requests?mine=true&page=1&page_size=1",
+        headers=auth_headers["generator"],
+    )
     assert exchange_items.status_code == provider_items.status_code == retailer_items.status_code == 200
+    assert exchange_mine.status_code == generator_mine.status_code == 200
     assert exchange_items.json()["total"] == 1
     assert provider_items.json()["total"] == 1
     assert retailer_items.json()["total"] == 0
+    assert exchange_mine.json()["total"] == 1
+    assert generator_mine.json()["total"] == 0
 
     denied_detail = client.get(
         f"/api/data/access-requests/{body['request_id']}",

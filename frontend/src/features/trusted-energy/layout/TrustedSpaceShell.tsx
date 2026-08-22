@@ -4,6 +4,7 @@ import { Activity, BadgeCheck, ChevronDown, Database, FileSignature, Fingerprint
 import { useAuth } from "../../../auth";
 import { AgentSheet } from "../components/AgentSheet";
 import { NotificationCenter } from "../components/NotificationCenter";
+import { ROLE_LABELS, labelForCode } from "../../../types";
 import { isKnownTrustedPath, navItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
 import { cn } from "../utils";
 import { Badge, Button, IconButton } from "../components/ui-primitives";
@@ -43,8 +44,8 @@ const titles: Record<TrustedViewKey, string> = {
   asset: "数据资产护照",
   apply: "使用申请",
   contract: "合同协商",
-  ttc: "TTC 任务详情",
-  mpc: "MPC 计算任务",
+    ttc: "可信任务详情",
+    mpc: "隐私计算任务",
   results: "计算结果与存证",
   audit: "审计中心",
 };
@@ -95,8 +96,8 @@ export function TrustedSpaceShell() {
   const visibleMenuCodes = new Set(context.visible_menus.map((menu) => menu.code));
   if (!visibleMenuCodes.has(trustedMenuCodeForView(view))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
   const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
-  const roleLabel = context.actor.role_label || context.actor.role_code;
-  const did = context.identity_ref.did || "未配置 DID";
+  const roleLabel = context.actor.role_label || ROLE_LABELS[context.actor.role_code as keyof typeof ROLE_LABELS] || labelForCode(context.actor.role_code, "未登记角色");
+  const did = context.identity_ref.did || "未配置去中心化身份标识";
   const activeGroup = currentNav?.key === "identity" ? "主体与身份" : currentNav?.key === "catalog" || currentNav?.key === "upload" || currentNav?.key === "authorizations" ? "数据空间" : currentNav?.key === "contract" || currentNav?.key === "mpc" ? "协作与计算" : currentNav?.key === "audit" || currentNav?.key === "results" ? "证据与审计" : "工作台";
 
   function goTo(path: string) {
@@ -113,10 +114,10 @@ export function TrustedSpaceShell() {
           <span><strong>隐链明算</strong><small>能源可信数据空间</small></span>
         </Link>
         <span className="trusted-divider" aria-hidden="true" />
-        <span className="trusted-org-label">Trusted Energy Data &amp; Privacy Computing Space</span>
+        <span className="trusted-org-label">能源可信数据与隐私计算空间</span>
       </div>
       <div className="trusted-system-right">
-        <Badge tone="success" dot>{context.environment.name === "TEST" ? "本地受控环境" : context.environment.name}</Badge>
+        <Badge tone="success" dot>{context.environment.name === "TEST" ? "本地受控环境" : labelForCode(context.environment.name, "受控环境")}</Badge>
         <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "服务状态正常" : "主体状态异常"}</span>
         <NotificationCenter />
         <div className="trusted-user-menu"><span className="trusted-avatar"><UserRound size={15} /></span><span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span><ChevronDown size={13} /></div>
@@ -128,7 +129,7 @@ export function TrustedSpaceShell() {
       <div className="trusted-nav-inner tw-flex tw-items-center">
         {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
         <span className="trusted-nav-spacer" />
-        <button type="button" className="trusted-nav-agent" onClick={() => setAgentOpen(true)}><Activity size={15} />Agent 助手</button>
+        <button type="button" className="trusted-nav-agent" onClick={() => setAgentOpen(true)}><Activity size={15} />智能助手</button>
       </div>
     </nav>
 

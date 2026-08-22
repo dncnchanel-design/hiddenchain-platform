@@ -29,6 +29,52 @@ from ..services.trust_domain import TrustDomainError
 router = APIRouter(prefix="/trust-space", tags=["trust-space"])
 
 
+_AUDIT_EXPORT_HEADERS = {
+    "record_type": "记录类型",
+    "record_id": "记录编号",
+    "occurred_at": "发生时间",
+    "action_code": "操作动作",
+    "target_type": "对象类型",
+    "target_id": "对象编号",
+    "result": "执行结果",
+    "actor_org_id": "操作主体组织",
+}
+
+_AUDIT_EXPORT_LABELS = {
+    "AUDIT_LOG": "审计日志",
+    "LOGIN": "登录平台",
+    "EXPORT_AUDIT_RECORDS": "导出审计记录",
+    "RUN_TRUSTED_SETTLEMENT_WORKFLOW": "执行可信结算流程",
+    "GENERATE_AUDIT_REPORT": "生成审计报告",
+    "VERIFY_CHAIN_EVIDENCE": "核验证据台账",
+    "REVIEW_AUDIT_REPORT": "审核审计报告",
+    "CONFIRM_SETTLEMENT_RESULT": "确认结果回执",
+    "CREATE_SETTLEMENT_TASK": "创建结算任务",
+    "USER": "用户",
+    "AUDIT_REPORT": "审计报告",
+    "AUDIT_EXPORT": "审计导出记录",
+    "SETTLEMENT_TASK": "结算任务",
+    "SETTLEMENT_RESULT": "结果回执",
+    "BLOCKCHAIN_EVIDENCE": "证据台账记录",
+    "SUCCESS": "成功",
+    "GENERATED": "已生成",
+    "FAILED": "失败",
+    "REJECTED": "已拒绝",
+    "PENDING": "待处理",
+}
+
+
+def _audit_export_label(value: Any, fallback: str = "未登记") -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return fallback
+    if normalized in _AUDIT_EXPORT_LABELS:
+        return _AUDIT_EXPORT_LABELS[normalized]
+    if normalized.isupper() and all(char.isalnum() or char == "_" for char in normalized):
+        return fallback
+    return normalized
+
+
 @router.get("/context")
 def context(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
@@ -577,18 +623,31 @@ def export_audit(
         return Response(
             content=json.dumps(payload, ensure_ascii=False, default=str),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=audit-records.json"},
+            headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%AE%A1%E8%AE%A1%E8%AE%B0.json"},
         )
     stream = io.StringIO()
+    localized_rows = [
+        {
+            "记录类型": _audit_export_label(item.get("record_type"), "审计记录"),
+            "记录编号": item.get("record_id") or "—",
+            "发生时间": item.get("occurred_at") or "—",
+            "操作动作": _audit_export_label(item.get("action_code"), "登记动作"),
+            "对象类型": _audit_export_label(item.get("target_type"), "登记对象"),
+            "对象编号": item.get("target_id") or "—",
+            "执行结果": _audit_export_label(item.get("result"), "未登记结果"),
+            "操作主体组织": item.get("actor_org_id") or "—",
+        }
+        for item in payload["items"]
+    ]
     writer = csv.DictWriter(
         stream,
-        fieldnames=["record_type", "record_id", "occurred_at", "action_code", "target_type", "target_id", "result", "actor_org_id"],
+        fieldnames=list(_AUDIT_EXPORT_HEADERS.values()),
         extrasaction="ignore",
     )
     writer.writeheader()
-    writer.writerows(payload["items"])
+    writer.writerows(localized_rows)
     return Response(
-        content=stream.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=audit-records.csv"},
+        content="\ufeff" + stream.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%AE%A1%E8%AE%A1%E8%AE%B0.csv"},
     )

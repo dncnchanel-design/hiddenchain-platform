@@ -559,6 +559,7 @@ def list_data_usage_requests(
     page_size: int = Query(default=20, ge=1, le=100),
     status_filter: str | None = Query(default=None, alias="status"),
     inbox: bool = Query(default=False),
+    mine: bool = Query(default=False),
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -570,6 +571,7 @@ def list_data_usage_requests(
             page_size=page_size,
             status_filter=status_filter,
             provider_inbox=inbox,
+            applicant_outbox=mine,
         )
         return {
             "items": [usage_request_payload(db, item, user) for item in records],
@@ -577,6 +579,7 @@ def list_data_usage_requests(
             "page": page,
             "page_size": page_size,
             "inbox": inbox,
+            "mine": mine,
         }
     except UsageRequestError as exc:
         raise _usage_request_error(exc) from exc

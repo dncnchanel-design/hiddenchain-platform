@@ -92,3 +92,17 @@ The current Render service is free review/test infrastructure with `APP_ENV=test
 ## Historical frontend handoff checkpoint — 2026-08-20 (superseded by the 2026-08-21 post-publish checkpoint)
 
 - Local typecheck, 49 tests, lint, production build, and independent 1440×900/390×844 visual checks passed at that historical checkpoint; publication was pending precise staging/commit/push, with no Render action in that checkpoint.
+## Current local change — 2026-08-22
+
+```text
+CHANGE = Trusted Space authorization record scope separation and Chinese UI terminology
+LOCAL_STATUS = VERIFIED_LOCAL_ONLY
+LOCAL_BUILD = PASS (frontend typecheck, ESLint and Vite production build)
+LOCAL_TEST = PASS (frontend 65 tests; focused backend authorization 7 tests with in-memory test-only alias because active Python environment lacks defusedxml)
+LOCAL_UI_QA = PASS (mocked 1440x900 inbox/outbound selected-detail review)
+LOCAL_DIFF_CHECK = PASS
+LOCAL_DETECTOR = PASS (Impeccable detector returned no findings)
+COMMIT = NOT_REQUESTED
+PUSH = NOT_REQUESTED
+DEPLOYMENT = NOT_REQUESTED
+```

@@ -113,8 +113,10 @@ export const STATUS_LABELS: Record<string, string> = {
   UNKNOWN: "未知",
   ACTIVE: "已启用",
   VALID: "有效",
+  PASS: "通过",
   PASSED: "已通过",
   SUCCESS: "成功",
+  SUCCEEDED: "已完成",
   CONFIRMED: "已确认",
   AUDITED: "已审计",
   HEALTHY: "正常",
@@ -139,11 +141,15 @@ export const STATUS_LABELS: Record<string, string> = {
   DRAFT: "待准备",
   PENDING: "待处理",
   RUNNING: "执行中",
+  PROCESSING: "处理中",
+  IN_PROGRESS: "进行中",
+  CURRENT: "当前",
   EXCEPTION: "异常",
   MEDIUM: "中风险",
   REVIEW_REQUIRED: "待复核",
   FAILED: "失败",
   DENY: "未通过",
+  DENIED: "已拦截",
   HIGH: "高风险",
   OPEN: "待处置",
   INVALID: "无效",
@@ -151,7 +157,34 @@ export const STATUS_LABELS: Record<string, string> = {
   RECORDED: "已记录",
   NOT_CONFIGURED: "未配置",
   UNVERIFIED: "未验证",
+  MISSING: "缺失",
+  SURPLUS: "有余量",
+  GAP: "存在缺口",
+  SKIPPED: "已跳过",
   NOT_PROVIDED: "未提供",
+  ADAPTER: "适配器能力",
+  DEMO: "演示能力",
+  LOCAL_REAL: "本地真实能力",
+  LOCAL_REAL_DETERMINISTIC: "本地确定性能力",
+  LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST: "本地主机受控实验",
+  AVAILABLE_IN_LOCAL_ADAPTER: "本地适配器可用",
+  BLOCKED: "已阻断",
+  QUEUED: "排队中",
+  CANCELLED: "已取消",
+  COMPLETED: "已完成",
+  UNDER_REVIEW: "审核中",
+  SUBMITTED: "已提交",
+  EXPIRED: "已过期",
+  APPROVED: "已授权",
+  ACTIVE_CONTRACT: "合同已生效",
+  TEST: "测试环境",
+  INFO: "信息",
+  USER: "用户",
+  AUDIT_EXPORT: "审计导出",
+  AUDIT_LOG: "审计日志",
+  AUDIT_REPORT: "审计报告",
+  AUDIT_REPORT_APPROVE: "批准审计报告",
+  AUDIT_REPORT_REJECT: "驳回审计报告",
   AGGREGATED: "聚合输出",
   K_ANONYMIZED: "匿名化输出",
   DIFFERENTIAL_PRIVACY: "差分隐私输出",
@@ -214,8 +247,8 @@ export const ALGORITHM_LABELS: Record<string, string> = {
   ADAPTIVE_MARKET_SETTLEMENT_V2: "自适应结算计算",
   PRIVACY_LOAD_ANALYSIS_V1: "用电隐私分析",
   FEDERATED_LEARNING: "联邦学习",
-  PSI_MPC: "私有集合求交与多方计算（PSI/MPC）",
-  TEE_CONFIDENTIAL_COMPUTE: "可信执行环境计算（TEE）",
+  PSI_MPC: "隐私集合求交与多方安全计算",
+  TEE_CONFIDENTIAL_COMPUTE: "可信执行环境机密计算",
   DIFFERENTIAL_PRIVACY_OUTPUT: "差分隐私输出",
   DETERMINISTIC_RULE_ENGINE: "确定性规则引擎",
   SECRET_SHARING_HE: "秘密共享与同态加密",
@@ -283,6 +316,19 @@ export const ACTION_LABELS: Record<string, string> = {
   RESOLVE_ANOMALY: "处理风险事件",
   UPLOAD_DATA_REFERENCE: "登记数据引用",
   SIGN_DATA_COMMITMENT: "签署数据承诺",
+  REVIEW_INBOUND_AUTHORIZATIONS: "审核入站授权",
+  VIEW_AUTHORIZATIONS: "查看授权记录",
+  VIEW_PENDING_AUDIT: "查看待审计事项",
+  REVIEW_AUDIT_EVIDENCE: "审核审计凭证",
+  CREATE_SETTLEMENT: "发起结算任务",
+  VIEW_RUNTIME_STATUS: "查看运行状态",
+  REQUEST_USAGE: "申请数据使用",
+  CONFIRM_OWN_RESULT: "确认本方结果",
+  VIEW_SYSTEM_CAPABILITIES: "查看系统能力",
+  VIEW_OWN_ASSETS: "查看本方资产",
+  VIEW_ALL_ASSETS: "查看全部资产",
+  EXPORT_AUDIT_RECORDS: "导出审计记录",
+  REVIEW_AUDIT_REPORT: "审核审计报告",
 };
 
 export const TARGET_TYPE_LABELS: Record<string, string> = {
@@ -310,3 +356,124 @@ export const FIELD_SCOPE_LABELS: Record<string, string> = {
   ROLE_SCOPED: "按角色可见",
   NONE: "不可访问",
 };
+
+export const ASSET_TYPE_LABELS: Record<string, string> = {
+  GENERATION_DATA: "发电计量数据",
+  RETAIL_DATA: "售电履约数据",
+  RENEWABLE_FORECAST: "新能源预测数据",
+  USER_LOAD_CURVE: "用户负荷曲线",
+  VPP_RESOURCE: "虚拟电厂资源",
+  GRID_CONSTRAINT: "调度安全边界",
+  COAL_INVENTORY: "煤炭库存",
+  POWER_THERMAL_OUTPUT: "火电出力",
+  GRID_LOAD: "电网负荷",
+  OIL_GAS_SUPPLY: "油气供应",
+};
+
+export const CAPABILITY_LABELS: Record<string, string> = {
+  REAL: "真实能力",
+  LOCAL_REAL: "本地真实能力",
+  LOCAL_REAL_DETERMINISTIC: "本地确定性能力",
+  LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST: "本地主机受控实验",
+  ADAPTER: "适配器能力",
+  DEMO: "演示能力",
+  BLOCKED: "已阻断",
+  NOT_CONFIGURED: "未配置",
+  NOT_PROVIDED: "未提供",
+};
+
+export const RECORD_TYPE_LABELS: Record<string, string> = {
+  AUDIT_LOG: "审计日志",
+  AUDIT_REPORT: "审计报告",
+  AUDIT_EXPORT: "审计导出",
+};
+
+export const TTC_STATE_LABELS: Record<string, string> = {
+  INIT: "已创建",
+  IDENTITY_VERIFIED: "身份已核验",
+  DATA_AUTHORIZED: "数据已授权",
+  RULE_FROZEN: "规则已冻结",
+  COMPUTE_EXEC: "受控计算",
+  RESULT_CONFIRM: "结果确认",
+  AUDIT_GATE: "审计关口",
+  EVIDENCE_STAGE: "证据归档",
+  EVIDENCE_ANCHOR: "证据锚定",
+  ARCHIVED: "已归档",
+  REJECTED: "已拒绝",
+  FAILED: "执行失败",
+  INTERRUPTED: "已中断",
+  REWORK: "返工处理中",
+  HUMAN_REVIEW: "人工复核",
+  ANCHOR_RETRY: "重试证据锚定",
+  CANCELLED: "已取消",
+  EXPIRED: "已过期",
+};
+
+export const SOURCE_OF_TRUTH_LABELS: Record<string, string> = {
+  privacy_compute_jobs: "隐私计算任务记录",
+  privacy_compute_jobs_task_participants: "隐私计算任务与参与方登记",
+  "privacy_compute_jobs/task_participants": "隐私计算任务与参与方登记",
+  "privacy_compute_jobs/ttc_attempts/task_participants": "隐私计算任务、执行尝试与参与方登记",
+  audit_logs_audit_reports: "审计日志与审计报告",
+  "audit_logs/audit_reports": "审计日志与审计报告",
+  "blockchain_evidence/local_evidence_ledger": "区块链证据与本地证据台账",
+  "settlement_results/signatures/blockchain_evidence": "结算结果、签名与区块链证据",
+  organizations_users: "组织与用户记录",
+  "organizations/users": "组织与用户记录",
+  did_identities: "去中心化身份记录",
+  data_sources: "数据源记录",
+  ttc_state_transitions: "可信任务状态转移记录",
+  settlement_tasks: "结算任务记录",
+  backend: "后端登记记录",
+};
+
+export const DOMAIN_LABELS: Record<string, string> = {
+  ELECTRICITY_NODE: "电力节点",
+  COAL_NODE: "煤炭节点",
+  OIL_GAS_NODE: "油气节点",
+  GENERATION_SIDE: "发电侧",
+  RETAIL_SIDE: "售电侧",
+  GRID_SIDE: "电网侧",
+};
+
+export const DATA_STATUS_LABELS: Record<string, string> = {
+  PASSED: "已通过",
+  VALID: "有效",
+  READY: "已就绪",
+  ACTIVE: "已启用",
+  PENDING: "待处理",
+  UNCONFIRMED: "待确认",
+  NOT_PROVIDED: "未提供",
+  NOT_CONFIGURED: "未配置",
+};
+
+export const TECHNICAL_TERM_LABELS: Record<string, string> = {
+  API: "接口",
+  CSV: "表格数据",
+  DID: "去中心化身份标识",
+  EDC: "数据空间连接器",
+  JSON: "结构化数据",
+  MPC: "多方安全计算",
+  PASS: "通过",
+  PSI: "隐私集合求交",
+  TEE: "可信执行环境",
+  TTC: "可信任务链",
+  VC: "可验证凭证",
+};
+
+export function labelForCode(value: unknown, fallback = "未登记") {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return fallback;
+  return STATUS_LABELS[normalized]
+    || ACTION_LABELS[normalized]
+    || TARGET_TYPE_LABELS[normalized]
+    || ASSET_TYPE_LABELS[normalized]
+    || CAPABILITY_LABELS[normalized]
+    || RECORD_TYPE_LABELS[normalized]
+    || TTC_STATE_LABELS[normalized]
+    || SOURCE_OF_TRUTH_LABELS[normalized]
+    || DOMAIN_LABELS[normalized]
+    || DATA_STATUS_LABELS[normalized]
+    || TECHNICAL_TERM_LABELS[normalized]
+    || (/^[A-Z][A-Z0-9_]*$/.test(normalized) ? fallback : normalized);
+}

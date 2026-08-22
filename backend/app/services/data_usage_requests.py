@@ -441,18 +441,23 @@ def list_requests(
     page_size: int,
     status_filter: str | None,
     provider_inbox: bool = False,
+    applicant_outbox: bool = False,
 ) -> tuple[list[DataUsageRequest], int]:
     if status_filter:
         try:
             DataUsageRequestStatus(status_filter)
         except ValueError:
             _raise(400, "INVALID_REQUEST_STATUS", "申请状态无效")
+    if provider_inbox and applicant_outbox:
+        _raise(400, "REQUEST_SCOPE_INVALID", "不能同时查询待审申请和本人申请")
     query = select(DataUsageRequest)
     if provider_inbox:
         if user.role_code not in _PROVIDER_REVIEWERS:
             _raise(403, "PROVIDER_INBOX_DENIED", "当前角色不能访问提供方待审箱")
         if user.role_code != "ADMIN":
             query = query.where(DataUsageRequest.provider_org_id == user.org_id)
+    elif applicant_outbox:
+        query = query.where(DataUsageRequest.applicant_org_id == user.org_id)
     if user.role_code not in _READ_ALL:
         query = query.where(
             or_(

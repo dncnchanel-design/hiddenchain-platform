@@ -4,7 +4,7 @@ import { api, postForm } from "../api";
 import { useAuth } from "../auth";
 import { Button, DataTable, DateTimeText, Field, IdText, Metric, MetricStrip, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import type { JsonRecord } from "../types";
+import { labelForCode, type JsonRecord } from "../types";
 
 type ExcelSheetSummary = {
   name: string;
@@ -166,7 +166,7 @@ export function ExcelUploadPage() {
             columns={[
               { key: "name", label: "工作表", minWidth: 150 },
               { key: "row_count", label: "数据行", align: "right" },
-              { key: "allowed_asset_types", label: "允许资产类型", minWidth: 250, render: (row) => row.allowed_asset_types.map((type) => assetNames[type] || type).join("、") },
+              { key: "allowed_asset_types", label: "允许资产类型", minWidth: 250, render: (row) => row.allowed_asset_types.map((type) => assetNames[type] || labelForCode(type, "已登记资产类型")).join("、") },
               { key: "status", label: "状态", render: () => <StatusTag value={validation.valid ? "PASSED" : "FAILED"} /> },
             ]}
           />
@@ -197,7 +197,7 @@ export function ExcelUploadPage() {
           label="最近数据资产"
           columns={[
             { key: "label", label: "数据资产", minWidth: 210 },
-            { key: "asset_type", label: "资产类型", minWidth: 150, render: (row) => assetNames[row.asset_type] || row.asset_type || "—" },
+            { key: "asset_type", label: "资产类型", minWidth: 150, render: (row) => assetNames[row.asset_type] || labelForCode(row.asset_type, "已登记资产类型") },
             { key: "owner_org_name", label: "数据提供方", minWidth: 160 },
             { key: "trade_batch_no", label: "批次编号", minWidth: 150, render: (row) => <IdText value={row.trade_batch_no} length={8} /> },
             { key: "summary_json", label: "功能覆盖", minWidth: 220, render: (row) => row.summary_json?.excel_import?.function_scope || "—" },

@@ -12,7 +12,7 @@ export function PageFrame({ title, description, eyebrow, back, action, children,
         <div className="trusted-heading-title-row"><h1>{title}</h1>{eyebrow && <span className="trusted-heading-eyebrow">{eyebrow}</span>}</div>
         {description && <p>{description}</p>}
       </div>
-      <div className="trusted-page-actions">{action}<TrustedHelpPanel /><IconButton label="打开 Agent 助手" onClick={() => window.dispatchEvent(new CustomEvent("trusted-energy:agent-open"))}><Bot size={16} /></IconButton></div>
+      <div className="trusted-page-actions">{action}<TrustedHelpPanel /><IconButton label="打开智能助手" onClick={() => window.dispatchEvent(new CustomEvent("trusted-energy:agent-open"))}><Bot size={16} /></IconButton></div>
     </div>
     {children}
   </div>;

@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, Database, Search, SlidersHorizontal, UserRound } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { loadCatalog, type CatalogAsset } from "../trusted-space-api";
+import { ASSET_TYPE_LABELS, DOMAIN_LABELS, labelForCode } from "../../../types";
 import { routeForView } from "../types";
 import { Badge, Button, Card, CardContent, Input, RemoteState, Select, StatusBadge } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { useRemote } from "../../../hooks";
+import { sensitivityLabel } from "../trusted-space-labels";
 
 const PAGE_SIZE = 12;
 
@@ -73,12 +75,12 @@ export function CatalogPage() {
     <Card className="trusted-filter-card"><CardContent>
       <div className="trusted-filter-row">
         <label className="trusted-search-field"><Search size={16} /><Input ref={searchInputRef} value={searchText} onChange={(event) => updateFilter("q", event.target.value)} placeholder="搜索资产名称、提供方、标识…" aria-label="搜索数据资产" /></label>
-        <Select value={type} onChange={(event) => updateFilter("asset_type", event.target.value)} options={[{ value: "", label: "全部类型" }, ...typeOptions.map((item) => ({ value: item, label: item }))]} />
-        <Select value={domain} onChange={(event) => updateFilter("domain", event.target.value)} options={[{ value: "", label: "全部领域" }, ...domainOptions.map((item) => ({ value: item, label: item }))]} />
-        <Select value={level} onChange={(event) => updateFilter("sensitivity_level", event.target.value)} options={[{ value: "", label: "全部等级" }, { value: "L1", label: "L1 公开" }, { value: "L2", label: "L2 内部" }, { value: "L3", label: "L3 敏感" }, { value: "L4", label: "L4 高敏" }]} />
+        <Select value={type} onChange={(event) => updateFilter("asset_type", event.target.value)} options={[{ value: "", label: "全部类型" }, ...typeOptions.map((item) => ({ value: item, label: ASSET_TYPE_LABELS[item] || labelForCode(item) }))]} />
+        <Select value={domain} onChange={(event) => updateFilter("domain", event.target.value)} options={[{ value: "", label: "全部领域" }, ...domainOptions.map((item) => ({ value: item, label: DOMAIN_LABELS[item] || labelForCode(item) }))]} />
+        <Select value={level} onChange={(event) => updateFilter("sensitivity_level", event.target.value)} options={[{ value: "", label: "全部等级" }, { value: "L1", label: `${sensitivityLabel("L1")}（公开）` }, { value: "L2", label: `${sensitivityLabel("L2")}（内部）` }, { value: "L3", label: `${sensitivityLabel("L3")}（敏感）` }, { value: "L4", label: `${sensitivityLabel("L4")}（高敏）` }]} />
         <Button variant="ghost" size="icon" aria-label="清空筛选" title="清空筛选" onClick={clearFilters}><SlidersHorizontal size={15} /></Button>
       </div>
-      <div className="trusted-filter-summary"><span><Database size={13} />共 {payload?.total ?? 0} 项资产</span><span>当前范围：由后端按角色与组织授权返回</span><Badge tone={payload?.capability_state === "LOCAL_REAL" ? "success" : "warning"}>{payload?.source_of_truth || "正在读取真实目录"}</Badge></div>
+      <div className="trusted-filter-summary"><span><Database size={13} />共 {payload?.total ?? 0} 项资产</span><span>当前范围：由后端按角色与组织授权返回</span><Badge tone={payload?.capability_state === "LOCAL_REAL" ? "success" : "warning"}>{payload?.source_of_truth ? labelForCode(payload.source_of_truth) : "正在读取真实目录"}</Badge></div>
     </CardContent></Card>
 
     {remote.loading && !payload && <RemoteState loading />}
@@ -95,5 +97,5 @@ export function CatalogPage() {
 function CatalogAssetRow({ asset, onOpen, onApply }: { asset: CatalogAsset; onOpen: () => void; onApply: () => void }) {
   const providerName = asset.provider.org_name || asset.provider.org_id;
   const version = asset.latest_version;
-  return <Card className="trusted-asset-row"><CardContent><div className="trusted-asset-main"><span className="trusted-asset-icon"><Database size={18} /></span><div><div className="trusted-asset-title"><h2>{asset.asset_name}</h2><Badge tone={asset.sensitivity_level === "L4" ? "danger" : asset.sensitivity_level === "L3" ? "warning" : "neutral"}>{asset.sensitivity_level}</Badge><StatusBadge value={asset.status} /></div><p>{asset.asset_code} · {asset.domain || "未标注领域"}</p><div className="trusted-asset-meta"><span><UserRound size={13} />{providerName}</span><span>{asset.asset_type} · {asset.source.capability_label}</span><span>版本 {version ? `V${version.version_no}` : "未发布"}</span></div></div></div><div className="trusted-asset-stats"><div><small>记录数</small><strong>{version?.record_count ?? "—"}</strong></div><div><small>数据状态</small><strong>{version?.status || "—"}</strong></div><div><small>来源状态</small><strong>{asset.source.status || "—"}</strong></div><div className="trusted-asset-actions"><Button variant="secondary" size="sm" onClick={onOpen}>查看详情 <ArrowUpRight size={13} /></Button>{asset.actions.can_request_usage ? <Button variant="primary" size="sm" onClick={onApply}>申请使用</Button> : <Button variant="secondary" size="sm" disabled title="当前角色或组织无权申请该资产">申请使用</Button>}</div></div></CardContent></Card>;
+  return <Card className="trusted-asset-row"><CardContent><div className="trusted-asset-main"><span className="trusted-asset-icon"><Database size={18} /></span><div><div className="trusted-asset-title"><h2>{asset.asset_name}</h2><Badge tone={asset.sensitivity_level === "L4" ? "danger" : asset.sensitivity_level === "L3" ? "warning" : "neutral"}>{sensitivityLabel(asset.sensitivity_level)}</Badge><StatusBadge value={asset.status} /></div><p>{asset.asset_code} · {DOMAIN_LABELS[asset.domain || ""] || asset.domain || "未标注领域"}</p><div className="trusted-asset-meta"><span><UserRound size={13} />{providerName}</span><span>{ASSET_TYPE_LABELS[asset.asset_type] || labelForCode(asset.asset_type)} · {labelForCode(asset.source.capability_label)}</span><span>{version ? `第 ${version.version_no} 版` : "未发布"}</span></div></div></div><div className="trusted-asset-stats"><div><small>记录数</small><strong>{version?.record_count ?? "—"}</strong></div><div><small>数据状态</small><strong>{labelForCode(version?.status)}</strong></div><div><small>来源状态</small><strong>{labelForCode(asset.source.status)}</strong></div><div className="trusted-asset-actions"><Button variant="secondary" size="sm" onClick={onOpen}>查看详情 <ArrowUpRight size={13} /></Button>{asset.actions.can_request_usage ? <Button variant="primary" size="sm" onClick={onApply}>申请使用</Button> : <Button variant="secondary" size="sm" disabled title="当前角色或组织无权申请该资产">申请使用</Button>}</div></div></CardContent></Card>;
 }

@@ -3,7 +3,7 @@ import { Eye, Play, RefreshCw, Workflow } from "lucide-react";
 import { api, post } from "../api";
 import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, FilterBar, IdText, LoadingState, Metric, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
-import { AGENT_LABELS, MESSAGE_TYPE_LABELS, SCENARIO_LABELS, TOOL_LABELS, type JsonRecord } from "../types";
+import { AGENT_LABELS, MESSAGE_TYPE_LABELS, SCENARIO_LABELS, TOOL_LABELS, labelForCode, type JsonRecord } from "../types";
 
 type AgentResults = Record<string, JsonRecord>;
 
@@ -82,7 +82,7 @@ export function AgentsPage() {
       </div>
 
       <FilterBar actions={<Button icon={Workflow} variant="primary" busy={batchRunning} disabled={!effectiveTaskId || Boolean(runningCode)} onClick={() => setConfirmBatch(true)}>运行任务能力链</Button>}>
-        <label><span>关联任务</span><select value={effectiveTaskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}><option value="">请选择</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{item.capsule_id} · {item.task_name}</option>)}</select></label>
+        <label><span>关联任务</span><select value={effectiveTaskId} onChange={(event) => { setTaskId(event.target.value); setResults({}); }}><option value="">请选择</option>{data.tasks.map((item) => <option key={item.task_id} value={item.task_id}>{labelForCode(item.capsule_id, "已登记任务")} · {item.task_name}</option>)}</select></label>
       </FilterBar>
       {!effectiveTaskId && <Notice tone="info">请先选择一个真实任务；未选择任务时不会执行能力服务或展示其他任务事件。</Notice>}
       {actionError && <Notice tone="warning">{actionError}</Notice>}
@@ -91,10 +91,10 @@ export function AgentsPage() {
         <DataTable
           keyField="code" rows={data.definitions} label="能力服务目录"
           columns={[
-            { key: "name", label: "能力服务", minWidth: 170, render: (row) => capabilityName(row.name) || AGENT_LABELS[row.code] || row.code || "—" },
-            { key: "scenario_code", label: "业务场景", minWidth: 150, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_code || "—" },
-            { key: "input", label: "输入", minWidth: 170 },
-            { key: "output", label: "输出", minWidth: 170 },
+            { key: "name", label: "能力服务", minWidth: 170, render: (row) => AGENT_LABELS[row.code] || capabilityName(row.name) || labelForCode(row.code, "已登记能力") },
+            { key: "scenario_code", label: "业务场景", minWidth: 150, render: (row) => SCENARIO_LABELS[row.scenario_code] || labelForCode(row.scenario_code, "已登记场景") },
+            { key: "input", label: "输入", minWidth: 170, render: (row) => labelForCode(row.input, "已登记输入") },
+            { key: "output", label: "输出", minWidth: 170, render: (row) => labelForCode(row.output, "已登记输出") },
             { key: "tools", label: "受控工具", align: "right", render: (row) => `${row.tools?.length ?? 0} 项` },
             { key: "status", label: "状态", render: (row) => <StatusTag value={results[row.code]?.success === false ? "FAILED" : results[row.code] ? "SUCCESS" : "ACTIVE"} label={results[row.code]?.success === false ? "调用失败" : results[row.code] ? "本次已完成" : "已登记"} /> },
             { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <div className="inline-actions"><Button icon={Play} variant="primary" busy={runningCode === row.code} disabled={!effectiveTaskId || batchRunning || Boolean(runningCode && runningCode !== row.code)} onClick={() => invokeOne(row)}>运行</Button>{results[row.code] && <Button icon={Eye} onClick={() => setSelectedResult({ agent: row, result: results[row.code] })}>结果</Button>}</div> },
@@ -108,8 +108,8 @@ export function AgentsPage() {
           columns={[
             { key: "sequence_no", label: "序号", align: "right", render: (row) => row.sequence_no === undefined ? "—" : String(row.sequence_no).padStart(2, "0") },
             { key: "agent_code", label: "能力服务", minWidth: 150, render: (row) => capabilityName(AGENT_LABELS[row.agent_code] || row.agent_code) },
-            { key: "message_type", label: "事件类型", minWidth: 140, render: (row) => MESSAGE_TYPE_LABELS[row.message_type] || row.message_type || "—" },
-            { key: "tool_name", label: "受控工具", minWidth: 140, render: (row) => TOOL_LABELS[row.tool_name] || row.tool_name || "—" },
+            { key: "message_type", label: "事件类型", minWidth: 140, render: (row) => MESSAGE_TYPE_LABELS[row.message_type] || labelForCode(row.message_type, "已登记事件") },
+            { key: "tool_name", label: "受控工具", minWidth: 140, render: (row) => TOOL_LABELS[row.tool_name] || labelForCode(row.tool_name, "已登记工具") },
             { key: "input_hash", label: "输入摘要", minWidth: 150, render: (row) => <IdText value={row.input_hash} /> },
             { key: "output_hash", label: "输出摘要", minWidth: 150, render: (row) => <IdText value={row.output_hash} /> },
             { key: "signed_call", label: "签名记录", render: (row) => row.signed_call ? <StatusTag value="CONFIRMED" label="已记录" /> : "—" },
@@ -120,11 +120,11 @@ export function AgentsPage() {
       </Surface>
 
       {selectedResult && <DetailDrawer title={`${capabilityName(selectedResult.agent.name)}调用结果`} onClose={() => setSelectedResult(null)} footer={<Button onClick={() => setSelectedResult(null)}>关闭</Button>}>
-        <div className="detail-grid"><div><span>能力服务</span><strong>{capabilityName(selectedResult.agent.name)}</strong></div><div><span>业务场景</span><strong>{SCENARIO_LABELS[selectedResult.agent.scenario_code] || selectedResult.agent.scenario_code || "—"}</strong></div><div><span>调用状态</span><StatusTag value={selectedResult.result.success === false ? "FAILED" : "SUCCESS"} /></div><div><span>请求编号</span><IdText value={selectedResult.result.request_id} /></div></div>
+        <div className="detail-grid"><div><span>能力服务</span><strong>{AGENT_LABELS[selectedResult.agent.code] || capabilityName(selectedResult.agent.name)}</strong></div><div><span>业务场景</span><strong>{SCENARIO_LABELS[selectedResult.agent.scenario_code] || labelForCode(selectedResult.agent.scenario_code, "已登记场景")}</strong></div><div><span>调用状态</span><StatusTag value={selectedResult.result.success === false ? "FAILED" : "SUCCESS"} /></div><div><span>请求编号</span><IdText value={selectedResult.result.request_id} /></div></div>
         {selectedResult.result.summary && <div className="detail-section"><h3>执行摘要</h3><p>{selectedResult.result.summary}</p></div>}
         {(selectedResult.result.findings || []).length > 0 && <div className="detail-section"><h3>检查结果</h3><ul className="finding-list">{selectedResult.result.findings.map((finding: JsonRecord, index: number) => <li key={`${finding.title}-${index}`}><strong>{finding.title}</strong><span>{finding.detail}</span></li>)}</ul></div>}
         {selectedResult.result.recommended_next_action && <div className="detail-section"><h3>建议动作</h3><p>{selectedResult.result.recommended_next_action}</p></div>}
-        <details className="secondary-details"><summary>服务技术信息</summary><div className="detail-grid"><div><span>能力标识</span><IdText value={selectedResult.agent.did} /></div><div><span>处理耗时</span><strong>{selectedResult.result.duration_ms === undefined ? "—" : `${selectedResult.result.duration_ms} ms`}</strong></div><div><span>受控工具</span><strong>{(selectedResult.agent.tools || []).map((tool: string) => TOOL_LABELS[tool] || tool).join("、") || "—"}</strong></div></div></details>
+        <details className="secondary-details"><summary>服务技术信息</summary><div className="detail-grid"><div><span>能力标识</span><IdText value={selectedResult.agent.did} /></div><div><span>处理耗时</span><strong>{selectedResult.result.duration_ms === undefined ? "—" : `${selectedResult.result.duration_ms} 毫秒`}</strong></div><div><span>受控工具</span><strong>{(selectedResult.agent.tools || []).map((tool: string) => TOOL_LABELS[tool] || labelForCode(tool, "已登记工具")).join("、") || "—"}</strong></div></div></details>
       </DetailDrawer>}
 
       <ConfirmDialog
