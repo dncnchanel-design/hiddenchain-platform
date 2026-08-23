@@ -222,3 +222,36 @@ LOCAL_REVERIFICATION = PASS（前端 66 tests + lint + typecheck + production bu
 GITHUB_FINAL_SYNC = PENDING
 RENDER_FINAL_SYNC = PENDING
 ```
+
+## 2026-08-23 参照站视觉改造与六服务公开演示发布
+
+```text
+LOCAL_CODE_COMMIT = 0e486ea44059d235cdcfbcedee352fe51484af83
+GITHUB_CODE_PAYLOAD_SHA = bb46072d616153a2d2f591ac9b14e02c93690479
+GITHUB_BRANCHES = main; agent/deep-brand-green
+GITHUB_SYNC = PASS（非强制更新；两个分支指向同一提交）
+GITHUB_CHECKS = PASS（15/15）
+
+VISUAL_SCOPE = 深蓝信息头 + 白色八模块导航 + 浅蓝灰画布 + 白色业务卡片 + 深蓝登录背景
+RAW_UPLOAD_UI = REMOVED（旧路径重定向到企业侧数据连接；公开演示后端拒绝原始数据入口）
+LOCAL_VERIFICATION = PASS（66 frontend tests；ESLint；production/brand guards；TypeScript；Vite build；backend full pytest；Python compileall；1280×720 与 390×844 浏览器检查）
+
+RENDER_BLUEPRINT = hiddenchain-multi-energy-demo
+RENDER_BLUEPRINT_ID = exs-da5df62jobas73ec7dm0
+RENDER_PLATFORM_URL = https://hiddenchain-platform-review.onrender.com
+RENDER_CONNECTORS = electricity; coal; heat; gas; oil
+RENDER_HEALTH = PASS（平台 READY；五个连接器均就绪；raw_data_centrally_stored=false）
+RENDER_BUILD_SHA = bb46072d616153a2d2f591ac9b14e02c93690479
+
+ONLINE_AUTHORIZATION = e45dc9e3-cc12-4b42-a902-b1fdff33869f（APPROVED）
+ONLINE_TASK = TASK-20260823-A3A78549
+ONLINE_CONTROLLED_RESULT = 6052.45 MWh（发电量求和）
+ONLINE_SIGNATURE = PASS（Ed25519 已验证）
+ONLINE_AUDIT = PASS
+ONLINE_RAW_RECORDS_RETURNED = false
+
+TRIPLE_SYNC = PASS_PUBLIC_DEMO
+PRODUCTION_STATUS = NOT_RELEASED（Render 为可公开演示环境；企业交付后部署到企业内网）
+```
+
+代码负载提交与后续文档同步提交分开记录；文档提交不改变业务代码、部署清单或六个服务的运行边界。
