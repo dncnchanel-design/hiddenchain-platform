@@ -255,3 +255,30 @@ PRODUCTION_STATUS = NOT_RELEASED（Render 为可公开演示环境；企业交�
 ```
 
 代码负载提交与后续文档同步提交分开记录；文档提交不改变业务代码、部署清单或六个服务的运行边界。
+
+## 2026-08-23 参与主体页动态 UI 与监管跨能源权限最终同步
+
+```text
+LOCAL_CODE_COMMIT = 4cc5d89（本地已验证代码提交；代码树与远端负载一致）
+GITHUB_CODE_PAYLOAD_SHA = 7828be0afa1d20da733d2b0470b7ff0644653233
+GITHUB_BRANCHES = main; agent/deep-brand-green
+GITHUB_SYNC = PASS（非强制更新；两分支同一提交）
+GITHUB_CHECKS = PASS（后端、接口、OPA、安全、SBOM、依赖、SHACL 全部成功）
+
+LOCAL_VERIFICATION = PASS（前端 71 项测试；TypeScript；ESLint；生产/品牌检查；Vite 构建；后端 157 passed / 1 skipped；定向权限回归；桌面与 390px 浏览器检查）
+AUTHORIZATION_BOUNDARY = PASS（企业/交易中心仅本能源域；仅监管方跨能源发现；提供方授权后才可使用）
+DID_PUBLIC_DOCUMENT = PASS（身份目录 12 条、全部已验证；私钥/令牌/密码字段已脱敏）
+
+RENDER_SERVICE = hiddenchain-platform-review
+RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
+RENDER_URL = https://hiddenchain-platform-review.onrender.com
+RENDER_DEPLOY_COMMIT = 7828be0afa1d20da733d2b0470b7ff0644653233
+RENDER_HEALTH = PASS（live HTTP 200；ready READY；version build_sha 匹配）
+RENDER_ONLINE_SMOKE = PASS（监管方可见发电目录；热能企业不可见发电目录；DID文档展开成功）
+
+TRIPLE_SYNC = PASS_REVIEW_TEST_ONLY（代码负载）
+DOCUMENTATION_SYNC_TARGET = CURRENT_DOCUMENTATION_SYNC_HEAD
+PRODUCTION_STATUS = NOT_RELEASED（Render 为公开演示/评审环境；企业交付后部署到内网）
+```
+
+本条记录只描述已验证的代码负载和评审环境证据；不宣称外部 TEE、跨域 MPC 节点、区块链共识或正式生产基础设施已经部署。
