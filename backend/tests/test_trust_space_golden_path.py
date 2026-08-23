@@ -177,7 +177,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         headers=auth_headers["heat"],
     )
     assert heat_catalog.status_code == 200, heat_catalog.text
-    assert any(
+    assert not any(
         item["provider"]["org_id"] == "org-generator-t01"
         for item in heat_catalog.json()["items"]
     )

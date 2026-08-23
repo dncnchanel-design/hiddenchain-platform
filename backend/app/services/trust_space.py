@@ -77,14 +77,6 @@ PROVIDER_ROLES = ENTERPRISE_ROLES | frozenset({"EXCHANGE"})
 APPLICANT_ROLES = BUSINESS_ROLES
 OVERSIGHT_ROLES = frozenset({"REGULATOR"})
 
-# Cross-energy discovery is metadata-only. Every business participant may
-# discover published catalog metadata across energy domains; the request and
-# connector layers still require the provider's explicit authorization.
-_CROSS_DOMAIN_METADATA_POLICY = {
-    role: frozenset({"*"})
-    for role in BUSINESS_ROLES
-}
-
 MANUAL_TTC_TARGETS = frozenset(
     {
         TTCState.HUMAN_REVIEW,
@@ -118,12 +110,12 @@ TRUST_SPACE_HELP_VERSION = "20260821.004"
 TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
     "workbench": {
         "title": "工作台",
-        "summary": "工作台聚合目录元数据和当前主体有权查看的申请、任务、结果与审计计数。",
+        "summary": "工作台聚合当前能源域可见资产和当前主体有权查看的申请、任务、结果与审计计数。",
         "entries": [
             {
                 "id": "scope",
                 "title": "数据范围",
-                "body": "资产卡片只代表目录元数据可见，不代表原始数据可读；实际跨能源使用必须经过提供方授权。",
+                "body": "资产卡片只代表当前能源域的目录元数据可见，不代表原始数据可读；监管方跨能源查询也必须经过提供方授权。",
                 "related_paths": ["/api/trust-space/context", "/api/trust-space/workbench"],
                 "allowed_actions": ["view", "refresh"],
             },
@@ -151,12 +143,12 @@ TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
     },
     "catalog": {
         "title": "数据目录",
-        "summary": "搜索、筛选、分页和资产详情均以真实数据资产元数据读模型为准。",
+        "summary": "搜索、筛选、分页和资产详情均以真实数据资产读模型及当前能源域范围为准。",
         "entries": [
             {
                 "id": "application",
                 "title": "使用申请",
-                "body": "目录允许跨能源发现元数据；申请前确认资产版本、敏感级别、用途和使用方式，提交后由资产提供方审批。",
+                "body": "企业只能发现本能源域目录；监管方可发起跨能源查询。申请前确认资产版本、敏感级别、用途和使用方式，提交后由资产提供方审批。",
                 "related_paths": ["/api/trust-space/catalog", "/api/data/access-requests"],
                 "allowed_actions": ["view", "filter", "open_asset", "request_usage"],
             }
@@ -283,7 +275,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "GENERATOR": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
-        "can_discover_cross_domain_metadata": True,
+        "can_discover_cross_domain_metadata": False,
         "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": True,
@@ -296,7 +288,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "RETAILER": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
-        "can_discover_cross_domain_metadata": True,
+        "can_discover_cross_domain_metadata": False,
         "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": True,
@@ -309,7 +301,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "EXCHANGE": {
         "can_view_own_assets": False,
         "can_view_all_assets": True,
-        "can_discover_cross_domain_metadata": True,
+        "can_discover_cross_domain_metadata": False,
         "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": False,
@@ -408,10 +400,7 @@ def _asset_visible_in_energy_scope(
         return True
     energy_domain = organization.energy_domain if organization else None
     asset_domain = _asset_energy_domain(asset, sources)
-    if energy_domain and asset_domain == energy_domain:
-        return True
-    allowed_domains = _CROSS_DOMAIN_METADATA_POLICY.get(user.role_code, frozenset())
-    return "*" in allowed_domains or asset_domain in allowed_domains
+    return bool(energy_domain and asset_domain == energy_domain)
 
 
 def _asset_access_control(
@@ -508,7 +497,7 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
         if connector_sources
         else "NOT_CONFIGURED"
     )
-    can_discover_cross_domain = user.role_code in BUSINESS_ROLES
+    can_discover_cross_domain = user.role_code == "REGULATOR"
     return {
         "actor": {
             "user_id": user.user_id,
@@ -561,7 +550,7 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
             ),
             "cross_domain_data_access": _capability(
                 "LOCAL_REAL" if can_discover_cross_domain else "BLOCKED",
-                "business-role cross-energy metadata and provider-gated requests",
+                "regulator-only cross-energy metadata and provider-gated requests",
                 allowed_for_role=can_discover_cross_domain,
                 provider_decision_required=can_discover_cross_domain,
                 raw_data_export=False,
@@ -802,6 +791,7 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
             _visible_asset_query(user).order_by(DataAsset.created_at.desc())
         ).all()
         if _asset_visible_in_energy_scope(item, user, current_organization, source_map)
+        and (user.role_code not in ENTERPRISE_ROLES or item.owner_org_id == user.org_id)
     ]
     assets = visible_asset_rows[:8]
     tasks = db.scalars(_task_scope_query(db, user).order_by(SettlementTask.updated_at.desc()).limit(8)).all()
