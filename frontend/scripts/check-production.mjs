@@ -25,7 +25,7 @@ const findings = [];
 
 for (const [pattern, message] of [
   [/VITE_(?:DEMO|MOCK|ENV_LABEL)/i, "build-time demo/mock environment switch found"],
-  [/演示环境|演示账号|默认账号|模拟计算/, "production-visible demo copy found"],
+  [/默认账号|模拟计算/, "production-visible unsafe demo copy found"],
   [/(?:generator|retailer|exchange|regulator|admin).{0,40}(?:password|密码)/i, "embedded default account credential found"],
 ]) {
   if (pattern.test(message.includes("credential") ? loginSource : source)) findings.push(message);

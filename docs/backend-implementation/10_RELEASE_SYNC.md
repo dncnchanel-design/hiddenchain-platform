@@ -211,3 +211,14 @@ GITHUB_SYNC = PENDING
 RENDER_SYNC = PENDING
 PRODUCTION_STATUS = NOT_RELEASED（Render 为公开演示环境；企业交付后部署内网）
 ```
+
+## 2026-08-23 远端门禁修复
+
+```text
+GITHUB_INITIAL_SYNC = bab34c184da07ae4b7b5c23a9bc135990cc2af0e
+CI_FRONTEND_GUARD_FIX = 演示账号从前端源码移至仅在 APP_ENV=demo 时返回的运行时公开配置
+CI_DEPENDENCY_FIX = connector h11 0.16.0；idna 3.15
+LOCAL_REVERIFICATION = PASS（前端 66 tests + lint + typecheck + production build；后端与连接器全量 pytest）
+GITHUB_FINAL_SYNC = PENDING
+RENDER_FINAL_SYNC = PENDING
+```

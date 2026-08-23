@@ -173,6 +173,24 @@ settings = Settings()
 def public_branding(settings_value: Settings = settings) -> dict[str, object]:
     """Return the non-sensitive runtime configuration consumed by the web UI."""
 
+    demo_accounts = []
+    if settings_value.app_env == "demo":
+        demo_accounts = [
+            {"label": "发电企业", "username": "generator", "password": "generator123"},
+            {"label": "售电企业", "username": "retailer", "password": "retailer123"},
+            {"label": "煤炭企业", "username": "coal", "password": "coal123"},
+            {"label": "热能企业", "username": "heat", "password": "heat123"},
+            {"label": "天然气企业", "username": "gas", "password": "gas123"},
+            {"label": "石油企业", "username": "oil", "password": "oil123"},
+            {"label": "电力交易中心", "username": "exchange", "password": "exchange123"},
+            {"label": "煤炭交易中心", "username": "exchange_coal", "password": "exchange123"},
+            {"label": "热能交易中心", "username": "exchange_heat", "password": "exchange123"},
+            {"label": "天然气交易中心", "username": "exchange_gas", "password": "exchange123"},
+            {"label": "石油交易中心", "username": "exchange_oil", "password": "exchange123"},
+            {"label": "监管方", "username": "regulator", "password": "regulator123"},
+            {"label": "平台运维", "username": "admin", "password": "admin123"},
+        ]
+
     return {
         "productName": settings_value.product_name,
         "productShortName": settings_value.product_short_name,
@@ -194,6 +212,7 @@ def public_branding(settings_value: Settings = settings) -> dict[str, object]:
         "environmentName": settings_value.environment_name,
         "loginNotice": settings_value.login_notice,
         "environment": settings_value.app_env,
+        "demoAccounts": demo_accounts,
         "features": {
             "fixtureImport": settings_value.app_env in {"development", "test"},
             "anomalyInjection": settings_value.app_env in {"development", "test"},

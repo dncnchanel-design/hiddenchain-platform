@@ -6,22 +6,6 @@ import { useAuth } from "../auth";
 import { BrandMark, productFooterItems, useProductConfig } from "../branding";
 import { Button, Notice } from "../components/ui";
 
-const demoAccounts = [
-  { label: "发电企业", username: "generator", password: "generator123" },
-  { label: "售电企业", username: "retailer", password: "retailer123" },
-  { label: "煤炭企业", username: "coal", password: "coal123" },
-  { label: "热能企业", username: "heat", password: "heat123" },
-  { label: "天然气企业", username: "gas", password: "gas123" },
-  { label: "石油企业", username: "oil", password: "oil123" },
-  { label: "电力交易中心", username: "exchange", password: "exchange123" },
-  { label: "煤炭交易中心", username: "exchange_coal", password: "exchange123" },
-  { label: "热能交易中心", username: "exchange_heat", password: "exchange123" },
-  { label: "天然气交易中心", username: "exchange_gas", password: "exchange123" },
-  { label: "石油交易中心", username: "exchange_oil", password: "exchange123" },
-  { label: "监管方", username: "regulator", password: "regulator123" },
-  { label: "平台运维", username: "admin", password: "admin123" },
-];
-
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -84,7 +68,7 @@ export function LoginPage() {
           </div>
 
           {mode === "account" ? <>
-          {product.environmentName.includes("演示") && <label className="field trusted-demo-account"><span>演示身份</span><select defaultValue="" onChange={(event) => { if (!event.target.value) return; const account = demoAccounts[Number(event.target.value)]; if (account) { setUsername(account.username); setPassword(account.password); } }}><option value="">请选择企业或机构</option>{demoAccounts.map((account, index) => <option key={account.label} value={index}>{account.label}</option>)}</select></label>}
+          {product.demoAccounts.length > 0 && <label className="field trusted-demo-account"><span>演示身份</span><select defaultValue="" onChange={(event) => { if (!event.target.value) return; const account = product.demoAccounts[Number(event.target.value)]; if (account) { setUsername(account.username); setPassword(account.password); } }}><option value="">请选择企业或机构</option>{product.demoAccounts.map((account, index) => <option key={account.label} value={index}>{account.label}</option>)}</select></label>}
           <label className="field">
             <span>账号</span>
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required minLength={3} maxLength={64} autoFocus />

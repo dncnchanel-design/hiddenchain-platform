@@ -25,7 +25,12 @@ export interface ProductBrandConfig {
   environmentName: string;
   loginNotice: string;
   brandTheme: BrandThemeConfig;
-  environment: "development" | "test" | "production";
+  environment: "development" | "test" | "demo" | "production";
+  demoAccounts: Array<{
+    label: string;
+    username: string;
+    password: string;
+  }>;
   features: {
     fixtureImport: boolean;
     anomalyInjection: boolean;
@@ -58,6 +63,7 @@ export const DEFAULT_PRODUCT_CONFIG: ProductBrandConfig = {
   loginNotice: "",
   brandTheme: DEFAULT_BRAND_THEME,
   environment: "production",
+  demoAccounts: [],
   features: {
     fixtureImport: false,
     anomalyInjection: false,

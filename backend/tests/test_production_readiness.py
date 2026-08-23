@@ -73,11 +73,18 @@ def test_public_branding_contains_white_label_fields_and_safe_feature_flags() ->
         "primary": "#1769AA",
     }
     assert payload["environment"] == "production"
+    assert payload["demoAccounts"] == []
     assert payload["features"] == {
         "fixtureImport": False,
         "anomalyInjection": False,
         "testOperations": False,
     }
+
+
+def test_public_demo_config_exposes_only_explicit_demo_accounts() -> None:
+    payload = public_branding(production_settings(app_env="demo", environment_name="公开演示环境"))
+    assert payload["environment"] == "demo"
+    assert {account["label"] for account in payload["demoAccounts"]} >= {"发电企业", "监管方", "平台运维"}
 
 
 def test_production_database_guard_rejects_seeded_test_records() -> None:
