@@ -124,7 +124,7 @@ export function QueryPage() {
           <CardContent>
             <FieldLabel htmlFor="trusted-question">查询内容</FieldLabel>
             <Textarea id="trusted-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：查询2026年8月煤炭库存平均值" />
-            <div className="trusted-query-actions"><Button variant="primary" busy={busy} onClick={() => void parseQuestion()}><Search size={15} />解析查询</Button><span>行业缩写可直接使用 DID、CSV、API、PSI、MPC</span></div>
+            <div className="trusted-query-actions"><Button variant="primary" busy={busy} onClick={parseQuestion}><Search size={15} />解析查询</Button><span>行业缩写可直接使用 DID、CSV、API、PSI、MPC</span></div>
             {intent && <div className="trusted-intent-summary"><CheckCircle2 size={16} /><span>{intent.notice}</span><Badge tone={intent.ready ? "success" : "warning"}>{intent.ready ? "已识别" : "需要补充"}</Badge></div>}
           </CardContent>
         </Card>
@@ -139,7 +139,7 @@ export function QueryPage() {
             <div><FieldLabel htmlFor="query-start">开始日期</FieldLabel><Input id="query-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
             <div><FieldLabel htmlFor="query-end">结束日期</FieldLabel><Input id="query-end" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
             <div><FieldLabel htmlFor="query-region" hint="可不填">地区</FieldLabel><Input id="query-region" value={region} onChange={(event) => setRegion(event.target.value)} placeholder="全部已授权地区" /></div>
-            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。</span></div><Button variant="primary" busy={busy} onClick={() => void execute()}><Calculator size={15} />创建计算任务</Button></div>
+            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。</span></div><Button variant="primary" busy={busy} onClick={execute}><Calculator size={15} />创建计算任务</Button></div>
           </CardContent>
         </Card>
       </div>

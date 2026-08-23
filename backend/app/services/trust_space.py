@@ -77,6 +77,14 @@ PROVIDER_ROLES = ENTERPRISE_ROLES | frozenset({"EXCHANGE"})
 APPLICANT_ROLES = BUSINESS_ROLES
 OVERSIGHT_ROLES = frozenset({"REGULATOR"})
 
+# Cross-energy discovery is metadata-only. Every business participant may
+# discover published catalog metadata across energy domains; the request and
+# connector layers still require the provider's explicit authorization.
+_CROSS_DOMAIN_METADATA_POLICY = {
+    role: frozenset({"*"})
+    for role in BUSINESS_ROLES
+}
+
 MANUAL_TTC_TARGETS = frozenset(
     {
         TTCState.HUMAN_REVIEW,
@@ -110,12 +118,12 @@ TRUST_SPACE_HELP_VERSION = "20260821.004"
 TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
     "workbench": {
         "title": "工作台",
-        "summary": "工作台只聚合当前主体可见的资产、申请、任务、结果和审计计数。",
+        "summary": "工作台聚合目录元数据和当前主体有权查看的申请、任务、结果与审计计数。",
         "entries": [
             {
                 "id": "scope",
                 "title": "数据范围",
-                "body": "列表与指标来自当前用户组织和角色范围；空列表代表后端没有可见记录。",
+                "body": "资产卡片只代表目录元数据可见，不代表原始数据可读；实际跨能源使用必须经过提供方授权。",
                 "related_paths": ["/api/trust-space/context", "/api/trust-space/workbench"],
                 "allowed_actions": ["view", "refresh"],
             },
@@ -143,12 +151,12 @@ TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
     },
     "catalog": {
         "title": "数据目录",
-        "summary": "搜索、筛选、分页和资产详情均以真实数据资产读模型为准。",
+        "summary": "搜索、筛选、分页和资产详情均以真实数据资产元数据读模型为准。",
         "entries": [
             {
                 "id": "application",
                 "title": "使用申请",
-                "body": "申请前确认资产版本、敏感级别、用途和使用方式；提交后由资产提供方审批。",
+                "body": "目录允许跨能源发现元数据；申请前确认资产版本、敏感级别、用途和使用方式，提交后由资产提供方审批。",
                 "related_paths": ["/api/trust-space/catalog", "/api/data/access-requests"],
                 "allowed_actions": ["view", "filter", "open_asset", "request_usage"],
             }
@@ -275,6 +283,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "GENERATOR": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
+        "can_discover_cross_domain_metadata": True,
+        "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": True,
         "can_revoke_own_authorizations": True,
@@ -286,6 +296,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "RETAILER": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
+        "can_discover_cross_domain_metadata": True,
+        "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": True,
         "can_revoke_own_authorizations": True,
@@ -297,6 +309,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "EXCHANGE": {
         "can_view_own_assets": False,
         "can_view_all_assets": True,
+        "can_discover_cross_domain_metadata": True,
+        "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": False,
         "can_revoke_own_authorizations": True,
@@ -308,6 +322,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "REGULATOR": {
         "can_view_own_assets": False,
         "can_view_all_assets": True,
+        "can_discover_cross_domain_metadata": True,
+        "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
         "can_review_inbound_requests": False,
         "can_revoke_own_authorizations": False,
@@ -319,6 +335,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "ADMIN": {
         "can_view_own_assets": False,
         "can_view_all_assets": False,
+        "can_discover_cross_domain_metadata": False,
+        "cross_domain_usage_requires_provider_approval": False,
         "can_request_usage": False,
         "can_review_inbound_requests": False,
         "can_revoke_own_authorizations": False,
@@ -331,7 +349,6 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
 
 for _enterprise_role in ("COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE"):
     ROLE_CAPABILITIES[_enterprise_role] = dict(ROLE_CAPABILITIES["GENERATOR"])
-
 
 def _organization_map(db: Session) -> dict[str, Organization]:
     return {item.org_id: item for item in db.scalars(select(Organization)).all()}
@@ -390,7 +407,33 @@ def _asset_visible_in_energy_scope(
     if asset.owner_org_id == user.org_id or user.role_code == "REGULATOR":
         return True
     energy_domain = organization.energy_domain if organization else None
-    return bool(energy_domain and _asset_energy_domain(asset, sources) == energy_domain)
+    asset_domain = _asset_energy_domain(asset, sources)
+    if energy_domain and asset_domain == energy_domain:
+        return True
+    allowed_domains = _CROSS_DOMAIN_METADATA_POLICY.get(user.role_code, frozenset())
+    return "*" in allowed_domains or asset_domain in allowed_domains
+
+
+def _asset_access_control(
+    asset: DataAsset,
+    user: User,
+    organization: Organization | None,
+    sources: dict[str, DataSource],
+) -> dict[str, Any]:
+    cross_energy = bool(
+        organization
+        and organization.energy_domain
+        and _asset_energy_domain(asset, sources) != organization.energy_domain
+    )
+    return {
+        "cross_energy": cross_energy,
+        "metadata_only": cross_energy,
+        "metadata_discovery": True,
+        "provider_decision_required": asset.owner_org_id != user.org_id,
+        "raw_data_export": False,
+        "default_execution": "CONTROLLED_COMPUTE_OR_AGGREGATE",
+        "execution": "CONTROLLED_COMPUTE_OR_AGGREGATE",
+    }
 
 
 def _task_scope_query(db: Session, user: User):
@@ -465,6 +508,7 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
         if connector_sources
         else "NOT_CONFIGURED"
     )
+    can_discover_cross_domain = user.role_code in BUSINESS_ROLES
     return {
         "actor": {
             "user_id": user.user_id,
@@ -514,6 +558,17 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
                 "enterprise connector registry",
                 readiness="CONFIGURED" if connector_state == "LOCAL_REAL" else "NOT_CONFIGURED",
                 raw_data_centrally_stored=False,
+            ),
+            "cross_domain_data_access": _capability(
+                "LOCAL_REAL" if can_discover_cross_domain else "BLOCKED",
+                "business-role cross-energy metadata and provider-gated requests",
+                allowed_for_role=can_discover_cross_domain,
+                provider_decision_required=can_discover_cross_domain,
+                raw_data_export=False,
+                metadata_only=True,
+                reason=None
+                if can_discover_cross_domain
+                else "企业和交易中心只能访问本能源域目录",
             ),
             "tee": _capability("BLOCKED", "runtime configuration", readiness="NOT_CONFIGURED"),
             "audit_hash_chain": _capability("LOCAL_REAL", "append-only hash chain", append_only=True),
@@ -747,7 +802,6 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
             _visible_asset_query(user).order_by(DataAsset.created_at.desc())
         ).all()
         if _asset_visible_in_energy_scope(item, user, current_organization, source_map)
-        and (user.role_code not in ENTERPRISE_ROLES or item.owner_org_id == user.org_id)
     ]
     assets = visible_asset_rows[:8]
     tasks = db.scalars(_task_scope_query(db, user).order_by(SettlementTask.updated_at.desc()).limit(8)).all()
@@ -841,6 +895,7 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
             "source_capability": source_map.get(item.source_id).capability_label
             if source_map.get(item.source_id)
             else "NOT_CONFIGURED",
+            "access_control": _asset_access_control(item, user, current_organization, source_map),
             **_capability("LOCAL_REAL", "data_assets"),
         }
         for item in assets
@@ -979,6 +1034,150 @@ def identity(db: Session, user: User) -> dict[str, Any]:
     }
 
 
+_SENSITIVE_DID_DOCUMENT_FIELDS = {
+    "access_token",
+    "password",
+    "private_key",
+    "privatekey",
+    "secret",
+    "secret_key",
+    "secretkey",
+    "token",
+}
+
+
+def _public_did_document(value: Any, *, depth: int = 0) -> Any:
+    """Return a bounded public DID document without credential secrets.
+
+    Credentials are stored by the enterprise-owned identity record. The
+    directory may expose its public JSON-LD statements, but private material
+    must never cross the API boundary even if a connector accidentally writes
+    it into the JSON column.
+    """
+
+    if depth > 8:
+        return None
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = str(key).replace("-", "_").lower()
+            if normalized in _SENSITIVE_DID_DOCUMENT_FIELDS or any(
+                marker in normalized for marker in ("private", "secret", "password")
+            ):
+                continue
+            result[str(key)] = _public_did_document(item, depth=depth + 1)
+        return result
+    if isinstance(value, list):
+        return [_public_did_document(item, depth=depth + 1) for item in value[:100]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _identity_summary(
+    item: DidIdentity,
+    organization: Organization | None,
+    *,
+    member_count: int,
+) -> dict[str, Any]:
+    credential = item.credential_json or {}
+    credential_type = credential.get("type")
+    if isinstance(credential_type, str):
+        credential_type = [credential_type]
+    if not isinstance(credential_type, list):
+        credential_type = []
+    return {
+        "org_id": item.org_id or item.owner_id,
+        "org_type": organization.org_type if organization else None,
+        "org_name": organization.org_name if organization else None,
+        "energy_domain": organization.energy_domain if organization else None,
+        "status": organization.status if organization else "NOT_CONFIGURED",
+        "did_id": item.did_id,
+        "credential_status": item.credential_status,
+        "public_key_fingerprint": item.public_key_fingerprint,
+        "chain_address": item.chain_address,
+        "credential_type": [str(value) for value in credential_type],
+        "issuer": credential.get("issuer"),
+        "issued_at": _iso(item.created_at),
+        "expires_at": credential.get("expirationDate") or credential.get("expiration_date"),
+        "member_count": member_count,
+        **_capability("LOCAL_REAL", "organizations/did_identities"),
+    }
+
+
+def identity_directory(db: Session, user: User) -> dict[str, Any]:
+    """Read the public organization DID directory from the authoritative DB."""
+
+    organizations = _organization_map(db)
+    member_counts = {
+        org_id: count
+        for org_id, count in db.execute(
+            select(User.org_id, func.count(User.user_id)).group_by(User.org_id)
+        ).all()
+    }
+    identities = db.scalars(
+        select(DidIdentity)
+        .where(DidIdentity.owner_type == "ORG", DidIdentity.org_id.is_not(None))
+        .order_by(DidIdentity.created_at, DidIdentity.did_id)
+    ).all()
+    items = []
+    for item in identities:
+        organization = organizations.get(item.org_id or item.owner_id)
+        # Platform operations is intentionally not a business participant. It
+        # maintains the host only and must not appear in the enterprise DID
+        # directory or topology.
+        if organization is None or organization.org_type == "ADMIN":
+            continue
+        items.append(
+            _identity_summary(
+                item,
+                organization,
+                member_count=member_counts.get(item.org_id or item.owner_id, 0),
+            )
+        )
+    return {
+        "items": items,
+        "total": len(items),
+        "verified_count": sum(item["credential_status"] == "VALID" for item in items),
+        "energy_domains": sorted({item["energy_domain"] for item in items if item["energy_domain"]}),
+        "empty_state": not items,
+        **_capability("LOCAL_REAL", "organizations/did_identities"),
+    }
+
+
+def did_document(db: Session, did_id: str, user: User) -> dict[str, Any] | None:
+    """Return one public DID document, never its private credential material."""
+
+    item = db.scalar(
+        select(DidIdentity).where(
+            DidIdentity.did_id == did_id,
+            DidIdentity.owner_type == "ORG",
+        )
+    )
+    if item is None:
+        return None
+    organization = db.get(Organization, item.org_id or item.owner_id)
+    if organization is None or organization.org_type == "ADMIN":
+        return None
+    document = _public_did_document(item.credential_json or {})
+    if not isinstance(document, dict):
+        document = {}
+    return {
+        "did_id": item.did_id,
+        "subject": {
+            "org_id": item.org_id or item.owner_id,
+            "org_name": organization.org_name if organization else None,
+            "org_type": organization.org_type if organization else None,
+            "energy_domain": organization.energy_domain if organization else None,
+        },
+        "credential_status": item.credential_status,
+        "public_key_fingerprint": item.public_key_fingerprint,
+        "document": document,
+        "verification": JsonLdCredentialAdapter.fingerprint(document),
+        **_capability("LOCAL_REAL", "did_identities"),
+    }
+
+
 def _asset_item(
     db: Session,
     asset: DataAsset,
@@ -1029,6 +1228,12 @@ def _asset_item(
             "can_review_inbound": can_review,
             "can_view_passport": True,
         },
+        "access_control": _asset_access_control(
+            asset,
+            user,
+            organizations.get(user.org_id),
+            sources,
+        ),
         "source": {
             "source_id": source.source_id if source else None,
             "connector_type": source.connector_type if source else None,
@@ -1227,6 +1432,12 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
             "can_revoke_provider_authorization": can_review,
             "can_view_audit": user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE",
         },
+        "access_control": _asset_access_control(
+            asset,
+            user,
+            organizations.get(user.org_id),
+            sources,
+        ),
         "source": {
             "source_id": source.source_id if source else None,
             "source_code": source.source_code if source else None,

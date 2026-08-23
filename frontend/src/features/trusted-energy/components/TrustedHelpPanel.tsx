@@ -23,7 +23,7 @@ export function TrustedHelpPanel() {
     <Sheet open={open} onOpenChange={setOpen} title="页面帮助" className="trusted-utility-sheet">
       <div className="trusted-utility-sheet-body">
         {remote.loading && !payload && <RemoteState loading />}
-        {remote.error && !payload && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
+        {remote.error && !payload && <RemoteState error={remote.error} onRetry={remote.reload} />}
         {payload && <>
           <div className="trusted-utility-heading">
             <div><span className="trusted-utility-kicker">{labelForCode(payload.view, "当前页面")} · {payload.version || "当前版本"}</span><h2>{payload.title}</h2><p>{payload.summary}</p></div>
@@ -38,7 +38,7 @@ export function TrustedHelpPanel() {
               {entry.allowed_actions.length > 0 && <div className="trusted-help-actions"><span>可用动作</span>{entry.allowed_actions.map((action) => <Badge tone="neutral" key={action}>{ACTION_LABELS[action] || labelForCode(action, "已登记动作")}</Badge>)}</div>}
             </section>)}
           </div>
-          <div className="trusted-utility-footer"><span>角色：{ROLE_LABELS[payload.role_code as keyof typeof ROLE_LABELS] || labelForCode(payload.role_code, "未登记角色")}</span><Button variant="secondary" size="sm" onClick={() => void remote.reload()}><RefreshCw size={13} />刷新帮助</Button></div>
+          <div className="trusted-utility-footer"><span>角色：{ROLE_LABELS[payload.role_code as keyof typeof ROLE_LABELS] || labelForCode(payload.role_code, "未登记角色")}</span><Button variant="secondary" size="sm" busy={remote.refreshing} onClick={remote.reload}><RefreshCw size={13} />刷新帮助</Button></div>
         </>}
       </div>
     </Sheet>

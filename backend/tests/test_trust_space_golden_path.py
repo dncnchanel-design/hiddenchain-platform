@@ -172,6 +172,24 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     generator_item = next(
         item for item in catalog.json()["items"] if item["provider"]["org_id"] == "org-generator-t01"
     )
+    heat_catalog = client.get(
+        "/api/trust-space/catalog?page=1&page_size=100",
+        headers=auth_headers["heat"],
+    )
+    assert heat_catalog.status_code == 200, heat_catalog.text
+    assert any(
+        item["provider"]["org_id"] == "org-generator-t01"
+        for item in heat_catalog.json()["items"]
+    )
+    regulator_catalog = client.get(
+        "/api/trust-space/catalog?page=1&page_size=100",
+        headers=auth_headers["regulator"],
+    )
+    assert regulator_catalog.status_code == 200, regulator_catalog.text
+    assert any(
+        item["provider"]["org_id"] == "org-generator-t01"
+        for item in regulator_catalog.json()["items"]
+    )
     reference = {
         "asset_id": generator_item["asset_id"],
         "asset_version_id": generator_item["latest_version"]["version_id"],

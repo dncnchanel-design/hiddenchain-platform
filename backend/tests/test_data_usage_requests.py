@@ -55,6 +55,88 @@ def _etag(payload: dict) -> dict[str, str]:
     return {"If-Match": f'"{payload["state_version"]}"'}
 
 
+def test_cross_energy_requests_are_provider_gated_for_enterprise_and_regulator(
+    client, auth_headers
+):
+    reference = _asset_reference()
+    payload = {
+        **reference,
+        "purpose": "CROSS_ENERGY_BALANCE",
+        "usage_mode": "MPC_AGGREGATE",
+        "requested_scope": {"fields": ["energy_mwh", "period"], "max_uses": 2},
+        "requested_fields": ["energy_mwh", "period"],
+        "duration_days": 7,
+        "terms": {
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+            "regulatory_basis": "ENERGY_REGULATION",
+            "authority_ref": "ER-2026-CROSS-001",
+        },
+    }
+
+    enterprise_request = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["heat"], "Idempotency-Key": "cross-energy-heat-001"},
+        json=payload,
+    )
+    assert enterprise_request.status_code == 201, enterprise_request.text
+    enterprise_body = enterprise_request.json()
+    assert enterprise_body["applicant"]["org_id"] == "org-heat-t01"
+    assert enterprise_body["provider"]["org_id"] == "org-generator-t01"
+    assert enterprise_body["cross_energy"] is True
+    assert enterprise_body["access_control"]["provider_decision_required"] is True
+
+    provider_inbox = client.get(
+        "/api/data/access-requests?inbox=true&page=1&page_size=20",
+        headers=auth_headers["generator"],
+    )
+    assert provider_inbox.status_code == 200
+    assert any(
+        item["request_id"] == enterprise_body["request_id"]
+        for item in provider_inbox.json()["items"]
+    )
+
+    rejected = client.post(
+        f"/api/data/access-requests/{enterprise_body['request_id']}/reject",
+        headers={**auth_headers["generator"], **_etag(enterprise_body)},
+        json={"reason": "企业策略不允许本次跨能源用途"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "REJECTED"
+
+    regulator_request = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["regulator"], "Idempotency-Key": "cross-energy-regulator-001"},
+        json={**payload, "purpose": "REGULATORY_CROSS_ENERGY_REVIEW"},
+    )
+    assert regulator_request.status_code == 201, regulator_request.text
+    regulator_body = regulator_request.json()
+    assert regulator_body["applicant"]["org_id"] == "org-regulator-t01"
+    assert regulator_body["cross_energy"] is True
+    assert regulator_body["access_control"]["provider_decision_required"] is True
+
+    not_whitelisted = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["regulator"], "Idempotency-Key": "cross-energy-regulator-denied-001"},
+        json={**payload, "purpose": "GENERAL_DATA_LOOKUP"},
+    )
+    assert not_whitelisted.status_code == 422
+    assert not_whitelisted.json()["detail"]["code"] == "REGULATORY_PURPOSE_NOT_WHITELISTED"
+
+
+def test_raw_data_export_is_rejected_before_provider_review(client, auth_headers):
+    response = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["heat"], "Idempotency-Key": "raw-export-boundary-001"},
+        json={
+            **_payload(),
+            "terms": {"output_mode": "RAW", "raw_data_export": True},
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "RAW_DATA_EXPORT_NOT_AVAILABLE"
+
+
 def test_access_request_openapi_create_scope_and_idempotency(client, auth_headers):
     schema = client.get("/api/openapi.json").json()
     paths = schema["paths"]

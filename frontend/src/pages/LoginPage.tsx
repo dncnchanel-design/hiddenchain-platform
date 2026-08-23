@@ -86,7 +86,7 @@ export function LoginPage() {
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
           <div className="login-form-options">
             <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />记住我</label>
-            <button type="button" onClick={() => setError("密码重置需由所属企业的最高权限账号发起。")}>忘记密码？</button>
+            <span className="login-help-text">忘记密码请联系所属企业最高权限账号</span>
           </div>
           </> : <div className="trusted-did-login-panel">
             <label className="field"><span>选择主体身份标识</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置身份标识（由企业最高权限账号配置）</option></select></label>

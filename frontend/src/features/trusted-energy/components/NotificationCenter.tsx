@@ -79,18 +79,18 @@ export function NotificationCenter() {
     </span>
     <Sheet open={open} onOpenChange={setOpen} title="通知中心" className="trusted-utility-sheet trusted-notification-sheet">
       <div className="trusted-utility-sheet-body">
-        <div className="trusted-notification-toolbar"><div><strong>当前主体通知</strong><small>{unreadCount ? `${unreadCount} 条未读` : "已全部读完"}</small></div><div><Button variant="secondary" size="sm" disabled={!unreadCount || Boolean(busyId)} busy={busyId === "__all__"} onClick={() => void markAllRead()}><CheckCheck size={13} />全部已读</Button><IconButton label="刷新通知" onClick={() => void remote.reload()}><RefreshCw size={14} /></IconButton></div></div>
+        <div className="trusted-notification-toolbar"><div><strong>当前主体通知</strong><small>{unreadCount ? `${unreadCount} 条未读` : "已全部读完"}</small></div><div><Button variant="secondary" size="sm" disabled={!unreadCount || Boolean(busyId)} busy={busyId === "__all__"} onClick={markAllRead}><CheckCheck size={13} />全部已读</Button><IconButton label="刷新通知" busy={remote.refreshing} onClick={remote.reload}><RefreshCw size={14} /></IconButton></div></div>
         {commandError && <div className="trusted-notification-command-error" role="alert"><X size={14} />{commandError}</div>}
         {remote.loading && !payload && <RemoteState loading />}
-        {remote.error && !payload && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
+        {remote.error && !payload && <RemoteState error={remote.error} onRetry={remote.reload} />}
         {payload && payload.empty_state && <RemoteState empty emptyLabel="当前主体暂无通知" />}
         {payload && !payload.empty_state && <div className="trusted-notification-list">{payload.items.map((notification) => <div className={`trusted-notification-row ${notification.read_at ? "is-read" : "is-unread"}`} key={notification.notification_id}>
-          <button type="button" className="trusted-notification-item" onClick={() => void openNotification(notification)} disabled={Boolean(busyId) && busyId !== notification.notification_id}>
+          <button type="button" className="trusted-notification-item" onClick={() => openNotification(notification)} aria-busy={busyId === notification.notification_id || undefined} disabled={Boolean(busyId) && busyId !== notification.notification_id}>
             <span className="trusted-notification-dot" aria-hidden="true" />
             <span className="trusted-notification-copy"><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.created_at)} · {notificationRouteHint(notification)}</small></span>
             <ExternalLink size={14} aria-hidden="true" />
           </button>
-          {!notification.read_at && <Button variant="link" size="sm" disabled={Boolean(busyId)} onClick={() => void markRead(notification)}>标记已读</Button>}
+          {!notification.read_at && <Button variant="link" size="sm" disabled={Boolean(busyId)} busy={busyId === notification.notification_id} onClick={() => markRead(notification)}>标记已读</Button>}
           {notification.read_at && <Badge tone="neutral">已读</Badge>}
         </div>)}</div>}
         {payload && <div className="trusted-step-footer" aria-label="通知分页"><span>第 {payload.page} 页 · 共 {payload.total} 条</span><div><Button variant="secondary" size="sm" disabled={!canGoPrevious || remote.loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</Button><Button variant="secondary" size="sm" disabled={!canGoNext || remote.loading} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div>}

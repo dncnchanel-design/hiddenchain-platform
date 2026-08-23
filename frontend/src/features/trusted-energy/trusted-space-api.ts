@@ -185,6 +185,45 @@ export type IdentityPayload = CapabilityEnvelope & {
   capability_matrix: Record<string, CapabilityEnvelope>;
 };
 
+export type IdentityDirectoryItem = CapabilityEnvelope & {
+  org_id: string;
+  org_type?: string | null;
+  org_name?: string | null;
+  energy_domain?: string | null;
+  status: string;
+  did_id: string;
+  credential_status: string;
+  public_key_fingerprint?: string | null;
+  chain_address?: string | null;
+  credential_type: string[];
+  issuer?: string | null;
+  issued_at?: string | null;
+  expires_at?: string | null;
+  member_count: number;
+};
+
+export type IdentityDirectoryPayload = CapabilityEnvelope & {
+  items: IdentityDirectoryItem[];
+  total: number;
+  verified_count: number;
+  energy_domains: string[];
+  empty_state: boolean;
+};
+
+export type DidDocumentPayload = CapabilityEnvelope & {
+  did_id: string;
+  subject: {
+    org_id: string;
+    org_name?: string | null;
+    org_type?: string | null;
+    energy_domain?: string | null;
+  };
+  credential_status: string;
+  public_key_fingerprint?: string | null;
+  document: Record<string, unknown>;
+  verification: Record<string, unknown>;
+};
+
 export type CatalogAsset = CapabilityEnvelope & {
   asset_id: string;
   asset_code: string;
@@ -905,6 +944,14 @@ export function loadTrustedHelp(view: string, signal?: AbortSignal) {
 
 export function loadIdentity(signal?: AbortSignal) {
   return api<IdentityPayload>("/trust-space/identity", { signal, cacheTtlMs: 2_000 });
+}
+
+export function loadIdentityDirectory(signal?: AbortSignal) {
+  return api<IdentityDirectoryPayload>("/trust-space/identities", { signal, cacheTtlMs: 2_000 });
+}
+
+export function loadDidDocument(didId: string, signal?: AbortSignal) {
+  return api<DidDocumentPayload>(`/trust-space/identity/${encodeURIComponent(didId)}/document`, { signal, cacheTtlMs: 5_000 });
 }
 
 export function loadCatalog(

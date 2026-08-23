@@ -23,6 +23,8 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
         "/api/trust-space/context",
         "/api/trust-space/workbench",
         "/api/trust-space/identity",
+        "/api/trust-space/identities",
+        "/api/trust-space/identity/{did_id}/document",
         "/api/trust-space/catalog",
         "/api/trust-space/assets/{asset_id}",
     ):
@@ -30,9 +32,11 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
 
     generator = client.get("/api/trust-space/context", headers=auth_headers["generator"])
     exchange = client.get("/api/trust-space/context", headers=auth_headers["exchange"])
-    assert generator.status_code == exchange.status_code == 200
+    regulator = client.get("/api/trust-space/context", headers=auth_headers["regulator"])
+    assert generator.status_code == exchange.status_code == regulator.status_code == 200
     generator_body = generator.json()
     exchange_body = exchange.json()
+    regulator_body = regulator.json()
     assert generator_body["actor"]["role_code"] == "GENERATOR"
     assert generator_body["current_subject"]["org_id"] == "org-generator-t01"
     assert exchange_body["actor"]["role_code"] == "EXCHANGE"
@@ -40,9 +44,18 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert generator_body["current_subject"]["org_id"] != exchange_body["current_subject"]["org_id"]
     assert generator_body["role_capabilities"]["can_view_all_assets"] is False
     assert exchange_body["role_capabilities"]["can_view_all_assets"] is True
+    assert generator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is True
+    assert generator_body["role_capabilities"]["cross_domain_usage_requires_provider_approval"] is True
+    assert regulator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is True
     assert generator_body["identity_ref"]["source_of_truth"] == "did_identities"
     assert generator_body["capabilities"]["data_space_connector"]["capability_state"] == "ADAPTER"
     assert generator_body["capabilities"]["data_space_connector"]["readiness"] == "NOT_CONFIGURED"
+    assert generator_body["capabilities"]["cross_domain_data_access"]["capability_state"] == "LOCAL_REAL"
+    assert generator_body["capabilities"]["cross_domain_data_access"]["allowed_for_role"] is True
+    assert generator_body["capabilities"]["cross_domain_data_access"]["provider_decision_required"] is True
+    assert generator_body["capabilities"]["cross_domain_data_access"]["raw_data_export"] is False
+    assert regulator_body["capabilities"]["cross_domain_data_access"]["capability_state"] == "LOCAL_REAL"
+    assert regulator_body["capabilities"]["cross_domain_data_access"]["allowed_for_role"] is True
     assert generator_body["capabilities"]["tee"]["capability_state"] == "BLOCKED"
     assert generator_body["capabilities"]["audit_hash_chain"]["capability_state"] == "LOCAL_REAL"
     assert generator_body["capabilities"]["blockchain_anchor"]["capability_state"] == "BLOCKED"
@@ -51,7 +64,7 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert connector_menu["path"] == "/trusted-space/connector"
 
 
-def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, auth_headers):
+def test_workbench_exposes_cross_domain_metadata_without_changing_data_scope(client, auth_headers):
     generator = client.get("/api/trust-space/workbench", headers=auth_headers["generator"])
     exchange = client.get("/api/trust-space/workbench", headers=auth_headers["exchange"])
     assert generator.status_code == exchange.status_code == 200
@@ -62,7 +75,10 @@ def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, 
     assert isinstance(generator_body["recent_tasks"], list)
     assert isinstance(generator_body["recent_usage_requests"], list)
     assert generator_body["capability_state"] == "LOCAL_REAL"
-    assert all(item["owner_org_id"] == "org-generator-t01" for item in generator_body["recent_assets"])
+    assert all(item["owner_org_id"] for item in generator_body["recent_assets"])
+    heat_body = client.get("/api/trust-space/workbench", headers=auth_headers["heat"]).json()
+    assert heat_body["kpis"]["visible_assets"] == generator_body["kpis"]["visible_assets"]
+    assert all(item["access_control"]["metadata_discovery"] for item in heat_body["recent_assets"])
     for task in generator_body["recent_tasks"]:
         estimate = task["phase_progress_estimate"]
         assert estimate["source"] == "TTC_STATE_PHASE_ESTIMATE_V1"
@@ -129,6 +145,35 @@ def test_identity_reports_recorded_did_and_honest_connector_boundary(client, aut
     assert body["capability_matrix"]["hash_chain"]["capability_state"] == "LOCAL_REAL"
     assert body["capability_matrix"]["blockchain"]["capability_state"] == "BLOCKED"
     assert body["capability_matrix"]["connector_control_plane"]["readiness"] == "NOT_CONFIGURED"
+
+
+def test_identity_directory_returns_real_org_records_and_sanitized_document(client, auth_headers):
+    response = client.get("/api/trust-space/identities", headers=auth_headers["regulator"])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source_of_truth"] == "organizations/did_identities"
+    assert body["total"] >= 6
+    assert body["verified_count"] == body["total"]
+    assert all(item["did_id"].startswith("did:hiddenchain:org:") for item in body["items"])
+    assert any(item["energy_domain"] == "coal" for item in body["items"])
+
+    did_id = body["items"][0]["did_id"]
+    document_response = client.get(
+        f"/api/trust-space/identity/{did_id}/document",
+        headers=auth_headers["generator"],
+    )
+    assert document_response.status_code == 200, document_response.text
+    document_body = document_response.json()
+    assert document_body["did_id"] == did_id
+    assert document_body["document"]["type"]
+    assert "private_key" not in str(document_body).lower()
+    assert "credential_json" not in str(document_body)
+
+    missing = client.get(
+        "/api/trust-space/identity/did:hiddenchain:org:not-found/document",
+        headers=auth_headers["generator"],
+    )
+    assert missing.status_code == 404
 
 
 def test_asset_detail_uses_real_id_and_enforces_visibility(client, auth_headers):
