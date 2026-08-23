@@ -140,6 +140,20 @@ def _platform_public_key(private_key: Ed25519PrivateKey) -> str:
     return base64.b64encode(raw).decode()
 
 
+def _connector_failure(response: httpx.Response) -> tuple[int, Any]:
+    status_code = 503 if response.status_code >= 500 else response.status_code
+    try:
+        payload = response.json()
+    except ValueError:
+        return status_code, "企业连接器正在启动或暂不可用，请稍后重试"
+    if not isinstance(payload, dict):
+        return status_code, "企业连接器拒绝了计算任务"
+    detail = payload.get("detail")
+    if detail in (None, ""):
+        return status_code, "企业连接器拒绝了计算任务"
+    return status_code, detail
+
+
 def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageRequest, DataAsset]:
     authorization = db.get(DataUsageRequest, request_id)
     if authorization is None:
@@ -231,8 +245,8 @@ def execute_query(
     except httpx.HTTPError as exc:
         raise HTTPException(503, "企业连接器暂时离线，任务未读取任何缓存数据") from exc
     if response.status_code >= 400:
-        detail = response.json().get("detail", "企业连接器拒绝了计算任务")
-        raise HTTPException(response.status_code, detail)
+        status_code, detail = _connector_failure(response)
+        raise HTTPException(status_code, detail)
     result = response.json()
     if expected_public_key and result.get("public_key") != expected_public_key:
         raise HTTPException(502, "企业连接器签名公钥与登记信息不一致")
