@@ -711,6 +711,12 @@
 .trusted-result-values > div { padding: 15px; border-radius: 11px; background: #f2f7fd; }
 .trusted-result-values span, .trusted-result-values small { display: block; color: #6d7e92; }
 .trusted-result-values strong { display: block; margin: 4px 0; color: #1768a0; font-size: 28px; font-variant-numeric: tabular-nums; }
+.trusted-query-chart { margin-top: 16px; padding: 14px 15px 12px; border: 1px solid var(--energy-line); border-radius: 12px; background: var(--energy-surface); }
+.trusted-query-chart-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.trusted-query-chart-header strong { color: var(--energy-ink); font-size: 13px; }
+.trusted-query-chart-header span { color: var(--energy-muted); font-size: 11px; }
+.trusted-query-chart-canvas { width: 100%; min-height: 260px; height: 260px; }
+.trusted-query-chart-empty { display: grid; min-height: 160px; place-items: center; color: var(--energy-muted); font-size: 12px; }
 .trusted-result-provenance { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 15px; padding-top: 14px; border-top: 1px solid #e5ecf4; color: #62748a; font-size: 12px; }
 
 .trusted-connector-hero { display: grid; grid-template-columns: 50px minmax(0,1fr) auto; align-items: center; gap: 14px; margin-bottom: 18px; padding: 18px 20px; border-radius: 14px; color: #fff; background: #102b50; box-shadow: 0 9px 26px rgba(16,43,80,.18); }
@@ -760,6 +766,9 @@
   .trusted-execute-row { flex-direction: column; align-items: stretch; }
   .trusted-query-side { grid-template-columns: 1fr; }
   .trusted-result-values { grid-template-columns: 1fr; }
+  .trusted-query-chart { padding: 12px; }
+  .trusted-query-chart-canvas { min-height: 230px; height: 230px; }
+  .trusted-query-chart-header { align-items: flex-start; flex-direction: column; gap: 4px; }
   .trusted-connector-grid, .trusted-boundary-steps { grid-template-columns: 1fr; }
   .trusted-connector-hero { grid-template-columns: 46px 1fr; }
   .trusted-connector-hero > .energy-badge { grid-column: 1 / -1; justify-self: start; }

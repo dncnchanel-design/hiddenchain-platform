@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Calculator, CheckCircle2, FileSignature, Search, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "../components/PageFrame";
+import { QueryResultChart } from "../components/QueryResultChart";
 import { Badge, Button, Card, CardContent, CardHeader, FieldLabel, Input, Select, SurfaceHeader, Textarea } from "../components/ui-primitives";
 import { executeTrustedQuery, loadUsageRequests, parseTrustedQuery, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
 
@@ -161,6 +162,7 @@ export function QueryPage() {
       <CardHeader><SurfaceHeader title={`${result.resource_name}计算结果`} description={`${result.function_name}，数据可用不可见`} action={<Badge tone="success" dot>数字签名已验证</Badge>} /></CardHeader>
       <CardContent>
         <div className="trusted-result-values">{resultEntries(result.result).map(([label, value]) => <div key={label}><span>{label}</span><strong>{String(value)}</strong><small>{result.unit}</small></div>)}</div>
+        <QueryResultChart result={result} />
         <div className="trusted-result-provenance"><span>任务编号：{result.task_id}</span><span>生成时间：{new Date(result.generated_at).toLocaleString("zh-CN")}</span><span>授权范围：已核验</span><span>审计记录：已写入</span></div>
       </CardContent>
     </Card>}
