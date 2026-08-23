@@ -14,7 +14,6 @@ const {
   audit: AuditPage,
   compute: ComputePage,
   dataSpace: DataSpacePage,
-  excelUpload: ExcelUploadPage,
   evidence: EvidencePage,
   login: LoginPage,
   logs: LogsPage,
@@ -94,9 +93,9 @@ export default function App() {
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="/overview" element={<Allowed path="/overview"><OverviewPage /></Allowed>} />
           <Route path="/workbench" element={<Allowed path="/workbench"><WorkbenchPage /></Allowed>} />
-          <Route path="/data/upload" element={<Allowed path="/data/upload"><ExcelUploadPage /></Allowed>} />
-          <Route path="/data/generation" element={<Navigate to="/data/upload" replace />} />
-          <Route path="/data/retail" element={<Navigate to="/data/upload" replace />} />
+          <Route path="/data/upload" element={<Navigate to="/trusted-space/connector" replace />} />
+          <Route path="/data/generation" element={<Navigate to="/trusted-space/connector" replace />} />
+          <Route path="/data/retail" element={<Navigate to="/trusted-space/connector" replace />} />
           <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
           <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
           <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />

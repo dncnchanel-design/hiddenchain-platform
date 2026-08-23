@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Cable, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, UserRound, X, type LucideIcon } from "lucide-react";
+import { Cable, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, X, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { ROLE_LABELS, labelForCode } from "../../../types";
@@ -12,7 +12,6 @@ import { useTrustedSpaceContext } from "../trusted-space-context";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
-import { ExcelUploadPage } from "../../../pages/ExcelUploadPage";
 import { AssetPassportPage } from "../pages/AssetPassportPage";
 import { ApplyPage } from "../pages/ApplyPage";
 import { AuthorizationsPage } from "../pages/AuthorizationsPage";
@@ -42,7 +41,6 @@ const titles: Record<TrustedViewKey, string> = {
   identity: "参与主体",
   catalog: "数据目录",
   connector: "数据连接",
-  upload: "连接器文件配置",
   authorizations: "数据授权",
   asset: "数据资产护照",
   apply: "使用申请",
@@ -59,7 +57,6 @@ function renderView(view: TrustedViewKey) {
     case "identity": return <IdentityPage />;
     case "catalog": return <CatalogPage />;
     case "connector": return <ConnectorPage />;
-    case "upload": return <ExcelUploadPage />;
     case "authorizations": return <AuthorizationsPage />;
     case "asset": return <AssetPassportPage />;
     case "apply": return <ApplyPage />;
@@ -94,7 +91,7 @@ export function TrustedSpaceShell() {
   if (!visibleMenuCodes.has(trustedMenuCodeForView(view))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
   const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
   const roleLabel = context.actor.role_label || ROLE_LABELS[context.actor.role_code as keyof typeof ROLE_LABELS] || labelForCode(context.actor.role_code, "未登记角色");
-  const activeGroup = view === "identity" ? "主体与权限" : view === "catalog" || view === "connector" || view === "upload" || view === "authorizations" || view === "asset" || view === "apply" ? "可信数据空间" : view === "query" || view === "contract" || view === "ttc" || view === "mpc" ? "查询与计算" : view === "audit" || view === "results" ? "审计追溯" : "运行态势";
+  const activeGroup = view === "identity" ? "主体与权限" : view === "catalog" || view === "connector" || view === "authorizations" || view === "asset" || view === "apply" ? "可信数据空间" : view === "query" || view === "contract" || view === "ttc" || view === "mpc" ? "查询与计算" : view === "audit" || view === "results" ? "审计追溯" : "运行态势";
 
   function goTo(path: string) {
     setMobileNavOpen(false);
@@ -104,9 +101,9 @@ export function TrustedSpaceShell() {
   return <div className="trusted-space-shell tw-min-h-screen">
     <header className="trusted-system-bar">
       <div className="trusted-system-left">
-        <IconButton className="trusted-mobile-menu" label={mobileNavOpen ? "关闭导航" : "打开导航"} onClick={() => setMobileNavOpen((value) => !value)}>{mobileNavOpen ? <X size={17} /> : <Menu size={17} />}</IconButton>
+        <IconButton className="trusted-mobile-menu" label={mobileNavOpen ? "关闭导航" : "打开导航"} aria-expanded={mobileNavOpen} aria-controls="trusted-primary-navigation" onClick={() => setMobileNavOpen((value) => !value)}>{mobileNavOpen ? <X size={17} /> : <Menu size={17} />}</IconButton>
         <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onClick={() => setMobileNavOpen(false)}>
-          <span className="trusted-brand-mark">隐</span>
+          <span className="trusted-brand-mark"><ShieldCheck size={20} strokeWidth={2.1} /></span>
           <span><strong>隐链明算</strong><small>可信数据空间</small></span>
         </Link>
         <span className="trusted-divider" aria-hidden="true" />
@@ -114,16 +111,16 @@ export function TrustedSpaceShell() {
       </div>
       <div className="trusted-system-right">
         <Badge tone="success" dot>{context.environment.name === "DEMO" ? "公开演示环境" : context.environment.name === "TEST" ? "本地测试环境" : "受控运行环境"}</Badge>
-        <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "服务状态正常" : "主体状态异常"}</span>
+        <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "主体状态正常" : "主体状态异常"}</span>
         <NotificationCenter />
         <div className="trusted-user-menu"><span className="trusted-avatar"><UserRound size={15} /></span><span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span><ChevronDown size={13} /></div>
         <Button variant="ghost" size="sm" className="trusted-logout" onClick={() => { logout(); navigate("/login"); }}>退出</Button>
       </div>
     </header>
 
-    <nav className={cn("trusted-primary-nav", mobileNavOpen && "trusted-primary-nav-open")} aria-label="可信数据空间主导航">
+    <nav id="trusted-primary-navigation" className={cn("trusted-primary-nav", mobileNavOpen && "trusted-primary-nav-open")} aria-label="可信数据空间主导航">
       <div className="trusted-nav-inner tw-flex tw-items-center">
-        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
+        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
         <span className="trusted-nav-spacer" />
       </div>
     </nav>

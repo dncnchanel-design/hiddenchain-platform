@@ -1,12 +1,12 @@
 # 白标配置指南
 
-白标配置由后端运行时读取，通过公开只读接口 `/api/public/config` 提供给登录页与应用壳层。前端不把客户名称或 Logo 编译进产物。
+白标配置由后端运行时读取，通过公开只读接口 `/api/public/config` 提供给登录页与通用应用壳层。前端不把客户名称或 Logo 编译进产物。
 
 | 环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
 | `PRODUCT_NAME` | 浏览器标题与完整产品名 | 隐链明算 |
 | `PRODUCT_SHORT_NAME` | 侧栏紧凑名称 | 隐链明算 |
-| `PRODUCT_SUBTITLE` | 产品定位 | 电力交易可信执行平台 |
+| `PRODUCT_SUBTITLE` | 产品定位 | 多能源可信数据空间 |
 | `PRODUCT_LOGO` | 完整 Logo URL/站内路径 | 空，使用文字标识 |
 | `PRODUCT_LOGO_COMPACT` | 折叠侧栏 Logo | 空 |
 | `PRODUCT_FAVICON` | favicon URL/站内路径 | 空 |
@@ -34,7 +34,7 @@
 ```text
 PRODUCT_NAME=华北电力结算协同平台
 PRODUCT_SHORT_NAME=结算协同
-PRODUCT_SUBTITLE=电力交易可信执行平台
+PRODUCT_SUBTITLE=多能源可信数据空间
 PRODUCT_LOGO=/branding/full-logo.svg
 PRODUCT_LOGO_COMPACT=/branding/mark.svg
 PRODUCT_FAVICON=/branding/favicon.svg
@@ -51,3 +51,5 @@ LOGIN_NOTICE=仅限授权用户访问
 ```
 
 修改后重启后端即可；前端配置缓存为 60 秒，刷新页面后更新浏览器标题、favicon、品牌主题、登录页和应用壳层。主题属于部署配置能力，生产界面不提供换肤入口。
+
+可信数据空间业务壳层的深蓝信息头、白色八模块导航、青蓝当前项和状态语义属于本产品固定视觉规则，不由 `BRAND_PRIMARY` 改写；白标变量仍负责浏览器标识、登录页品牌内容和通用壳层主题。

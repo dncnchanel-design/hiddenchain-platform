@@ -37,7 +37,7 @@ services:
       ENVIRONMENT_NAME: 公开演示环境
       PRODUCT_SUBTITLE: 多能源可信数据空间
       BRAND_THEME_ID: trusted-space-navy
-      BRAND_PRIMARY: "#0B5CAD"
+      BRAND_PRIMARY: "#1768A0"
       OPA_URL: http://opa:8181
       OPA_POLICY_PATH: /v1/data/hiddenchain/decision
       OPA_TIMEOUT_SECONDS: "1.0"

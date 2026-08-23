@@ -62,9 +62,9 @@ export function LoginPage() {
             <div><h1>登录系统</h1><p>使用已授权账号进入工作空间</p></div>
           </div>
 
-          <div className="trusted-login-tabs" role="tablist" aria-label="登录方式">
-            <button type="button" role="tab" aria-selected={mode === "account"} className={mode === "account" ? "is-active" : ""} onClick={() => { setMode("account"); setError(""); }}>账号密码登录</button>
-            <button type="button" role="tab" aria-selected={mode === "did"} className={mode === "did" ? "is-active" : ""} onClick={() => { setMode("did"); setError(""); }}>DID 身份认证</button>
+          <div className="trusted-login-tabs" role="group" aria-label="登录方式">
+            <button type="button" aria-pressed={mode === "account"} className={mode === "account" ? "is-active" : ""} onClick={() => { setMode("account"); setError(""); }}>账号密码登录</button>
+            <button type="button" aria-pressed={mode === "did"} className={mode === "did" ? "is-active" : ""} onClick={() => { setMode("did"); setError(""); }}>DID 身份认证</button>
           </div>
 
           {mode === "account" ? <>

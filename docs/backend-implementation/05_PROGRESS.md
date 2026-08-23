@@ -21,7 +21,7 @@
 - This batch is local working-tree data, documentation and regression-test work only. The fixture is development/test-only and was not synchronized to GitHub or Render in this task.
 - The local execution plane honestly remains application-process deterministic settlement; external MPC/TEE/cross-domain non-export proof and production chain finality are not claimed.
 
-## Current frontend batch — 2026-08-22 (翡翠绿系统栏; local verified)
+## Historical frontend batch — 2026-08-22 (翡翠绿系统栏; superseded by the 2026-08-23 visual overhaul)
 
 ### Completed in this batch
 
@@ -276,3 +276,12 @@
 - 本地真实联调通过：交易中心申请发电量授权，发电企业审核批准，电力连接器执行固定求和函数，平台验证数字签名且未返回原始记录，并写入审计。
 - GitHub 首次远端检查发现前端生产守卫与公开演示交付目标冲突，并检出连接器的两个可修复依赖漏洞；已将演示账号改为仅由 `demo` 运行环境动态下发，同时升级 `h11` 与 `idna`。
 - 修复后本地复验通过：前端生产守卫、品牌审计、TypeScript、ESLint、66 项测试、Vite 构建，以及后端与连接器全量测试。
+
+## 2026-08-23 参照站视觉改造
+
+- 完整阅读参照站的登录、运行总览、智能查询、目录、连接、授权、审计、隐私计算和参与主体页面，仅提取深蓝信息头、白色导航、浅蓝灰画布、白色业务卡片和状态色等视觉语言。
+- 登录页改为深蓝可信背景上的单卡片；系统壳层改为深蓝信息头、白色八模块导航和青蓝当前项；总览指标改为独立状态卡。
+- 原始 Excel 上传 UI 不再进入应用路由；旧 `/data/upload`、`/data/generation`、`/data/retail` 路径统一重定向到企业侧“数据连接”，可信数据空间也不接受 `/upload` 页面。
+- 信息头按后端主体状态显示“主体状态正常”或“主体状态异常”，不再使用含义不清的在线状态文案。
+- 明确排除参照站中与本项目规则冲突的快捷绕过认证、英文资源编号回退、模拟篡改和虚假区块链表述；保留键盘焦点、当前导航语义、移动导航展开状态、44px 移动端触控目标和减少动画偏好。
+- 本地验证通过：前端 ESLint、66 项测试、生产守卫、品牌审计、TypeScript 与 Vite 构建；浏览器 1280×720 与 390×844 登录页无横向溢出；后端全量 pytest 与 Python 编译通过；五个能源连接器均返回就绪。

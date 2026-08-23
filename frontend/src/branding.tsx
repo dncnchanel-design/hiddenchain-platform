@@ -48,7 +48,7 @@ export type ProductBrandConfigInput = Omit<Partial<ProductBrandConfig>, "brandTh
 export const DEFAULT_PRODUCT_CONFIG: ProductBrandConfig = {
   productName: "隐链明算",
   productShortName: "隐链明算",
-  productSubtitle: "电力交易可信执行平台",
+  productSubtitle: "多能源可信数据空间",
   logo: "",
   logoCompact: "",
   favicon: "",
