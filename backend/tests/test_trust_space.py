@@ -44,15 +44,15 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert generator_body["current_subject"]["org_id"] != exchange_body["current_subject"]["org_id"]
     assert generator_body["role_capabilities"]["can_view_all_assets"] is False
     assert exchange_body["role_capabilities"]["can_view_all_assets"] is True
-    assert generator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is False
+    assert generator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is True
     assert generator_body["role_capabilities"]["cross_domain_usage_requires_provider_approval"] is True
     assert regulator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is True
     assert generator_body["identity_ref"]["source_of_truth"] == "did_identities"
     assert generator_body["capabilities"]["data_space_connector"]["capability_state"] == "ADAPTER"
     assert generator_body["capabilities"]["data_space_connector"]["readiness"] == "NOT_CONFIGURED"
-    assert generator_body["capabilities"]["cross_domain_data_access"]["capability_state"] == "BLOCKED"
-    assert generator_body["capabilities"]["cross_domain_data_access"]["allowed_for_role"] is False
-    assert generator_body["capabilities"]["cross_domain_data_access"]["provider_decision_required"] is False
+    assert generator_body["capabilities"]["cross_domain_data_access"]["capability_state"] == "LOCAL_REAL"
+    assert generator_body["capabilities"]["cross_domain_data_access"]["allowed_for_role"] is True
+    assert generator_body["capabilities"]["cross_domain_data_access"]["provider_decision_required"] is True
     assert generator_body["capabilities"]["cross_domain_data_access"]["raw_data_export"] is False
     assert regulator_body["capabilities"]["cross_domain_data_access"]["capability_state"] == "LOCAL_REAL"
     assert regulator_body["capabilities"]["cross_domain_data_access"]["allowed_for_role"] is True
@@ -64,7 +64,7 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert connector_menu["path"] == "/trusted-space/connector"
 
 
-def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, auth_headers):
+def test_workbench_exposes_cross_domain_metadata_without_changing_data_scope(client, auth_headers):
     generator = client.get("/api/trust-space/workbench", headers=auth_headers["generator"])
     exchange = client.get("/api/trust-space/workbench", headers=auth_headers["exchange"])
     assert generator.status_code == exchange.status_code == 200
@@ -75,7 +75,10 @@ def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, 
     assert isinstance(generator_body["recent_tasks"], list)
     assert isinstance(generator_body["recent_usage_requests"], list)
     assert generator_body["capability_state"] == "LOCAL_REAL"
-    assert all(item["owner_org_id"] == "org-generator-t01" for item in generator_body["recent_assets"])
+    assert all(item["owner_org_id"] for item in generator_body["recent_assets"])
+    heat_body = client.get("/api/trust-space/workbench", headers=auth_headers["heat"]).json()
+    assert heat_body["kpis"]["visible_assets"] == generator_body["kpis"]["visible_assets"]
+    assert all(item["access_control"]["metadata_discovery"] for item in heat_body["recent_assets"])
     for task in generator_body["recent_tasks"]:
         estimate = task["phase_progress_estimate"]
         assert estimate["source"] == "TTC_STATE_PHASE_ESTIMATE_V1"
