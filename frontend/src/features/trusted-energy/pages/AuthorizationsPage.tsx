@@ -93,7 +93,7 @@ export function AuthorizationsPage() {
   const isInbox = view === "inbox";
   const pageDescription = isInbox ? "处理其他主体对本组织资产发起的使用申请。" : "查看当前主体提交的申请、审核状态与授权结果。";
 
-  return <PageFrame title="授权记录" description={pageDescription} action={<Button variant="secondary" onClick={() => void listRemote.reload()} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
+  return <PageFrame title="授权记录" description={pageDescription} action={<Button variant="secondary" onClick={listRemote.reload} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
     <div className="trusted-detail-grid">
       <div className="trusted-detail-main">
         <Card>
@@ -117,7 +117,7 @@ export function AuthorizationsPage() {
         </Card>
         {detail && detail.actions.length > 0 && <Card>
           <CardHeader><CardTitle>{isInbox ? "审核操作" : "申请操作"}</CardTitle></CardHeader>
-          <CardContent><div className="trusted-option-grid"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={isInbox ? "填写审核意见（批准或拒绝必填）" : "填写撤回或撤销原因（可选）"} aria-label={isInbox ? "审核意见" : "申请处理原因"} />{actionError && <p role="alert" className="trusted-muted">{actionError}</p>}<div className="trusted-submit-actions">{detail.actions.map((action) => <Button key={action} variant={action === "reject" || action === "revoke" ? "danger" : "primary"} size="sm" busy={busyAction === action} onClick={() => void performAction(action as UsageRequestAction)}>{action === "approve" ? <Check size={14} /> : action === "reject" || action === "revoke" ? <X size={14} /> : <ShieldCheck size={14} />}{actionLabel(action, view, detail.status)}</Button>)}</div><small className="trusted-muted"><LockKeyhole size={13} /> {isInbox ? "批准或拒绝必须填写明确理由；操作依据当前状态版本提交。" : "申请提交后可在提供方处理前撤回；已授权申请可由有权主体撤销。"}</small></div></CardContent>
+          <CardContent><div className="trusted-option-grid"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={isInbox ? "填写审核意见（批准或拒绝必填）" : "填写撤回或撤销原因（可选）"} aria-label={isInbox ? "审核意见" : "申请处理原因"} />{actionError && <p role="alert" className="trusted-muted">{actionError}</p>}<div className="trusted-submit-actions">{detail.actions.map((action) => <Button key={action} variant={action === "reject" || action === "revoke" ? "danger" : "primary"} size="sm" busy={busyAction === action} onClick={() => performAction(action as UsageRequestAction)}>{action === "approve" ? <Check size={14} /> : action === "reject" || action === "revoke" ? <X size={14} /> : <ShieldCheck size={14} />}{actionLabel(action, view, detail.status)}</Button>)}</div><small className="trusted-muted"><LockKeyhole size={13} /> {isInbox ? "批准或拒绝必须填写明确理由；操作依据当前状态版本提交。" : "申请提交后可在提供方处理前撤回；已授权申请可由有权主体撤销。"}</small></div></CardContent>
         </Card>}
         {detail && detail.actions.length === 0 && <Card><CardHeader><CardTitle>当前无可执行操作</CardTitle></CardHeader><CardContent><p className="trusted-muted">当前角色只能查看这条记录，后续处理由对应责任主体完成。</p></CardContent></Card>}
       </div>

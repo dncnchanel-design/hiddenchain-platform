@@ -41,8 +41,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ classN
 });
 Button.displayName = "TrustedButton";
 
-export function IconButton({ label, children, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return <Button variant="ghost" size="icon" className={className} aria-label={label} title={label} {...props}>{children}</Button>;
+export function IconButton({ label, children, className, busy, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; busy?: boolean }) {
+  return <Button variant="ghost" size="icon" className={className} aria-label={label} title={label} busy={busy} {...props}>{children}</Button>;
 }
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

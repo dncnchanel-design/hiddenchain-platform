@@ -7,7 +7,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-TEST_DB = Path(__file__).resolve().parent / "hiddenchain_test.db"
+TEST_DB = Path(
+    os.environ.get(
+        "HIDDENCHAIN_TEST_DB",
+        str(Path(__file__).resolve().parent / "hiddenchain_test.db"),
+    )
+)
 if TEST_DB.exists():
     TEST_DB.unlink()
 
@@ -55,6 +60,7 @@ def auth_headers(client):
     return {
         "generator": login("generator", "generator123"),
         "retailer": login("retailer", "retailer123"),
+        "heat": login("heat", "heat123"),
         "exchange": login("exchange", "exchange123"),
         "regulator": login("regulator", "regulator123"),
         "admin": login("admin", "admin123"),

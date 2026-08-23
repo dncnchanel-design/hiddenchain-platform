@@ -84,9 +84,68 @@ _SERVER_DEFAULT_DURATION_POLICY = {
     "is_default": True,
 }
 
+_MAX_AUTHORIZATION_USES = 1000
+_REGULATORY_ACCESS_WHITELIST = {
+    "REGULATORY_CROSS_ENERGY_REVIEW": {
+        "legal_bases": frozenset({"ENERGY_REGULATION"}),
+        "max_duration_days": 30,
+    },
+    "REGULATORY_EMERGENCY_RESPONSE": {
+        "legal_bases": frozenset({"EMERGENCY_RESPONSE"}),
+        "max_duration_days": 7,
+    },
+}
+_REGULATORY_USAGE_MODES = frozenset({"MPC_AGGREGATE", "MASKED_QUERY"})
+_REGULATORY_OUTPUT_MODES = frozenset({"AGGREGATE_ONLY", "MASKED_QUERY"})
+
 
 def _raise(status_code: int, code: str, detail: str) -> None:
     raise UsageRequestError(status_code, code, detail)
+
+
+def _validate_regulatory_request(
+    payload: DataUsageRequestCreate,
+    user: User,
+    *,
+    terms: dict[str, Any],
+    requested_scope: dict[str, Any],
+    duration_days: int,
+) -> str | None:
+    """Apply the narrow allowlist for regulator-initiated data-use requests."""
+
+    if user.role_code != "REGULATOR":
+        return None
+    if "CREATE_CROSS_ENERGY_QUERY" not in set(user.permissions_json or []):
+        _raise(403, "REGULATORY_QUERY_PERMISSION_REQUIRED", "监管账号未获得跨能源申请权限")
+    policy = _REGULATORY_ACCESS_WHITELIST.get(payload.purpose)
+    if policy is None:
+        _raise(
+            422,
+            "REGULATORY_PURPOSE_NOT_WHITELISTED",
+            "监管申请用途不在白名单内，只允许登记的能源监管或应急处置事项",
+        )
+    legal_basis = str(terms.get("regulatory_basis") or "").strip()
+    authority_ref = str(terms.get("authority_ref") or "").strip()
+    if legal_basis not in policy["legal_bases"] or not authority_ref:
+        _raise(
+            422,
+            "REGULATORY_BASIS_REQUIRED",
+            "监管申请必须提供白名单法律依据和可审计的事项编号",
+        )
+    if duration_days > int(policy["max_duration_days"]):
+        _raise(
+            422,
+            "REGULATORY_DURATION_OUT_OF_POLICY",
+            f"该监管用途最长允许 {policy['max_duration_days']} 天",
+        )
+    if payload.usage_mode not in _REGULATORY_USAGE_MODES:
+        _raise(422, "REGULATORY_USAGE_MODE_NOT_ALLOWED", "监管申请只允许受控聚合或脱敏查询")
+    output_mode = str(terms.get("output_mode") or requested_scope.get("output_mode") or "")
+    if output_mode not in _REGULATORY_OUTPUT_MODES:
+        _raise(422, "REGULATORY_OUTPUT_MODE_NOT_ALLOWED", "监管申请只允许汇总或脱敏结果")
+    if len(payload.requested_fields) > 32:
+        _raise(422, "REGULATORY_SCOPE_TOO_BROAD", "监管申请字段数量不能超过 32 个")
+    return payload.purpose
 
 
 def _active_identity(db: Session, org_id: str) -> DidIdentity:
@@ -288,6 +347,7 @@ def to_payload(db: Session, request: DataUsageRequest, user: User) -> dict[str, 
     asset = db.get(DataAsset, request.asset_id)
     version = db.get(DataAssetVersion, request.asset_version_id)
     duration_policy = duration_policy_for_version(db, version) if version else dict(_SERVER_DEFAULT_DURATION_POLICY)
+    cross_energy = applicant.energy_domain != provider.energy_domain
     return {
         "request_id": request.request_id,
         "asset": {
@@ -311,6 +371,13 @@ def to_payload(db: Session, request: DataUsageRequest, user: User) -> dict[str, 
             "org_id": request.provider_org_id,
             "org_name": provider.org_name,
             "did": request.provider_did,
+        },
+        "cross_energy": cross_energy,
+        "access_control": {
+            "provider_decision_required": True,
+            "raw_data_export": False,
+            "default_execution": "CONTROLLED_COMPUTE_OR_AGGREGATE",
+            "revocable": True,
         },
         "purpose": request.purpose,
         "usage_mode": request.usage_mode,
@@ -385,6 +452,27 @@ def create_request(
             "DURATION_OUT_OF_POLICY",
             f"申请期限必须在 {duration_policy['min_days']} 至 {duration_policy['max_days']} 日之间，当前为 {duration_days} 日",
         )
+    requested_scope = payload.requested_scope if isinstance(payload.requested_scope, dict) else {}
+    terms = payload.terms if isinstance(payload.terms, dict) else {}
+    if bool(requested_scope.get("raw_data_export")) or bool(terms.get("raw_data_export")):
+        _raise(
+            422,
+            "RAW_DATA_EXPORT_NOT_AVAILABLE",
+            "当前可信空间默认不转移原始数据，只允许经提供方授权的受控计算或汇总结果",
+        )
+    try:
+        max_uses = int(requested_scope.get("max_uses", 1))
+    except (TypeError, ValueError):
+        _raise(422, "INVALID_MAX_USES", "使用次数必须是正整数")
+    if not 1 <= max_uses <= _MAX_AUTHORIZATION_USES:
+        _raise(422, "MAX_USES_OUT_OF_POLICY", f"使用次数必须在 1 至 {_MAX_AUTHORIZATION_USES} 次之间")
+    regulatory_policy_code = _validate_regulatory_request(
+        payload,
+        user,
+        terms=terms,
+        requested_scope=requested_scope,
+        duration_days=duration_days,
+    )
     fingerprint = _fingerprint(payload, user.org_id, duration_days=duration_days)
     if idempotency_key:
         existing = db.scalar(
@@ -400,8 +488,6 @@ def create_request(
 
     applicant = _org(db, user.org_id, label="申请方")
     provider = _org(db, asset.owner_org_id, label="提供方")
-    if user.role_code != "REGULATOR" and applicant.energy_domain != provider.energy_domain:
-        _raise(403, "CROSS_ENERGY_QUERY_DENIED", "仅监管方可以发起跨能源数据申请")
     applicant_did = _active_identity(db, applicant.org_id)
     provider_did = _active_identity(db, provider.org_id)
     request_id = new_id()
@@ -419,7 +505,10 @@ def create_request(
         usage_mode=payload.usage_mode,
         requested_scope_json=payload.requested_scope,
         requested_fields_json=payload.requested_fields,
-        terms_json=payload.terms,
+        terms_json={
+            **terms,
+            **({"regulatory_policy_code": regulatory_policy_code} if regulatory_policy_code else {}),
+        },
         duration_days=duration_days,
         expires_at=now + timedelta(days=duration_days),
         status=DataUsageRequestStatus.SUBMITTED.value,
@@ -441,6 +530,9 @@ def create_request(
             "asset_version_id": version.version_id,
             "provider_org_id": provider.org_id,
             "usage_mode": payload.usage_mode,
+            "cross_energy": applicant.energy_domain != provider.energy_domain,
+            "provider_decision_required": True,
+            "regulatory_policy_code": regulatory_policy_code,
             "capability_label": "LOCAL_REAL",
         },
     )
@@ -597,6 +689,7 @@ def transition_request(
                 "usage_mode": request.usage_mode,
                 "output_mode": "AGGREGATE_ONLY",
                 "raw_data_export": False,
+                "provider_decision_required": True,
                 "valid_from": now.isoformat(),
                 "expires_at": request.expires_at.isoformat(),
             },
@@ -639,6 +732,7 @@ def transition_request(
             decision_json={
                 "decision": "PERMIT",
                 "request_id": request.request_id,
+                "provider_decision_required": True,
                 "capability_label": "LOCAL_REAL",
                 "signature_status": "NOT_PROVIDED",
                 "external_anchor": "BLOCKED",

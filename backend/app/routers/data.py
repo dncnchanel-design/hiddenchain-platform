@@ -663,7 +663,7 @@ def create_data_usage_request(
     payload: DataUsageRequestCreate,
     response: Response,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE")),
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:

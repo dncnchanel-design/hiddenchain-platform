@@ -71,7 +71,7 @@ export function CatalogPage() {
   const canGoPrevious = page > 1;
   const canGoNext = Boolean(payload && page * payload.page_size < payload.total);
 
-  return <PageFrame title="数据目录" description="发现可申请的数据资产，先确认用途、敏感等级和可用方式。" action={<Button variant="secondary" disabled title="筛选条件已同步到 URL，服务端查询会自动保留"><SlidersHorizontal size={14} />筛选已保存</Button>}>
+  return <PageFrame title="数据目录" description="发现可申请的数据资产，先确认用途、敏感等级和可用方式。" action={<Badge tone="info"><SlidersHorizontal size={14} />筛选自动保存</Badge>}>
     <Card className="trusted-filter-card"><CardContent>
       <div className="trusted-filter-row">
         <label className="trusted-search-field"><Search size={16} /><Input ref={searchInputRef} value={searchText} onChange={(event) => updateFilter("q", event.target.value)} placeholder="搜索资产名称、提供方、标识…" aria-label="搜索数据资产" /></label>
@@ -80,7 +80,7 @@ export function CatalogPage() {
         <Select value={level} onChange={(event) => updateFilter("sensitivity_level", event.target.value)} options={[{ value: "", label: "全部等级" }, { value: "L1", label: `${sensitivityLabel("L1")}（公开）` }, { value: "L2", label: `${sensitivityLabel("L2")}（内部）` }, { value: "L3", label: `${sensitivityLabel("L3")}（敏感）` }, { value: "L4", label: `${sensitivityLabel("L4")}（高敏）` }]} />
         <Button variant="ghost" size="icon" aria-label="清空筛选" title="清空筛选" onClick={clearFilters}><SlidersHorizontal size={15} /></Button>
       </div>
-      <div className="trusted-filter-summary"><span><Database size={13} />共 {payload?.total ?? 0} 项资产</span><span>当前范围：由后端按角色与组织授权返回</span><Badge tone={payload?.capability_state === "LOCAL_REAL" ? "success" : "warning"}>{payload?.source_of_truth ? labelForCode(payload.source_of_truth) : "正在读取真实目录"}</Badge></div>
+      <div className="trusted-filter-summary"><span><Database size={13} />共 {payload?.total ?? 0} 项资产</span><span>跨能源可发现目录元数据，使用仍需提供方授权</span><Badge tone={payload?.capability_state === "LOCAL_REAL" ? "success" : "warning"}>{payload?.source_of_truth ? labelForCode(payload.source_of_truth) : "正在读取真实目录"}</Badge></div>
     </CardContent></Card>
 
     {remote.loading && !payload && <RemoteState loading />}

@@ -254,6 +254,26 @@ def identity(
     return trust_space_service.identity(db, user)
 
 
+@router.get("/identities")
+def identity_directory(
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return trust_space_service.identity_directory(db, user)
+
+
+@router.get("/identity/{did_id}/document")
+def did_document(
+    did_id: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    payload = trust_space_service.did_document(db, did_id, user)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="DID 文档不存在")
+    return payload
+
+
 @router.get("/catalog")
 def catalog(
     q: str | None = Query(default=None, max_length=128),
