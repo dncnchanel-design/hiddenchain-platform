@@ -148,3 +148,15 @@ This entry records the current application flow and hosted review/test synchroni
 | 受控查询 | 中文意图解析、固定函数执行、签名验证、结果范围和审计 | 已实现并联调 |
 | 前端产品化 | 八模块导航、深蓝可信主题、资源名称中文回退、响应式登录 | 已实现并验收 |
 | 发布同步 | 本地、GitHub、Render 同一提交 | 待最终测试和发布 |
+
+## 2026-08-23 参与主体页与最终发布同步
+
+| 工作流 | 范围 | 证据 | 状态 |
+| --- | --- | --- | --- |
+| 参与主体页 | 真实组织/DID目录、DID文档脱敏、动态拓扑、旧身份中心能力和响应式 UI | `IdentityPage.tsx`、身份目录接口、桌面/390px 浏览器检查 | VERIFIED_LOCAL |
+| 能源域权限 | 企业/交易中心本域隔离；监管方跨能源查询；企业授权后才能使用 | 后端定向回归、线上监管/热能双角色冒烟 | VERIFIED_LOCAL_AND_ONLINE |
+| 本地验证 | 前端 71 项测试、类型检查、ESLint、生产/品牌检查、Vite 构建；后端 157 通过/1 跳过 | GitHub CI 全部成功 | PASS |
+| GitHub 同步 | `main` 与 `agent/deep-brand-green` | 两分支均指向 `7828be0afa1d20da733d2b0470b7ff0644653233` | SYNCED |
+| Render 评审环境 | `hiddenchain-platform-review.onrender.com` | `/api/health/live` 200、`/api/health/ready` READY、`/api/version` 匹配；身份目录/DID文档/跨域权限冒烟通过 | LIVE_REVIEW_TEST |
+
+Render 仍是公开演示/评审环境，不代表生产部署；企业交付后自行部署到内网。
