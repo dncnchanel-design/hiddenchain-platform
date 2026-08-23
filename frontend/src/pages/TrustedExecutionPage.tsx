@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Database, Fingerprint, LockKeyhole, Play, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { api, post, shortHash } from "../api";
 import { useAuth } from "../auth";
@@ -119,9 +119,17 @@ export function TrustedExecutionPage() {
   const [spatialScope, setSpatialScope] = useState("REGION");
   const [outputMode, setOutputMode] = useState("SUMMARY");
   const [requestedFields, setRequestedFields] = useState<string[]>([]);
+  const [translation, setTranslation] = useState<JsonRecord | null>(null);
   const [result, setResult] = useState<JsonRecord | null>(null);
+  const [translating, setTranslating] = useState(false);
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState("");
+
+  useEffect(() => {
+    setTranslation(null);
+    setResult(null);
+    setActionError("");
+  }, [question, consumerRole, purpose, periodStart, periodEnd, granularity, spatialScope, outputMode, requestedFields]);
 
   const remote = useRemote<ExecutionConsoleData>(async (signal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
@@ -132,8 +140,31 @@ export function TrustedExecutionPage() {
     return { status, policy };
   }, []);
 
-  async function runQuery() {
+  async function translateQuestion(offlineTest = false) {
     if (!question.trim()) return;
+    setTranslating(true);
+    setActionError("");
+    try {
+      const next = await post<JsonRecord>("/trusted-execution/translate", {
+        question: question.trim(),
+        period_start: periodStart || undefined,
+        period_end: periodEnd || undefined,
+        requested_granularity: granularity,
+        spatial_scope: spatialScope,
+        group_by: spatialScope === "REGION" ? ["region", "period"] : ["organization", "period"],
+        output_mode: outputMode,
+        offline_test: offlineTest,
+      });
+      setTranslation(next);
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "DeepSeek 翻译未完成，查询未执行");
+    } finally {
+      setTranslating(false);
+    }
+  }
+
+  async function runQuery() {
+    if (!question.trim() || !translation?.translation) return;
     setRunning(true);
     setActionError("");
     try {
@@ -148,6 +179,8 @@ export function TrustedExecutionPage() {
         group_by: spatialScope === "REGION" ? ["region", "period"] : ["organization", "period"],
         requested_fields: requestedFields,
         output_mode: outputMode,
+        translation: translation.translation,
+        translation_hash: translation.translation_hash,
       });
       setResult(next);
     } catch (reason) {
@@ -163,8 +196,6 @@ export function TrustedExecutionPage() {
 
   function setExample(value: string) {
     setQuestion(value);
-    setResult(null);
-    setActionError("");
   }
 
   if (remote.loading) return <LoadingState label="正在加载策略与能力边界" variant="page" />;
@@ -182,6 +213,7 @@ export function TrustedExecutionPage() {
   const steps = Array.isArray(result?.workflow_steps) ? result.workflow_steps as JsonRecord[] : [];
   const series = Array.isArray(resultBody.series) ? resultBody.series as JsonRecord[] : [];
   const canReview = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
+  const translatedInstruction = (translation?.translation || {}) as JsonRecord;
 
   return (
     <>
@@ -225,7 +257,17 @@ export function TrustedExecutionPage() {
               <div>{fieldOptions.map((item) => <label key={item.value}><input type="checkbox" checked={requestedFields.includes(item.value)} onChange={() => toggleField(item.value)} />{item.label}</label>)}</div>
               <small>原始字段仅用于验证策略拦截，不会因勾选而获得导出权限。</small>
             </fieldset>
-            <div className="trusted-execution-submit"><Button icon={Play} variant="primary" busy={running} disabled={unavailable || question.trim().length < 2} onClick={runQuery}>解析并执行</Button><span>提交后将生成请求编号、策略命中和可核验回执。</span></div>
+            {translation?.translation && <Surface title="翻译预览" meta={translation.offline_test ? "本地离线测试，不代表 DeepSeek 已接入" : "本地校验通过，尚未执行"}>
+              <div className="detail-grid trusted-execution-translation-preview">
+                <div><span>固定函数</span><strong>{String(translation.function_label || translatedInstruction.function || "—")}</strong></div>
+                <div><span>数据目标</span><strong>{(Array.isArray(translatedInstruction.target_data_types) ? translatedInstruction.target_data_types : []).map((item: unknown) => labelForCode(item, "已登记数据目标")).join("、")}</strong></div>
+                <div><span>时间范围</span><strong>{String(translatedInstruction.period_start)} 至 {String(translatedInstruction.period_end)}</strong></div>
+                <div><span>粒度与分组</span><strong>{textLabel(granularityLabels, translatedInstruction.requested_granularity)} · {(Array.isArray(translatedInstruction.group_by) ? translatedInstruction.group_by : []).join("、")}</strong></div>
+              </div>
+              <div className="trusted-execution-submit"><Button icon={CheckCircle2} variant="primary" busy={running} disabled={unavailable || running} onClick={runQuery}>确认并执行固定函数</Button><span>确认后才会触发本地策略、受控计算和审计。</span></div>
+            </Surface>}
+            <div className="trusted-execution-submit"><Button icon={Play} variant="primary" busy={translating} disabled={unavailable || question.trim().length < 2 || translating || running} onClick={() => translateQuestion(false)}>{translation ? "重新翻译" : "翻译需求"}</Button><span>DeepSeek 只翻译，不访问数据；翻译失败不会执行查询。</span></div>
+            {status.availability === "TEST_FIXTURE_ONLY" && <div className="trusted-execution-submit"><Button icon={RefreshCw} variant="secondary" busy={translating} disabled={question.trim().length < 2 || translating || running} onClick={() => translateQuestion(true)}>离线测试翻译</Button><span>仅匹配页面预置示例，不代表 DeepSeek 已接入，也不发送网络请求。</span></div>}
           </div>
         </Surface>
 
@@ -318,6 +360,7 @@ function TrustedExecutionResult({ result, resultStatus, resultBody, routing, pol
             { key: "region", label: "区域" },
             { key: "thermal_output_mwh", label: "火电出力", align: "right" },
             { key: "grid_load_mwh", label: "电网负荷", align: "right" },
+            { key: "function_result", label: "固定函数结果", align: "right" },
             { key: "balance_status", label: "平衡状态", render: (row) => <StatusTag value={row.balance_status} label={row.balance_status === "SURPLUS" ? "有余量" : row.balance_status === "GAP" ? "存在缺口" : row.balance_status || "—"} /> },
           ]} /> : <div className="trusted-execution-empty-result"><XCircle size={20} /><span>当前请求没有可交付结果。请查看上方策略裁决和执行链。</span></div>}
         </Surface>

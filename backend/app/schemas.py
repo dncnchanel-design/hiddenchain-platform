@@ -263,6 +263,19 @@ class AgentQueryRequest(StrictModel):
     question: str = Field(min_length=2, max_length=500)
 
 
+class TrustedQueryTranslation(StrictModel):
+    """Canonical, locally validated instruction produced by the LLM preview."""
+
+    function: Literal["SUM", "BALANCE", "TREND"]
+    target_data_types: list[str] = Field(min_length=1, max_length=8)
+    period_start: date
+    period_end: date
+    requested_granularity: Literal["MONTH", "DAY", "15_MINUTE", "DETAIL"]
+    spatial_scope: Literal["REGION", "ORGANIZATION", "METER_POINT"]
+    group_by: list[str] = Field(min_length=1, max_length=8)
+    output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"]
+
+
 class TrustedExecutionRequest(StrictModel):
     """Natural-language/API request for the eight-step trusted execution loop."""
 
@@ -277,6 +290,21 @@ class TrustedExecutionRequest(StrictModel):
     requested_granularity: Literal["MONTH", "DAY", "15_MINUTE", "DETAIL"] | None = None
     spatial_scope: Literal["REGION", "ORGANIZATION", "METER_POINT"] = "REGION"
     output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"] = "SUMMARY"
+    translation: TrustedQueryTranslation | None = None
+    translation_hash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class TrustedExecutionTranslationRequest(StrictModel):
+    """Request for the optional DeepSeek natural-language translation preview."""
+
+    question: str = Field(min_length=2, max_length=1000)
+    period_start: date | None = None
+    period_end: date | None = None
+    requested_granularity: Literal["MONTH", "DAY", "15_MINUTE", "DETAIL"] | None = None
+    spatial_scope: Literal["REGION", "ORGANIZATION", "METER_POINT"] = "REGION"
+    group_by: list[str] = Field(default_factory=lambda: ["region", "period"], max_length=8)
+    output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"] = "SUMMARY"
+    offline_test: bool = False
 
 
 class TrustedExecutionReviewRequest(StrictModel):

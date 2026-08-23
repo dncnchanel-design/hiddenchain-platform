@@ -929,11 +929,62 @@ def test_trusted_execution_requires_trusted_role(client, auth_headers):
             "question": "查询跨能源趋势",
             "consumer_role": "ENERGY_BUREAU",
             "purpose": "CROSS_ENERGY_TREND",
+            "translation": {
+                "function": "TREND",
+                "target_data_types": ["COAL_INVENTORY", "POWER_THERMAL_OUTPUT", "GRID_LOAD"],
+                "period_start": "2026-07-01",
+                "period_end": "2026-07-31",
+                "requested_granularity": "MONTH",
+                "spatial_scope": "REGION",
+                "group_by": ["region", "period"],
+                "output_mode": "SUMMARY",
+            },
             "group_by": ["region", "period"],
             "output_mode": "SUMMARY",
         },
     )
     assert query_response.status_code == 403
+
+
+def test_trusted_execution_requires_confirmed_translation(client, auth_headers):
+    response = client.post(
+        "/api/trusted-execution/query",
+        headers=auth_headers["exchange"],
+        json={"question": "把火电出力和电网负荷加起来"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "请先完成查询翻译并确认后再执行"
+
+
+def test_offline_translation_is_explicit_and_fixture_only(client, auth_headers):
+    response = client.post(
+        "/api/trusted-execution/translate",
+        headers=auth_headers["exchange"],
+        json={
+            "question": "查询调度实时出力变化趋势",
+            "offline_test": True,
+            "requested_granularity": "15_MINUTE",
+            "spatial_scope": "REGION",
+            "group_by": ["region", "period"],
+            "output_mode": "CHART",
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["provider"] == "local_offline_fixture"
+    assert payload["offline_test"] is True
+    assert payload["translation"]["function"] == "TREND"
+    assert payload["translation"]["target_data_types"] == ["POWER_DISPATCH"]
+
+
+def test_deepseek_translation_does_not_fallback_when_disabled(client, auth_headers):
+    response = client.post(
+        "/api/trusted-execution/translate",
+        headers=auth_headers["exchange"],
+        json={"question": "查询调度实时出力变化趋势"},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "DeepSeek 翻译服务暂时不可用，查询未执行"
 
 
 def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_headers):
@@ -962,6 +1013,17 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
             "question": "分析上月由于电煤库存变化引起的火电出力与电网负荷平衡趋势",
             "consumer_role": "ENERGY_BUREAU",
             "purpose": "CROSS_ENERGY_TREND",
+            "translation": {
+                "function": "TREND",
+                "target_data_types": ["COAL_INVENTORY", "POWER_THERMAL_OUTPUT", "GRID_LOAD"],
+                "period_start": "2026-07-01",
+                "period_end": "2026-07-31",
+                "requested_granularity": "MONTH",
+                "spatial_scope": "REGION",
+                "group_by": ["region", "period"],
+                "output_mode": "SUMMARY",
+            },
+            "translation_hash": "48deb2c8ecd042ad7e87f87718b23574f5fb3db2c1e62d6257eca51118ec386f",
             "group_by": ["region", "period"],
             "output_mode": "SUMMARY",
         },

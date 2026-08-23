@@ -195,6 +195,7 @@ class QueryIntent:
     output_mode: str
     requested_granularity: str
     spatial_scope: str
+    function_code: str
 
     def context_for(self, target_type: str) -> dict[str, Any]:
         target = TARGET_CATALOG.get(target_type, {})
@@ -212,6 +213,7 @@ class QueryIntent:
             "requested_fields": list(self.requested_fields),
             "requested_granularity": self.requested_granularity,
             "spatial_scope": self.spatial_scope,
+            "function": self.function_code,
         }
 
 
@@ -471,38 +473,49 @@ class AgenticQueryOrchestrator:
             return start_value, end_value
         return _previous_month(utc_now().date())
 
-    def resolve(self, payload: dict[str, Any]) -> QueryIntent:
+    def resolve(self, payload: dict[str, Any], *, require_translation: bool = False) -> QueryIntent:
         question = str(payload.get("question", "")).strip()
         normalized = question.lower()
-        explicit_targets = [str(item).upper() for item in payload.get("target_data_types", [])]
-        targets = list(dict.fromkeys(explicit_targets)) if explicit_targets else []
-        if not targets:
-            for target, keywords in self.TARGET_PATTERNS:
-                if all(keyword.lower() in normalized for keyword in keywords):
-                    targets.append(target)
-        if not targets:
-            for target, keywords in self.TARGET_PATTERNS:
-                if any(keyword.lower() in normalized for keyword in keywords):
-                    targets.append(target)
-        if not targets:
-            targets = ["POWER_THERMAL_OUTPUT", "GRID_LOAD"]
-        targets = list(dict.fromkeys(targets))
-        period_start, period_end = self._periods(payload)
+        translation = payload.get("translation")
+        if require_translation and not isinstance(translation, dict):
+            raise ValueError("TRANSLATION_REQUIRED")
+
+        if isinstance(translation, dict):
+            explicit_targets = [str(item).upper() for item in translation.get("target_data_types", [])]
+            targets = list(dict.fromkeys(explicit_targets))
+            period_start, period_end = self._periods(translation)
+            function_code = str(translation.get("function") or "").upper()
+        else:
+            explicit_targets = [str(item).upper() for item in payload.get("target_data_types", [])]
+            targets = list(dict.fromkeys(explicit_targets)) if explicit_targets else []
+            if not targets:
+                for target, keywords in self.TARGET_PATTERNS:
+                    if all(keyword.lower() in normalized for keyword in keywords):
+                        targets.append(target)
+            if not targets:
+                for target, keywords in self.TARGET_PATTERNS:
+                    if any(keyword.lower() in normalized for keyword in keywords):
+                        targets.append(target)
+            if not targets:
+                targets = ["POWER_THERMAL_OUTPUT", "GRID_LOAD"]
+            targets = list(dict.fromkeys(targets))
+            period_start, period_end = self._periods(payload)
+            function_code = "TREND"
         purpose = str(payload.get("purpose") or "").strip() or (
             "CROSS_ENERGY_TREND" if len(targets) > 1 or "跨能源" in question else "ENERGY_ANALYSIS"
         )
-        group_by = tuple(payload.get("group_by") or ["region", "period"])
+        group_by = tuple((translation or payload).get("group_by") or ["region", "period"])
         requested_fields = tuple(payload.get("requested_fields") or [])
-        statistics: list[str] = []
-        if any(word in question for word in ("趋势", "变化", "走势")):
+        statistics: list[str] = [function_code] if isinstance(translation, dict) else []
+        if not statistics and any(word in question for word in ("趋势", "变化", "走势")):
             statistics.append("TREND")
-        if any(word in question for word in ("引起", "相关", "关联")):
+        if not statistics and any(word in question for word in ("引起", "相关", "关联")):
             statistics.append("CORRELATION")
-        if any(word in question for word in ("平衡", "缺口", "供需")):
+        if not statistics and any(word in question for word in ("平衡", "缺口", "供需")):
             statistics.append("BALANCE")
         if not statistics:
             statistics.append("SUMMARY")
-        requested_granularity = str(payload.get("requested_granularity") or "").strip().upper()
+        requested_granularity = str((translation or payload).get("requested_granularity") or "").strip().upper()
         if not requested_granularity:
             if "15分钟" in question or "15 分钟" in question:
                 requested_granularity = "15_MINUTE"
@@ -512,7 +525,7 @@ class AgenticQueryOrchestrator:
                 requested_granularity = "DETAIL"
             else:
                 requested_granularity = "MONTH"
-        spatial_scope = str(payload.get("spatial_scope") or "REGION").strip().upper()
+        spatial_scope = str((translation or payload).get("spatial_scope") or "REGION").strip().upper()
         return QueryIntent(
             question=question,
             purpose=purpose,
@@ -523,9 +536,10 @@ class AgenticQueryOrchestrator:
             group_by=group_by,
             requested_fields=requested_fields,
             statistics=tuple(dict.fromkeys(statistics)),
-            output_mode=str(payload.get("output_mode") or "SUMMARY"),
+            output_mode=str((translation or payload).get("output_mode") or payload.get("output_mode") or "SUMMARY"),
             requested_granularity=requested_granularity,
             spatial_scope=spatial_scope,
+            function_code=function_code,
         )
 
     @staticmethod
@@ -830,6 +844,9 @@ class ResultAuditor:
         """
 
         errors: list[dict[str, Any]] = []
+        function = result.get("function") if isinstance(result.get("function"), dict) else {}
+        function_code = str(function.get("code") or "")
+        operands = function.get("operands") if isinstance(function.get("operands"), list) else []
         series_by_key = {
             (str(item.get("period")), str(item.get("region"))): item
             for item in result.get("series", [])
@@ -862,6 +879,21 @@ class ResultAuditor:
                         "actual": item.get("balance_status"),
                     }
                 )
+            if function_code == "SUM" and operands:
+                operand_fields = [cls.FIELD_MAP.get(str(target)) for target in operands]
+                if all(field and field in item for field in operand_fields):
+                    expected_sum = _round_metric(sum(float(item[field]) for field in operand_fields))
+                    actual_sum = item.get("function_result")
+                    if actual_sum is None or not math.isclose(float(actual_sum), expected_sum, abs_tol=0.0001):
+                        errors.append(
+                            {
+                                "check": "FUNCTION_SUM",
+                                "period": item.get("period"),
+                                "region": item.get("region"),
+                                "expected": expected_sum,
+                                "actual": actual_sum,
+                            }
+                        )
 
         source_aggregates: dict[tuple[str, str, str], float] = {}
         for source in source_snapshot:
@@ -909,6 +941,7 @@ class ResultAuditor:
         checks = {
             "balance_formula": not any(item["check"] == "BALANCE_FORMULA" for item in errors),
             "balance_status": not any(item["check"] == "BALANCE_STATUS" for item in errors),
+            "function_sum": not any(item["check"] == "FUNCTION_SUM" for item in errors),
             "source_aggregate_reconciliation": not any(
                 item["check"] == "SOURCE_AGGREGATE_RECONCILIATION" for item in errors
             ),
@@ -1197,6 +1230,24 @@ class TrustworthyExecutionController:
                 entry["balance_status"] = "SURPLUS" if thermal >= load else "GAP"
             series.append(entry)
 
+        function_result_field = "function_result"
+        function_unit = None
+        if intent.function_code == "SUM":
+            operand_fields = [field_map[target][0] for target in intent.target_data_types if target in field_map]
+            function_unit = field_map[intent.target_data_types[0]][1]
+            for entry in series:
+                if all(field in entry for field in operand_fields):
+                    entry[function_result_field] = _round_metric(
+                        sum(float(entry[field]) for field in operand_fields)
+                    )
+                    entry["function_unit"] = function_unit
+        elif intent.function_code == "BALANCE":
+            function_unit = "MWh"
+            for entry in series:
+                if "grid_balance_margin_mwh" in entry:
+                    entry[function_result_field] = entry["grid_balance_margin_mwh"]
+                    entry["function_unit"] = function_unit
+
         def change(field: str) -> float | None:
             values = [item[field] for item in series if field in item]
             if len(values) < 2 or values[0] == 0:
@@ -1249,6 +1300,13 @@ class TrustworthyExecutionController:
         )
         return {
             "purpose": intent.purpose,
+            "function": {
+                "code": intent.function_code,
+                "label": {"SUM": "求和", "BALANCE": "平衡计算", "TREND": "趋势分析"}.get(intent.function_code, intent.function_code),
+                "operands": list(intent.target_data_types),
+                "result_field": function_result_field,
+                "unit": function_unit,
+            },
             "period": {"start": intent.period_start.isoformat(), "end": intent.period_end.isoformat()},
             "statistics": list(intent.statistics),
             "series": series,
@@ -1386,6 +1444,8 @@ class TrustworthyExecutionController:
                 "accuracy_review_id": review.review_id,
                 "accuracy_review_status": review.verification_status,
                 "accuracy_checks": review_checks,
+                "query_function": intent.function_code if intent else None,
+                "translated_target_data": list(intent.target_data_types) if intent else [],
                 "raw_data_returned": False,
             },
         )
@@ -1499,7 +1559,24 @@ class TrustworthyExecutionController:
                 "role": identity.requested_role,
             },
         )
-        intent = self.orchestrator.resolve(payload)
+        try:
+            intent = self.orchestrator.resolve(payload, require_translation=True)
+        except ValueError as exc:
+            self._step(steps, 3, "RESOLVE", "DENIED", {"reason": str(exc)})
+            for number, code in ((4, "ARBITRATE"), (5, "EXECUTE"), (6, "AUDIT"), (7, "DELIVER")):
+                self._step(steps, number, code, "SKIPPED", {"reason": "TRANSLATION_INVALID"})
+            return self._finalize(
+                request_id=request_id,
+                current_trace_id=current_trace_id,
+                identity=identity,
+                intent=None,
+                policy_hits=[],
+                plan=None,
+                steps=steps,
+                status="DENIED",
+                result={"released": False, "reason": "TRANSLATION_INVALID", "raw_data_returned": False},
+                user=user,
+            )
         self._step(
             steps,
             3,

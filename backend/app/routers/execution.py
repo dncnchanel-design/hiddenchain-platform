@@ -8,8 +8,19 @@ from ..config import settings
 from ..database import get_db
 from ..dependencies import require_roles
 from ..models import BlockchainEvidence, TrustedExecutionReview, User
-from ..schemas import TrustedExecutionRequest, TrustedExecutionReviewRequest
+from ..schemas import (
+    TrustedExecutionRequest,
+    TrustedExecutionReviewRequest,
+    TrustedExecutionTranslationRequest,
+)
 from ..services.common import add_audit_log, model_dict
+from ..services.llm import DeepSeekUnavailable
+from ..services.query_translation import (
+    QueryTranslationRejected,
+    translate_query,
+    translation_hash,
+    validate_client_translation,
+)
 from ..services.trust_execution import (
     EvidenceAuditLogger,
     CallerIdentity,
@@ -50,12 +61,56 @@ def trusted_query(
     user: User = Depends(require_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
+    if payload.translation is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先完成查询翻译并确认后再执行")
+    try:
+        validated_translation = validate_client_translation(payload.translation.model_dump(mode="json"))
+    except QueryTranslationRejected as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if not payload.translation_hash or payload.translation_hash != translation_hash(validated_translation.model_dump(mode="json")):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="翻译预览已变化，请重新翻译后再执行")
     if settings.app_env == "production":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="跨能源数据节点尚未配置，生产环境不执行内置测试数据",
         )
     return TrustworthyExecutionController(db).execute(payload, user)
+
+
+@router.post("/translate")
+def translate_trusted_query(
+    payload: TrustedExecutionTranslationRequest,
+    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        result = translate_query(payload)
+    except DeepSeekUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="DeepSeek 翻译服务暂时不可用，查询未执行") from exc
+    except QueryTranslationRejected as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    add_audit_log(
+        db,
+        action="TRANSLATE_TRUSTED_QUERY",
+        target_type="TRUSTED_QUERY_TRANSLATION",
+        target_id=result["translation_hash"],
+        result="READY",
+        user=user,
+        details={
+            "question": result["question"],
+            "redacted_question": result["redacted_question"],
+            "translation": result["translation"],
+            "translation_hash": result["translation_hash"],
+            "provider": result["provider"],
+            "model": result["model"],
+            "request_id": result["request_id"],
+            "duration_ms": result["duration_ms"],
+            "offline_test": result["offline_test"],
+            "raw_data_accessed": False,
+        },
+    )
+    db.commit()
+    return result
 
 
 @router.get("/reviews")
