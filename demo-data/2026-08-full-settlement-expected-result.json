@@ -1,0 +1,49 @@
+{
+  "fixture_id": "hiddenchain-2026-08-full-settlement-001",
+  "batch": "TB-2026-08-FLOW-001",
+  "rule": {
+    "rule_id": "rule-settlement-v1",
+    "rule_version": "SETTLE-2026-001",
+    "contract_price_yuan_per_mwh": 420.0,
+    "deviation_threshold_mwh": 100.0,
+    "deviation_penalty_rate_yuan_per_mwh": 150.0,
+    "service_fee_rate_yuan_per_mwh": 3.2
+  },
+  "calculation": {
+    "generation_mwh": 1250.0,
+    "retail_mwh": 1000.0,
+    "settlement_energy_mwh": 1000.0,
+    "gross_deviation_mwh": 250.0,
+    "vpp_adjustment_mwh": 120.0,
+    "remaining_deviation_mwh": 130.0,
+    "penalty_deviation_mwh": 30.0,
+    "base_amount_yuan": 420000.0,
+    "deviation_penalty_yuan": 4500.0,
+    "service_fee_yuan": 3200.0,
+    "payable_amount_yuan": 412300.0
+  },
+  "formula_check": "结算电量=min(1250,1000)=1000；原始偏差=250；虚拟电厂调节=min(250,20×6)=120；剩余偏差=130；超阈值偏差=130-100=30；基础金额=1000×420=420000；偏差罚金=30×150=4500；服务费=1000×3.2=3200；最终应结金额=420000-4500-3200=412300元。",
+  "party_results": {
+    "generator": {
+      "organization": "齐鲁新能源发电有限公司",
+      "direction": "应收",
+      "amount_yuan": 412300.0,
+      "energy_mwh": 1000.0
+    },
+    "retailer": {
+      "organization": "海岱售电服务有限公司",
+      "direction": "应付",
+      "amount_yuan": 412300.0,
+      "energy_mwh": 1000.0
+    }
+  },
+  "workflow_check": {
+    "after_import": "待主体确认",
+    "after_first_party_confirmation": "部分确认",
+    "after_regulator_approval_and_second_party_confirmation": "已审计归档",
+    "risk_level": "中风险（因当前演示环境未提供跨域不出域远程证明，必须经过监管审计批准）",
+    "raw_records_returned": false,
+    "privacy_analysis_raw_records_returned": false,
+    "evidence_expected": "至少包含算前授权、算中回执、算后结果和审计报告等证据记录"
+  }
+}

@@ -21,11 +21,14 @@ export type TrustedContext = CapabilityEnvelope & {
     display_name: string;
     role_code: string;
     role_label: string;
+    permissions?: string[];
+    is_org_owner?: boolean;
   };
   current_subject: {
     org_id: string;
     org_type?: string | null;
     org_name?: string | null;
+    energy_domain?: string | null;
     status: string;
   };
   identity_ref: {
@@ -377,6 +380,31 @@ export type UsageRequestList = {
   page_size: number;
   inbox?: boolean;
   mine?: boolean;
+};
+
+export type QueryIntent = {
+  question: string;
+  energy_domain?: string | null;
+  resource?: string | null;
+  function: string;
+  function_name: string;
+  requires_authorization: boolean;
+  ready: boolean;
+  notice: string;
+};
+
+export type ControlledQueryResult = {
+  task_id: string;
+  authorization_scope: string;
+  generated_at: string;
+  result: number | string | Record<string, number | string>;
+  unit: string;
+  resource_name: string;
+  function_name: string;
+  digital_signature: string;
+  audit_recorded: boolean;
+  raw_records_returned: boolean;
+  capability: string;
 };
 
 export type OrganizationRef = {
@@ -937,6 +965,26 @@ export function loadUsageRequests(
 
 export function loadUsageRequest(requestId: string, signal?: AbortSignal) {
   return api<UsageRequest>(`/data/access-requests/${encodeURIComponent(requestId)}`, { signal, cacheTtlMs: 1_500 });
+}
+
+export function parseTrustedQuery(question: string) {
+  return post<QueryIntent>("/trust-space/query/parse", { question });
+}
+
+export function executeTrustedQuery(body: {
+  authorization_id: string;
+  energy_domain: string;
+  resource: string;
+  function: string;
+  start_date: string;
+  end_date: string;
+  region?: string;
+  hour?: number;
+  threshold?: number;
+  group_by?: string;
+  decimals: number;
+}) {
+  return post<ControlledQueryResult>("/trust-space/query/execute", body);
 }
 
 export type UsageRequestAction = "review" | "approve" | "reject" | "withdraw" | "revoke";

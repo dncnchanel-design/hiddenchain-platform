@@ -1,5 +1,14 @@
 # Workstreams and File Ownership
 
+## Current settlement sample batch — 2026-08-22
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Raw simulation fixture | Main agent; `demo-data/2026-08-full-settlement-simulation.json` and expected-result companion | Six input assets; deterministic formula and final amount documented | IMPLEMENTED_LOCAL_DATA |
+| Chinese operation runbook | Main agent; `docs/FULL_SETTLEMENT_SIMULATION_RUNBOOK.md` and `demo-data/README.md` | Covers startup, import, role handoff, audit gate, confirmation, archive and troubleshooting | IMPLEMENTED_LOCAL_DOCS |
+| Full-flow regression | Main agent; `backend/tests/test_platform.py` | Focused 3-test run passed; standalone flow reached AUDITED with 8 evidence records | VERIFIED_LOCAL_BACKEND |
+| Release/deployment | Main agent retains commit, push, Render and final convergence ownership | Not requested for this data/runbook task | NOT_REQUESTED |
+
 ## Current frontend batch — 2026-08-22 (翡翠绿系统栏)
 
 | Workstream | Execution boundary | Evidence | Status |
@@ -129,3 +138,13 @@ This entry records the current application flow and hosted review/test synchroni
 | Default theme palette | Main agent; `frontend/src/brand-theme.ts`, `styles.css`, trusted-space theme and runtime defaults | Default brand primary is `#0A806C`; derived action, surface, border and focus tokens are aligned | VERIFIED_LOCAL |
 | Contrast and responsive check | Main agent | White on primary `4.86:1`; desktop and 390px local browser checks show the new color and no horizontal overflow | VERIFIED_LOCAL |
 | Release synchronization | Main agent retains commit, push and Render ownership | Local checks passed; GitHub and Render publication follows after the final release commit | PENDING_RELEASE |
+## 2026-08-23 当前工作流
+
+| 工作流 | 范围 | 状态 |
+| --- | --- | --- |
+| 多能源组织与权限 | 五类能源、五个交易中心、监管跨能源申请、平台运维隔离、企业与个人账号权限 | 已实现并测试 |
+| 企业连接器 | 五个隔离服务、企业侧 SQLite、固定函数、Ed25519、防重放与隐私阈值 | 已实现并联调 |
+| 目录与授权 | 中文目录元数据、企业批准、同能源限制、监管跨能源申请 | 已实现并测试 |
+| 受控查询 | 中文意图解析、固定函数执行、签名验证、结果范围和审计 | 已实现并联调 |
+| 前端产品化 | 八模块导航、深蓝可信主题、资源名称中文回退、响应式登录 | 已实现并验收 |
+| 发布同步 | 本地、GitHub、Render 同一提交 | 待最终测试和发布 |

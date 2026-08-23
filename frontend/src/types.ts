@@ -1,4 +1,4 @@
-export type RoleCode = "GENERATOR" | "RETAILER" | "EXCHANGE" | "REGULATOR" | "ADMIN";
+export type RoleCode = "GENERATOR" | "RETAILER" | "COAL_ENTERPRISE" | "HEAT_ENTERPRISE" | "GAS_ENTERPRISE" | "OIL_ENTERPRISE" | "EXCHANGE" | "REGULATOR" | "ADMIN";
 
 export interface UserProfile {
   user_id: string;
@@ -104,9 +104,13 @@ export type JsonRecord = Record<string, any>;
 export const ROLE_LABELS: Record<RoleCode, string> = {
   GENERATOR: "发电企业",
   RETAILER: "售电企业",
+  COAL_ENTERPRISE: "煤炭企业",
+  HEAT_ENTERPRISE: "热能企业",
+  GAS_ENTERPRISE: "天然气企业",
+  OIL_ENTERPRISE: "石油企业",
   EXCHANGE: "交易中心",
   REGULATOR: "监管方",
-  ADMIN: "系统管理员",
+  ADMIN: "平台运维",
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -375,6 +379,11 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   POWER_THERMAL_OUTPUT: "火电出力",
   GRID_LOAD: "电网负荷",
   OIL_GAS_SUPPLY: "油气供应",
+  ELECTRICITY_METRIC: "电力数据",
+  COAL_METRIC: "煤炭数据",
+  HEAT_METRIC: "热能数据",
+  GAS_METRIC: "天然气数据",
+  OIL_METRIC: "石油数据",
 };
 
 export const CAPABILITY_LABELS: Record<string, string> = {
@@ -442,6 +451,11 @@ export const SOURCE_OF_TRUTH_LABELS: Record<string, string> = {
 };
 
 export const DOMAIN_LABELS: Record<string, string> = {
+  electricity: "电力",
+  coal: "煤炭",
+  heat: "热能",
+  gas: "天然气",
+  oil: "石油",
   ELECTRICITY_NODE: "电力节点",
   COAL_NODE: "煤炭节点",
   OIL_GAS_NODE: "油气节点",
@@ -462,17 +476,17 @@ export const DATA_STATUS_LABELS: Record<string, string> = {
 };
 
 export const TECHNICAL_TERM_LABELS: Record<string, string> = {
-  API: "接口",
-  CSV: "表格数据",
-  DID: "去中心化身份标识",
+  API: "API",
+  CSV: "CSV",
+  DID: "DID",
   EDC: "数据空间连接器",
-  JSON: "结构化数据",
-  MPC: "多方安全计算",
+  JSON: "JSON",
+  MPC: "MPC",
   PASS: "通过",
-  PSI: "隐私集合求交",
-  TEE: "可信执行环境",
-  TTC: "可信任务链",
-  VC: "可验证凭证",
+  PSI: "PSI",
+  TEE: "TEE",
+  TTC: "TTC",
+  VC: "VC",
   VerifiableCredential: "可验证凭证",
   EnergyMarketParticipantCredential: "能源市场参与方凭证",
   AgentCapabilityCredential: "智能助手能力凭证",

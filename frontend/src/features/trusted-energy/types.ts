@@ -1,7 +1,9 @@
 export type TrustedViewKey =
   | "workbench"
+  | "query"
   | "identity"
   | "catalog"
+  | "connector"
   | "upload"
   | "authorizations"
   | "asset"
@@ -15,25 +17,24 @@ export type TrustedViewKey =
 export const TRUSTED_BASE = "/trusted-space";
 
 export const navItems = [
-  { key: "workbench" as const, menuCode: "workbench", label: "工作台", icon: "LayoutDashboard" },
-  { key: "identity" as const, menuCode: "identity", label: "身份中心", icon: "Fingerprint" },
+  { key: "workbench" as const, menuCode: "overview", label: "运行总览", icon: "LayoutDashboard" },
+  { key: "query" as const, menuCode: "query", label: "智能数据查询", icon: "Search" },
   { key: "catalog" as const, menuCode: "catalog", label: "数据目录", icon: "Database" },
-  { key: "upload" as const, menuCode: "excel-upload", label: "数据上传", icon: "Upload" },
-  { key: "authorizations" as const, menuCode: "access-requests", label: "授权记录", icon: "FileSignature" },
-  { key: "contract" as const, menuCode: "settlements", label: "合同协商", icon: "FileSignature" },
+  { key: "connector" as const, menuCode: "connector", label: "数据连接", icon: "Cable" },
+  { key: "authorizations" as const, menuCode: "authorization", label: "数据授权", icon: "FileSignature" },
   { key: "mpc" as const, menuCode: "compute", label: "隐私计算", icon: "Network" },
-  { key: "results" as const, menuCode: "compute", label: "结果与存证", icon: "BadgeCheck" },
-  { key: "audit" as const, menuCode: "audit", label: "审计中心", icon: "ScanSearch" },
+  { key: "audit" as const, menuCode: "audit", label: "审计追溯", icon: "ScanSearch" },
+  { key: "identity" as const, menuCode: "participants", label: "参与主体", icon: "Fingerprint" },
 ];
 
-// The blueprint keeps data upload and authorization records discoverable from
-// their parent flows instead of consuming a primary-nav slot on desktop.
-export const primaryNavItems = navItems.filter((item) => item.key !== "upload" && item.key !== "authorizations");
+export const primaryNavItems = navItems;
 
 export function routeForView(key: TrustedViewKey, id?: string) {
   if (key === "asset") return id ? `${TRUSTED_BASE}/assets/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
   if (key === "apply") return id ? `${TRUSTED_BASE}/apply/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
   if (key === "upload") return `${TRUSTED_BASE}/upload`;
+  if (key === "connector") return `${TRUSTED_BASE}/connector`;
+  if (key === "query") return `${TRUSTED_BASE}/query`;
   if (key === "authorizations") return `${TRUSTED_BASE}/authorizations`;
   if (key === "contract") return id ? `${TRUSTED_BASE}/contracts/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/contracts`;
   if (key === "ttc") return id ? `${TRUSTED_BASE}/ttc/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/ttc`;
@@ -43,13 +44,16 @@ export function routeForView(key: TrustedViewKey, id?: string) {
   return `${TRUSTED_BASE}/${key}`;
 }
 export function helpViewForTrustedView(view: TrustedViewKey): string {
+  if (view === "query") return "catalog";
+  if (view === "connector" || view === "upload") return "identity";
   return view === "contract" ? "contracts" : view;
 }
 
 export function trustedMenuCodeForView(view: TrustedViewKey): string {
-  if (view === "asset") return "asset-passport";
-  if (view === "apply" || view === "authorizations") return "access-requests";
-  if (view === "ttc") return "settlements";
+  if (view === "asset") return "catalog";
+  if (view === "upload" || view === "connector") return "connector";
+  if (view === "apply" || view === "authorizations") return "authorization";
+  if (view === "contract" || view === "ttc" || view === "results") return "compute";
   return navItems.find((item) => item.key === view)?.menuCode || view;
 }
 
@@ -57,7 +61,7 @@ export function isKnownTrustedPath(pathname: string): boolean {
   if (pathname === TRUSTED_BASE || pathname === `${TRUSTED_BASE}/`) return true;
   if (!pathname.startsWith(`${TRUSTED_BASE}/`)) return false;
   const suffix = pathname.slice(`${TRUSTED_BASE}/`.length);
-  return /^(workbench|identity|catalog|upload|authorizations|assets(?:\/[^/]+)?|apply(?:\/[^/]+)?|contracts(?:\/[^/]+)?|ttc(?:\/[^/]+)?|mpc(?:\/[^/]+)?|results(?:\/[^/]+)?|audit(?:\/tasks\/[^/]+)?)$/.test(suffix);
+  return /^(workbench|query|identity|catalog|connector|upload|authorizations|assets(?:\/[^/]+)?|apply(?:\/[^/]+)?|contracts(?:\/[^/]+)?|ttc(?:\/[^/]+)?|mpc(?:\/[^/]+)?|results(?:\/[^/]+)?|audit(?:\/tasks\/[^/]+)?)$/.test(suffix);
 }
 
 export function trustedEntityId(pathname: string, segment: "assets" | "apply" | "contracts" | "ttc" | "mpc" | "results" | "audit") {
@@ -74,8 +78,10 @@ export function trustedEntityId(pathname: string, segment: "assets" | "apply" | 
 }
 
 export function getTrustedView(pathname: string): TrustedViewKey {
+  if (pathname.includes("/query")) return "query";
   if (pathname.includes("/identity")) return "identity";
   if (pathname.includes("/catalog")) return "catalog";
+  if (pathname.includes("/connector")) return "connector";
   if (pathname.includes("/upload")) return "upload";
   if (pathname.includes("/authorizations")) return "authorizations";
   if (pathname.includes("/assets")) return "asset";

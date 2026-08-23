@@ -26,7 +26,7 @@ def test_login_response_never_exposes_password_hash(client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == "bearer"
-    assert any(item["code"] == "trusted-execution" for item in payload["menus"])
+    assert any(item["code"] == "query" for item in payload["menus"])
     assert "password_hash" not in payload["user"]
     assert "password" not in str(payload["user"]).lower()
 
@@ -116,7 +116,7 @@ def test_settlement_creation_readiness_and_action_permissions(client, auth_heade
 
     admin_run = client.post(
         f"/api/settlement/tasks/{created.json()['task_id']}/run",
-        headers=auth_headers["admin"],
+        headers=auth_headers["regulator"],
         json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
     )
     assert admin_run.status_code == 403
@@ -183,7 +183,7 @@ def test_complete_agent_native_settlement_workflow(client, auth_headers):
 
     events = client.get(
         "/api/agents/events?task_id=task-ready-t01",
-        headers=auth_headers["admin"],
+        headers=auth_headers["regulator"],
     )
     assert events.status_code == 200
     event_codes = {item["agent_code"] for item in events.json()}
@@ -513,7 +513,7 @@ def test_deepseek_agent_endpoint_never_fakes_success_when_disabled(client, auth_
 def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_headers):
     injected = client.post(
         "/api/anomalies/inject",
-        headers=auth_headers["admin"],
+        headers=auth_headers["regulator"],
         json={"task_id": "task-ready-t01", "event_type": "UNAUTHORIZED_ACCESS"},
     )
     assert injected.status_code == 201, injected.text
@@ -523,23 +523,18 @@ def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_head
 
     resolved = client.post(
         f"/api/anomalies/{event['event_id']}/resolve",
-        headers=auth_headers["admin"],
+        headers=auth_headers["regulator"],
         json={"resolution": "已完成测试处置"},
     )
     assert resolved.status_code == 200, resolved.text
     assert resolved.json()["status"] == "RESOLVED"
 
-    logs = client.get("/api/audit/logs", headers=auth_headers["admin"])
-    assert logs.status_code == 200
-    matching = [
-        item
-        for item in logs.json()
-        if item["target_type"] == "ANOMALY_EVENT" and item["target_id"] == event["event_id"]
-    ]
-    assert {item["action_code"] for item in matching} >= {
-        "INJECT_TEST_ANOMALY",
-        "RESOLVE_ANOMALY",
-    }
+    timeline = client.get(
+        "/api/audit/timeline/task-ready-t01", headers=auth_headers["regulator"]
+    )
+    assert timeline.status_code == 200
+    matching = [item for item in timeline.json()["events"] if item["reference"] == event["event_id"]]
+    assert matching and matching[0]["status"] == "RESOLVED"
 
 
 def test_invalid_upload_payload_is_rejected_before_persistence(client, auth_headers):
@@ -594,7 +589,7 @@ def test_result_confirmation_and_data_signing_are_idempotent(client, auth_header
 
 def test_data_commitment_can_only_be_signed_by_its_owner(client, auth_headers):
     upload = client.get(
-        "/api/data/uploads?asset_type=GENERATION_DATA", headers=auth_headers["admin"]
+        "/api/data/uploads?asset_type=GENERATION_DATA", headers=auth_headers["generator"]
     ).json()[0]
 
     exchange_signature = client.post(
@@ -634,12 +629,12 @@ def test_task_creation_rejects_invalid_participant_shape(client, auth_headers):
 def test_retailer_cannot_analyze_another_organization_load_curve(client, auth_headers):
     created = client.post(
         "/api/data/uploads",
-        headers=auth_headers["admin"],
+        headers=auth_headers["exchange"],
         json={
             "asset_type": "USER_LOAD_CURVE",
-            "owner_org_id": "org-admin-t01",
+            "owner_org_id": "org-exchange-t01",
             "trade_batch_no": "TB-CROSS-ORG-001",
-            "label": "平台运维组织负荷曲线测试数据",
+            "label": "交易中心负荷曲线测试数据",
             "local_payload": {"period": "2026-08", "load_curve": [1] * 24},
         },
     )
@@ -680,6 +675,64 @@ def test_import_fixture_runs_settlement_end_to_end(client, auth_headers):
     assert result["verification_profile"]["mode"] == "SCENE_DATA_METADATA"
     assert result["verification_profile"]["is_simulated"] is False
     assert len(result["evidence"]) >= 4
+
+
+def test_full_settlement_fixture_closes_with_expected_amount(client, auth_headers):
+    fixture_path = Path(__file__).resolve().parents[2] / "demo-data" / "2026-08-full-settlement-simulation.json"
+    expected_path = Path(__file__).resolve().parents[2] / "demo-data" / "2026-08-full-settlement-expected-result.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+
+    imported_response = client.post(
+        "/api/settlement/import-and-run",
+        headers=auth_headers["exchange"],
+        json=fixture,
+    )
+    assert imported_response.status_code == 200, imported_response.text
+    imported = imported_response.json()
+    task_id = imported["task"]["task_id"]
+    assert len(imported["uploads"]) == 6
+    assert imported["task"]["status"] == "PENDING_CONFIRMATION"
+    assert imported["task"]["risk_level"] == "MEDIUM"
+    assert imported["privacy_analysis"]["status"] == "SUCCESS"
+    assert imported["privacy_analysis"]["raw_records_returned"] is False
+    assert imported["compute_job"]["execution_attestation_json"]["api_raw_records_returned"] is False
+
+    calculation = imported["compute_job"]["result_json"]
+    assert calculation["settlement_energy_mwh"] == expected["calculation"]["settlement_energy_mwh"]
+    assert calculation["gross_deviation_mwh"] == expected["calculation"]["gross_deviation_mwh"]
+    assert calculation["vpp_adjustment_mwh"] == expected["calculation"]["vpp_adjustment_mwh"]
+    assert calculation["deviation_mwh"] == expected["calculation"]["remaining_deviation_mwh"]
+    assert calculation["payable_amount_yuan"] == expected["calculation"]["payable_amount_yuan"]
+
+    scoped = {item["org_id"]: item for item in imported["results"] if item["result_scope"] == "ORG"}
+    generator_confirmation = client.post(
+        f"/api/results/{scoped['org-generator-t01']['result_id']}/confirm",
+        headers=_etag_headers(client, auth_headers["generator"], task_id),
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
+    )
+    assert generator_confirmation.status_code == 200, generator_confirmation.text
+    assert generator_confirmation.json()["task"]["status"] == "PARTIALLY_CONFIRMED"
+
+    report_approval = client.post(
+        f"/api/audit/reports/{imported['report']['report_id']}/decision",
+        headers=auth_headers["regulator"],
+        json={
+            "decision": "APPROVE",
+            "opinion": "已核对规则、授权、聚合结果和证据记录，批准本次结算报告",
+        },
+    )
+    assert report_approval.status_code == 200, report_approval.text
+    assert report_approval.json()["status"] == "APPROVED"
+
+    retailer_confirmation = client.post(
+        f"/api/results/{scoped['org-retailer-t01']['result_id']}/confirm",
+        headers=_etag_headers(client, auth_headers["retailer"], task_id),
+        json={"decision": "APPROVE", "opinion": "同意结算结果"},
+    )
+    assert retailer_confirmation.status_code == 200, retailer_confirmation.text
+    assert retailer_confirmation.json()["task"]["status"] == "AUDITED"
+    assert retailer_confirmation.json()["formal_evidence"]["status"] == "PUBLISHED_DEMO"
 
 
 def test_import_accepts_real_scene_flag_and_rolls_back_failed_run(client, auth_headers):

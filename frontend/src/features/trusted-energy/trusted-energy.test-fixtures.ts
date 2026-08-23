@@ -107,7 +107,8 @@ export const auditTasks: AuditTask[] = [
 
 export const capabilityMatrix: Array<{ name: string; truth: CapabilityTruth; note: string }> = [
   { name: "MPC 计算", truth: "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST", note: "仅当前本地主机受控实验，非生产跨域 MPC" },
-  { name: "EDC / Connector", truth: "ADAPTER", note: "适配器边界，未连接外部生产 Connector" },
+  { name: "可信数据空间连接器", truth: "ADAPTER", note: "适配器边界，未连接外部生产连接器" },
   { name: "TEE 远程证明", truth: "BLOCKED", note: "未配置可信执行环境与证明链路" },
-  { name: "区块链锚定 / FISCO BCOS", truth: "DEMO", note: "演示存证记录，待接入真实链节点" },
+  { name: "审计哈希链", truth: "LOCAL_REAL", note: "本地追加写入哈希链，可追溯可审计" },
+  { name: "外部区块链锚定", truth: "BLOCKED", note: "未接入真实外部链节点，不显示已上链" },
 ];

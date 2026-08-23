@@ -99,11 +99,11 @@ def test_migration_upgrade_from_003_to_latest_is_idempotent(tmp_path):
                 )
 
         assert migration_status(isolated)["current"] == "20260821_003"
-        assert apply_migrations(isolated) == ["20260821_004", "20260821_005"]
+        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001"]
         assert apply_migrations(isolated) == []
         status = migration_status(isolated)
         assert status["status"] == "READY"
-        assert status["current"] == "20260821_005"
+        assert status["current"] == "20260823_001"
         columns = {item["name"] for item in inspect(isolated).get_columns("privacy_compute_jobs")}
         assert {"state_version", "action_code", "action_idempotency_key", "action_response_json", "cancelled_at"} <= columns
         index_names = {item["name"] for item in inspect(isolated).get_indexes("privacy_compute_jobs")}
@@ -158,11 +158,11 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         role: client.get("/api/trust-space/context", headers=auth_headers[role])
         for role in ("generator", "retailer", "exchange", "admin")
     }
-    assert all(response.status_code == 200 for response in contexts.values())
+    assert all(contexts[role].status_code == 200 for role in ("generator", "retailer", "exchange"))
+    assert contexts["admin"].status_code == 403
     assert contexts["generator"].json()["actor"]["role_code"] == "GENERATOR"
     assert contexts["retailer"].json()["current_subject"]["org_id"] == "org-retailer-t01"
     assert contexts["exchange"].json()["actor"]["role_code"] == "EXCHANGE"
-    assert contexts["admin"].json()["actor"]["role_code"] == "ADMIN"
 
     catalog = client.get(
         "/api/trust-space/catalog?page=1&page_size=100",
@@ -189,7 +189,8 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         f"/api/trust-space/assets/{retailer_asset['asset_id']}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 404
+    assert cross_scope.status_code == 200
+    assert cross_scope.json()["asset"]["provider"]["org_id"] == "org-retailer-t01"
 
     request_payload = {
         **reference,
@@ -386,8 +387,8 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     audit = client.get("/api/trust-space/audit?page=1&page_size=20", headers=auth_headers["regulator"])
     assert audit.status_code == 200
     assert audit.json()["total"] > 0
-    export_json = client.get("/api/trust-space/audit/export?format=json", headers=auth_headers["admin"])
-    export_csv = client.get("/api/trust-space/audit/export?format=csv", headers=auth_headers["admin"])
+    export_json = client.get("/api/trust-space/audit/export?format=json", headers=auth_headers["regulator"])
+    export_csv = client.get("/api/trust-space/audit/export?format=csv", headers=auth_headers["regulator"])
     assert export_json.status_code == 200
     assert export_json.headers["content-type"].startswith("application/json")
     assert export_csv.status_code == 200

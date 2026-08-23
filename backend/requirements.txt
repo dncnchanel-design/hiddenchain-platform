@@ -9,6 +9,7 @@ python-multipart==0.0.32
 defusedxml==0.7.1
 idna==3.18
 httpx==0.28.1
+cryptography==50.0.0
 numpy==2.2.6
 pandapower==3.4.0
 pytest==9.0.3

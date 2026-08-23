@@ -67,7 +67,7 @@ def verify_evidence(
 
 @router.get("/agents/definitions")
 def agent_definitions(
-    user: User = Depends(require_roles("ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
 ) -> list[dict]:
     return [
         {
@@ -222,7 +222,7 @@ def invoke_agent(
 @router.get("/agents/events")
 def agent_events(
     task_id: str | None = None,
-    user: User = Depends(require_roles("ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(AgentEvent).order_by(AgentEvent.created_at.desc(), AgentEvent.sequence_no.desc())

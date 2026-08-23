@@ -52,9 +52,26 @@ _REVOKABLE = {
     DataUsageRequestStatus.UNDER_REVIEW,
     DataUsageRequestStatus.APPROVED,
 }
-_BUSINESS_APPLICANTS = {"GENERATOR", "RETAILER", "EXCHANGE"}
-_READ_ALL = {"REGULATOR", "ADMIN"}
-_PROVIDER_REVIEWERS = {"GENERATOR", "RETAILER", "ADMIN"}
+_BUSINESS_APPLICANTS = {
+    "GENERATOR",
+    "RETAILER",
+    "COAL_ENTERPRISE",
+    "HEAT_ENTERPRISE",
+    "GAS_ENTERPRISE",
+    "OIL_ENTERPRISE",
+    "EXCHANGE",
+    "REGULATOR",
+}
+_READ_ALL = {"REGULATOR"}
+_PROVIDER_REVIEWERS = {
+    "GENERATOR",
+    "RETAILER",
+    "COAL_ENTERPRISE",
+    "HEAT_ENTERPRISE",
+    "GAS_ENTERPRISE",
+    "OIL_ENTERPRISE",
+    "EXCHANGE",
+}
 
 ACCESS_DURATION_POLICY_VERSION = "TRUSTED_SPACE_USAGE_DURATION_V1"
 _SERVER_DEFAULT_DURATION_POLICY = {
@@ -237,13 +254,15 @@ def can_view(request: DataUsageRequest, user: User) -> bool:
 
 
 def can_review(request: DataUsageRequest, user: User) -> bool:
-    return user.role_code in _PROVIDER_REVIEWERS and (
-        user.role_code == "ADMIN" or user.org_id == request.provider_org_id
+    return (
+        user.role_code in _PROVIDER_REVIEWERS
+        and user.org_id == request.provider_org_id
+        and "APPROVE_AUTHORIZATION" in set(user.permissions_json or [])
     )
 
 
 def can_revoke(request: DataUsageRequest, user: User) -> bool:
-    return user.role_code == "ADMIN" or user.org_id in {
+    return user.org_id in {
         request.applicant_org_id,
         request.provider_org_id,
     }
@@ -273,8 +292,8 @@ def to_payload(db: Session, request: DataUsageRequest, user: User) -> dict[str, 
         "request_id": request.request_id,
         "asset": {
             "asset_id": request.asset_id,
-            "asset_code": asset.asset_code if asset else None,
-            "asset_name": asset.asset_name if asset else None,
+            "asset_code": None,
+            "asset_name": (asset.asset_name if asset else None) or "未命名数据资源，请由提供企业补充中文名称",
             "asset_type": asset.asset_type if asset else None,
             "classification": asset.classification if asset else None,
             "sensitivity_level": asset.sensitivity_level if asset else None,
@@ -381,6 +400,8 @@ def create_request(
 
     applicant = _org(db, user.org_id, label="申请方")
     provider = _org(db, asset.owner_org_id, label="提供方")
+    if user.role_code != "REGULATOR" and applicant.energy_domain != provider.energy_domain:
+        _raise(403, "CROSS_ENERGY_QUERY_DENIED", "仅监管方可以发起跨能源数据申请")
     applicant_did = _active_identity(db, applicant.org_id)
     provider_did = _active_identity(db, provider.org_id)
     request_id = new_id()
@@ -452,10 +473,12 @@ def list_requests(
         _raise(400, "REQUEST_SCOPE_INVALID", "不能同时查询待审申请和本人申请")
     query = select(DataUsageRequest)
     if provider_inbox:
-        if user.role_code not in _PROVIDER_REVIEWERS:
+        if (
+            user.role_code not in _PROVIDER_REVIEWERS
+            or "APPROVE_AUTHORIZATION" not in set(user.permissions_json or [])
+        ):
             _raise(403, "PROVIDER_INBOX_DENIED", "当前角色不能访问提供方待审箱")
-        if user.role_code != "ADMIN":
-            query = query.where(DataUsageRequest.provider_org_id == user.org_id)
+        query = query.where(DataUsageRequest.provider_org_id == user.org_id)
     elif applicant_outbox:
         query = query.where(DataUsageRequest.applicant_org_id == user.org_id)
     if user.role_code not in _READ_ALL:
@@ -521,7 +544,7 @@ def transition_request(
     if action in {"review", "approve", "reject"} and not can_review(request, user):
         _raise(403, "PROVIDER_REVIEW_REQUIRED", "仅资产提供方可以审查该申请")
     if action == "revoke" and not can_revoke(request, user):
-        _raise(403, "REQUEST_REVOKE_DENIED", "仅申请方、提供方或管理员可以撤回申请")
+        _raise(403, "REQUEST_REVOKE_DENIED", "仅申请方或提供方可以撤回申请")
 
     if _idempotent_target(target.value, request.status):
         return request, True

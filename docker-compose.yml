@@ -15,43 +15,46 @@ services:
     depends_on:
       opa:
         condition: service_started
+      electricity-connector:
+        condition: service_healthy
+      coal-connector:
+        condition: service_healthy
+      heat-connector:
+        condition: service_healthy
+      gas-connector:
+        condition: service_healthy
+      oil-connector:
+        condition: service_healthy
     environment:
-      APP_ENV: test
+      APP_ENV: demo
       DATABASE_URL: sqlite:////app/runtime/hiddenchain.db
-      JWT_SECRET: ${JWT_SECRET:-hiddenchain-compose-test-jwt-secret}
-      SIGNING_SECRET: ${SIGNING_SECRET:-hiddenchain-compose-test-signing-secret}
-      TEST_FIXTURE_SEED: "true"
-      TEST_COMPUTE_DELAY_MS: "80"
-      ENVIRONMENT_NAME: 测试环境
+      JWT_SECRET: ${JWT_SECRET}
+      SIGNING_SECRET: ${SIGNING_SECRET}
+      PLATFORM_SIGNING_PRIVATE_KEY: ${PLATFORM_SIGNING_PRIVATE_KEY}
+      TEST_FIXTURE_SEED: "false"
+      DEMO_CATALOG_SEED: "true"
+      TEST_COMPUTE_DELAY_MS: "0"
+      ENVIRONMENT_NAME: 公开演示环境
+      PRODUCT_SUBTITLE: 多能源可信数据空间
+      BRAND_THEME_ID: trusted-space-navy
+      BRAND_PRIMARY: "#0B5CAD"
       OPA_URL: http://opa:8181
       OPA_POLICY_PATH: /v1/data/hiddenchain/decision
       OPA_TIMEOUT_SECONDS: "1.0"
       OPA_LOCAL_FALLBACK: "true"
       EXECUTION_POLICY_PATH: /app/policy/energy_execution_policy.json
       EXECUTION_AUDIT_WORKERS: "2"
-      OTEL_ENABLED: ${OTEL_ENABLED:-false}
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-hiddenchain-platform}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
-      OTEL_CONSOLE_EXPORT: ${OTEL_CONSOLE_EXPORT:-false}
-      OPENLINEAGE_ENABLED: ${OPENLINEAGE_ENABLED:-true}
-      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-hiddenchain}
-      OPENLINEAGE_PATH: ${OPENLINEAGE_PATH:-/app/runtime/lineage/events.jsonl}
-      OPENLINEAGE_HTTP_URL: ${OPENLINEAGE_HTTP_URL:-}
-      DP_MAX_LOAD_MW: ${DP_MAX_LOAD_MW:-100}
-      DEEPSEEK_ENABLED: ${DEEPSEEK_ENABLED:-false}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
-      DEEPSEEK_TIMEOUT_SECONDS: ${DEEPSEEK_TIMEOUT_SECONDS:-20}
-      DEEPSEEK_MAX_TOKENS: ${DEEPSEEK_MAX_TOKENS:-800}
+      CONNECTOR_TIMEOUT_SECONDS: "60"
+      CONNECTOR_ENDPOINTS_JSON: '{"electricity":"http://electricity-connector:8000","coal":"http://coal-connector:8000","heat":"http://heat-connector:8000","gas":"http://gas-connector:8000","oil":"http://oil-connector:8000"}'
+      CONNECTOR_PUBLIC_KEYS_JSON: '{}'
+      DEEPSEEK_ENABLED: "false"
     volumes:
       - hiddenchain-runtime:/app/runtime
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready')"]
       interval: 10s
       timeout: 3s
-      retries: 5
+      retries: 8
 
   frontend:
     build: ./frontend
@@ -61,5 +64,89 @@ services:
     ports:
       - "5173:80"
 
+  electricity-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: electricity
+      CONNECTOR_NAME: 电力企业连接器
+      CONNECTOR_ID: connector-electricity
+      CONNECTOR_DATABASE_PATH: /app/runtime/electricity.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - electricity-connector-runtime:/app/runtime
+    healthcheck: &connector-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+
+  coal-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: coal
+      CONNECTOR_NAME: 煤炭企业连接器
+      CONNECTOR_ID: connector-coal
+      CONNECTOR_DATABASE_PATH: /app/runtime/coal.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${COAL_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - coal-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
+  heat-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: heat
+      CONNECTOR_NAME: 热能企业连接器
+      CONNECTOR_ID: connector-heat
+      CONNECTOR_DATABASE_PATH: /app/runtime/heat.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${HEAT_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - heat-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
+  gas-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: gas
+      CONNECTOR_NAME: 天然气企业连接器
+      CONNECTOR_ID: connector-gas
+      CONNECTOR_DATABASE_PATH: /app/runtime/gas.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${GAS_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - gas-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
+  oil-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: oil
+      CONNECTOR_NAME: 石油企业连接器
+      CONNECTOR_ID: connector-oil
+      CONNECTOR_DATABASE_PATH: /app/runtime/oil.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${OIL_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - oil-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
 volumes:
   hiddenchain-runtime:
+  electricity-connector-runtime:
+  coal-connector-runtime:
+  heat-connector-runtime:
+  gas-connector-runtime:
+  oil-connector-runtime:

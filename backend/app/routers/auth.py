@@ -17,24 +17,28 @@ from ..services.rate_limit import limiter
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+BUSINESS_ROLES = [
+    "GENERATOR",
+    "RETAILER",
+    "COAL_ENTERPRISE",
+    "HEAT_ENTERPRISE",
+    "GAS_ENTERPRISE",
+    "OIL_ENTERPRISE",
+    "EXCHANGE",
+    "REGULATOR",
+]
+
 MODULES = [
-    {"code": "overview", "path": "/overview", "roles": ["ADMIN"]},
-    {"code": "workbench", "path": "/workbench", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "excel-upload", "path": "/data/upload", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "data-space", "path": "/data-space", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "trusted-execution", "path": "/trusted-execution", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "rules", "path": "/rules", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "settlements", "path": "/settlements", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "compute", "path": "/compute", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "results", "path": "/results", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "evidence", "path": "/evidence", "roles": ["GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "audit", "path": "/audit", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "agents", "path": "/agents", "roles": ["ADMIN"]},
-    {"code": "anomalies", "path": "/anomalies", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
-    {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},
-    {"code": "system", "path": "/system", "roles": ["ADMIN"]},
-    {"code": "reports", "path": "/reports", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "overview", "path": "/trusted-space/workbench", "roles": BUSINESS_ROLES},
+    {"code": "query", "path": "/trusted-space/query", "roles": BUSINESS_ROLES},
+    {"code": "catalog", "path": "/trusted-space/catalog", "roles": BUSINESS_ROLES},
+    {"code": "connector", "path": "/trusted-space/connector", "roles": [role for role in BUSINESS_ROLES if role != "REGULATOR"]},
+    {"code": "authorization", "path": "/trusted-space/authorizations", "roles": BUSINESS_ROLES},
+    {"code": "compute", "path": "/trusted-space/mpc", "roles": BUSINESS_ROLES},
+    {"code": "audit", "path": "/trusted-space/audit", "roles": BUSINESS_ROLES},
+    {"code": "participants", "path": "/trusted-space/identity", "roles": BUSINESS_ROLES},
     {"code": "metrics", "path": "/metrics", "roles": ["ADMIN"]},
+    {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},
 ]
 
 
@@ -47,6 +51,8 @@ def _user_payload(db: Session, user: User) -> dict:
         "username": user.username,
         "display_name": user.display_name,
         "role_code": user.role_code,
+        "permissions": list(user.permissions_json or []),
+        "is_org_owner": bool(user.is_org_owner),
         "status": user.status,
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
     }
@@ -56,9 +62,9 @@ def _user_payload(db: Session, user: User) -> dict:
         "did": model_dict(did) if did else None,
         "menus": [item for item in MODULES if user.role_code in item["roles"]],
         "field_scopes": {
-            "raw_data": "OWN_ORG_ONLY" if user.role_code in {"GENERATOR", "RETAILER"} else "NONE",
-            "settlement_result": "OWN_ORG_ONLY" if user.role_code in {"GENERATOR", "RETAILER"} else "AUTHORIZED_ALL",
-            "audit_evidence": "FULL" if user.role_code == "REGULATOR" else "ROLE_SCOPED",
+            "raw_data": "ENTERPRISE_CONNECTOR_ONLY" if user.role_code != "ADMIN" else "NONE",
+            "result": "AUTHORIZED_SCOPE_ONLY" if user.role_code != "ADMIN" else "NONE",
+            "audit_evidence": "AUTHORIZED_SCOPE_ONLY" if user.role_code != "ADMIN" else "SANITIZED_OPERATIONS_ONLY",
         },
     }
 

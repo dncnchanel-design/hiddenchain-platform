@@ -43,4 +43,13 @@ def require_roles(*roles: str) -> Callable[[User], User]:
     return dependency
 
 
-BUSINESS_ROLES = ("GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN")
+BUSINESS_ROLES = (
+    "GENERATOR",
+    "RETAILER",
+    "COAL_ENTERPRISE",
+    "HEAT_ENTERPRISE",
+    "GAS_ENTERPRISE",
+    "OIL_ENTERPRISE",
+    "EXCHANGE",
+    "REGULATOR",
+)

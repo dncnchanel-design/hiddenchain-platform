@@ -43,6 +43,18 @@ SHEET_SPECS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Compact role workbooks keep one worksheet per side while retaining the
+# asset type on every row. Legacy ten-worksheet workbooks remain supported.
+SIMPLIFIED_SHEET_SPECS: dict[str, tuple[str, ...]] = {
+    "发电方数据": ("GENERATION_DATA", "RENEWABLE_FORECAST"),
+    "售电方数据": ("RETAIL_DATA", "USER_LOAD_CURVE", "VPP_RESOURCE"),
+    "交易中心数据": ("GRID_CONSTRAINT",),
+}
+SUPPORTED_SHEET_SPECS: dict[str, tuple[str, ...]] = {
+    **SHEET_SPECS,
+    **SIMPLIFIED_SHEET_SPECS,
+}
+
 HEADER_ALIASES: dict[str, str] = {
     "序号": "row_no",
     "row_no": "row_no",
@@ -51,6 +63,14 @@ HEADER_ALIASES: dict[str, str] = {
     "数据资产名称": "label",
     "数据资产": "label",
     "label": "label",
+    "数据名称": "label",
+    "数据类别": "compact_asset_type",
+    "数据类型": "compact_asset_type",
+    "数据项": "metric_name",
+    "时间点": "time_point",
+    "数据值": "metric_value",
+    "单位": "unit",
+    "数据说明": "description",
     "批次编号": "trade_batch_no",
     "trade_batch_no": "trade_batch_no",
     "数据期间": "period",
@@ -286,17 +306,23 @@ def parse_excel_workbook(content: bytes) -> ParsedExcelWorkbook:
         targets = _worksheet_targets(archive)
         expected = set(SHEET_SPECS)
         actual = set(targets)
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
-        if missing:
-            raise ExcelWorkbookError(f"缺少工作表：{'、'.join(missing)}")
-        if extra:
-            raise ExcelWorkbookError(f"存在未识别的工作表：{'、'.join(extra)}")
+        if actual == expected:
+            sheet_order = tuple(SHEET_SPECS)
+        elif len(actual) == 1 and next(iter(actual)) in SIMPLIFIED_SHEET_SPECS:
+            sheet_order = (next(iter(actual)),)
+        else:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected - set(SIMPLIFIED_SHEET_SPECS))
+            if missing and not extra:
+                raise ExcelWorkbookError(f"缺少工作表：{'、'.join(missing)}；也可使用发电方数据、售电方数据或交易中心数据单表模板")
+            if extra:
+                raise ExcelWorkbookError(f"存在未识别的工作表：{'、'.join(extra)}")
+            raise ExcelWorkbookError("工作簿必须是旧版十工作表模板，或只包含一个角色数据工作表")
 
         shared_strings = _shared_strings(archive)
         parsed_rows: list[ParsedExcelRow] = []
         row_counts: dict[str, int] = {}
-        for sheet_name in SHEET_SPECS:
+        for sheet_name in sheet_order:
             _, rows = _read_sheet(archive, targets[sheet_name], shared_strings)
             row_counts[sheet_name] = len(rows)
             parsed_rows.extend(
@@ -310,7 +336,7 @@ def parse_excel_workbook(content: bytes) -> ParsedExcelWorkbook:
 
     return ParsedExcelWorkbook(
         file_digest=digest,
-        sheet_names=tuple(SHEET_SPECS),
+        sheet_names=sheet_order,
         sheet_row_counts=row_counts,
         rows=tuple(parsed_rows),
     )

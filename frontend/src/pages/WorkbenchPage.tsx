@@ -19,6 +19,18 @@ const roleConfig: Record<RoleCode, RoleConfig> = {
   RETAILER: {
     title: "售电企业工作台",
   },
+  COAL_ENTERPRISE: {
+    title: "煤炭企业工作台",
+  },
+  HEAT_ENTERPRISE: {
+    title: "热能企业工作台",
+  },
+  GAS_ENTERPRISE: {
+    title: "天然气企业工作台",
+  },
+  OIL_ENTERPRISE: {
+    title: "石油企业工作台",
+  },
   EXCHANGE: {
     title: "交易中心工作台",
   },

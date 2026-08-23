@@ -4,7 +4,7 @@ import { labelForCode } from "../../types";
 import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes } from "./trusted-energy.test-fixtures";
 
 describe("trusted energy console model", () => {
-  it("keeps the complete 12-module checklist and reachable deep links", () => {
+  it("keeps the eight primary modules and reachable deep links", () => {
     expect(trustedModuleChecklist).toHaveLength(12);
     expect(trustedModuleChecklist.map((module) => module.key)).toEqual([
       "login", "workbench", "identity", "catalog", "asset", "apply", "contract", "ttc", "mpc", "results", "audit", "agent",
@@ -16,11 +16,12 @@ describe("trusted energy console model", () => {
       expect(route.label.length).toBeGreaterThan(1);
     }
     expect(routeForView("asset", "asset-power-output-001")).toBe(`${TRUSTED_BASE}/assets/asset-power-output-001`);
-    expect(navItems).toEqual(expect.arrayContaining([expect.objectContaining({ key: "upload", menuCode: "excel-upload", label: "数据上传" })]));
+    expect(navItems).toHaveLength(8);
+    expect(navItems).toEqual(expect.arrayContaining([expect.objectContaining({ key: "connector", menuCode: "connector", label: "数据连接" })]));
     expect(routeForView("upload")).toBe(`${TRUSTED_BASE}/upload`);
     expect(getTrustedView(`${TRUSTED_BASE}/upload`)).toBe("upload");
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/upload`)).toBe(true);
-    expect(trustedMenuCodeForView("upload")).toBe("excel-upload");
+    expect(trustedMenuCodeForView("upload")).toBe("connector");
     expect(routeForView("mpc", "com-20260518-001")).toBe(`${TRUSTED_BASE}/mpc/com-20260518-001`);
     expect(getTrustedView(`${TRUSTED_BASE}/results/res-20260518-001`)).toBe("results");
     expect(routeForView("contract")).toBe(`${TRUSTED_BASE}/contracts`);
@@ -32,18 +33,19 @@ describe("trusted energy console model", () => {
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc`)).toBe(true);
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc/job-real`)).toBe(true);
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/unknown`)).toBe(false);
-    expect(trustedMenuCodeForView("asset")).toBe("asset-passport");
+    expect(trustedMenuCodeForView("asset")).toBe("catalog");
     expect(trustedMenuCodeForView("mpc")).toBe("compute");
   });
 
   it("locks capability truth labels to the product boundary", () => {
     expect(capabilityMatrix).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "MPC 计算", truth: "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST" }),
-      expect.objectContaining({ name: "EDC / Connector", truth: "ADAPTER" }),
+      expect.objectContaining({ name: "可信数据空间连接器", truth: "ADAPTER" }),
       expect.objectContaining({ name: "TEE 远程证明", truth: "BLOCKED" }),
-      expect.objectContaining({ name: "区块链锚定 / FISCO BCOS", truth: "DEMO" }),
+      expect.objectContaining({ name: "审计哈希链", truth: "LOCAL_REAL" }),
+      expect.objectContaining({ name: "外部区块链锚定", truth: "BLOCKED" }),
     ]));
-    expect(new Set(capabilityMatrix.map((item) => item.truth))).toEqual(new Set(["LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST", "ADAPTER", "BLOCKED", "DEMO"]));
+    expect(new Set(capabilityMatrix.map((item) => item.truth))).toEqual(new Set(["LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST", "LOCAL_REAL", "ADAPTER", "BLOCKED"]));
   });
 
   it("marks energy values and assets as controlled demo fixtures", () => {

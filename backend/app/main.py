@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import Settings, settings, validate_runtime_settings
 from .database import SessionLocal, database_readiness, ensure_runtime_schema
 from .production import assert_production_database_clean
-from .routers import assistant, audit, auth, data, energy, evidence, execution, system, trade, trust, trust_domain, trust_space
+from .routers import assistant, audit, auth, data, energy, evidence, execution, system, trade, trust, trust_domain, trust_space, trusted_query
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
@@ -50,6 +50,10 @@ async def lifespan(app: FastAPI):
             from .seed import seed_test_fixtures
 
             seed_test_fixtures(db)
+        if settings.demo_catalog_seed:
+            from .demo_seed import seed_demo_catalog
+
+            seed_demo_catalog(db)
         ensure_agent_tool_catalog(db)
         db.commit()
     yield
@@ -58,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=VERSION,
-    description="面向电力交易结算的数据授权、受控计算、结果确认与审计追溯服务",
+    description="面向多能源企业的数据目录、授权、受控计算、结果交付与审计追溯服务",
     docs_url=f"{settings.api_prefix}/docs",
     openapi_url=f"{settings.api_prefix}/openapi.json",
     lifespan=lifespan,
@@ -215,6 +219,7 @@ application_routers = [
     trust.router,
     trust_domain.router,
     trust_space.router,
+    trusted_query.router,
     assistant.router,
     evidence.router,
     audit.router,
@@ -286,15 +291,24 @@ def policy_decision_point_readiness(
 def readiness(response: Response) -> dict[str, object]:
     database = database_readiness()
     policy = policy_decision_point_readiness()
-    try:
-        with SessionLocal() as db:
-            agent_tools = agent_tool_catalog_readiness(db)
-    except Exception:
+    if settings.app_env == "demo":
         agent_tools = {
-            "status": "NOT_READY",
-            "issue_count": 1,
-            "issues": ["AGENT_TOOL_CATALOG_UNAVAILABLE"],
+            "status": "READY",
+            "mode": "OPTIONAL_CAPABILITY_BLOCKED",
+            "capability_state": "BLOCKED",
+            "issue_count": 0,
+            "issues": [],
         }
+    else:
+        try:
+            with SessionLocal() as db:
+                agent_tools = agent_tool_catalog_readiness(db)
+        except Exception:
+            agent_tools = {
+                "status": "NOT_READY",
+                "issue_count": 1,
+                "issues": ["AGENT_TOOL_CATALOG_UNAVAILABLE"],
+            }
     ready = (
         database["status"] == "READY"
         and policy["status"] == "READY"

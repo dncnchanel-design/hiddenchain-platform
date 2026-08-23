@@ -12,14 +12,18 @@ services:
       - key: PORT
         value: "10000"
       - key: APP_ENV
-        value: test
+        value: demo
       - key: ENVIRONMENT_NAME
-        value: 公开测试环境
+        value: 公开演示环境
+      - key: PRODUCT_SUBTITLE
+        value: 多能源可信数据空间
       - key: BRAND_THEME_ID
-        value: power-grid-green
+        value: trusted-space-navy
       - key: BRAND_PRIMARY
-        value: "#0A806C"
+        value: "#0B5CAD"
       - key: TEST_FIXTURE_SEED
+        value: "false"
+      - key: DEMO_CATALOG_SEED
         value: "true"
       - key: TEST_COMPUTE_DELAY_MS
         value: "0"
@@ -31,7 +35,120 @@ services:
         value: /app/policy/energy_execution_policy.json
       - key: EXECUTION_AUDIT_WORKERS
         value: "2"
+      - key: CONNECTOR_TIMEOUT_SECONDS
+        value: "60"
+      - key: CONNECTOR_ENDPOINTS_JSON
+        value: '{"electricity":"https://hiddenchain-electricity-connector.onrender.com","coal":"https://hiddenchain-coal-connector.onrender.com","heat":"https://hiddenchain-heat-connector.onrender.com","gas":"https://hiddenchain-gas-connector.onrender.com","oil":"https://hiddenchain-oil-connector.onrender.com"}'
+      - key: CONNECTOR_PUBLIC_KEYS_JSON
+        value: '{}'
       - key: JWT_SECRET
         generateValue: true
       - key: SIGNING_SECRET
+        generateValue: true
+      - key: PLATFORM_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-electricity-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: electricity
+      - key: CONNECTOR_NAME
+        value: 电力企业连接器
+      - key: CONNECTOR_ID
+        value: connector-electricity
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/electricity.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-coal-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: coal
+      - key: CONNECTOR_NAME
+        value: 煤炭企业连接器
+      - key: CONNECTOR_ID
+        value: connector-coal
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/coal.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-heat-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: heat
+      - key: CONNECTOR_NAME
+        value: 热能企业连接器
+      - key: CONNECTOR_ID
+        value: connector-heat
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/heat.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-gas-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: gas
+      - key: CONNECTOR_NAME
+        value: 天然气企业连接器
+      - key: CONNECTOR_ID
+        value: connector-gas
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/gas.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-oil-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: oil
+      - key: CONNECTOR_NAME
+        value: 石油企业连接器
+      - key: CONNECTOR_ID
+        value: connector-oil
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/oil.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true

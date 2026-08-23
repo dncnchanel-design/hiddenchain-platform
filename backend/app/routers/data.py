@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import uuid
 from typing import Any
 
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import DataSpaceAgreement, DataUpload, DataUsageRequest, DidIdentity, Organization, Signature, User
@@ -27,7 +29,8 @@ from ..services.vault import LocalDomainVault
 from ..services.trust_domain import TrustDomainError, verify_active_identity
 from ..services.excel_upload import (
     MAX_EXCEL_BYTES,
-    SHEET_SPECS,
+    SIMPLIFIED_SHEET_SPECS,
+    SUPPORTED_SHEET_SPECS,
     ExcelWorkbookError,
     ParsedExcelRow,
     ParsedExcelWorkbook,
@@ -85,6 +88,45 @@ EXCEL_METADATA_FIELDS = {
     "expected_action",
     "recommended_role",
     "sample_marker",
+}
+
+
+def _require_legacy_test_ingress() -> None:
+    if settings.app_env not in {"development", "test"}:
+        raise HTTPException(
+            status_code=403,
+            detail="当前环境不接收原始数据，请在企业侧连接器中配置数据源",
+        )
+
+COMPACT_ASSET_TYPE_ALIASES = {
+    "发电计量": "GENERATION_DATA",
+    "发电量": "GENERATION_DATA",
+    "新能源预测": "RENEWABLE_FORECAST",
+    "预测": "RENEWABLE_FORECAST",
+    "售电履约": "RETAIL_DATA",
+    "售电量": "RETAIL_DATA",
+    "用户负荷曲线": "USER_LOAD_CURVE",
+    "用户负荷": "USER_LOAD_CURVE",
+    "虚拟电厂资源": "VPP_RESOURCE",
+    "虚拟电厂": "VPP_RESOURCE",
+    "调度安全边界": "GRID_CONSTRAINT",
+    "调度边界": "GRID_CONSTRAINT",
+}
+
+COMPACT_METRIC_ALIASES = {
+    "发电量": "energy_mwh",
+    "售电量": "energy_mwh",
+    "预测电量": "forecast_energy_mwh",
+    "预测准确率": "forecast_accuracy_pct",
+    "用户负荷": "load_curve",
+    "负荷": "load_curve",
+    "可调容量": "adjustable_capacity_mw",
+    "储能电量": "storage_energy_mwh",
+    "响应时间": "response_minutes",
+    "N-1校核": "n_minus_one_passed",
+    "N-1校核结果": "n_minus_one_passed",
+    "剩余偏差上限": "max_residual_imbalance_mwh",
+    "拥塞裕度": "congestion_margin_pct",
 }
 
 
@@ -258,7 +300,7 @@ def _row_to_payload(
 ) -> tuple[DataUploadCreate | None, dict[str, Any], list[dict[str, Any]]]:
     values = normalize_row_values(row.values)
     errors: list[dict[str, Any]] = []
-    allowed_types = SHEET_SPECS[row.sheet_name]
+    allowed_types = SUPPORTED_SHEET_SPECS[row.sheet_name]
     asset_type = _as_text(values.get("asset_type")) or (allowed_types[0] if len(allowed_types) == 1 else "")
     if asset_type not in allowed_types:
         errors.append({
@@ -361,6 +403,95 @@ def _row_to_payload(
     return payload if not errors else None, metadata, errors
 
 
+def _is_compact_excel(workbook: ParsedExcelWorkbook) -> bool:
+    if len(workbook.sheet_names) != 1 or workbook.sheet_names[0] not in SIMPLIFIED_SHEET_SPECS:
+        return False
+    return any(
+        "metric_name" in normalize_row_values(row.values)
+        for row in workbook.rows
+    )
+
+
+def _compact_rows_to_asset_rows(
+    workbook: ParsedExcelWorkbook,
+) -> tuple[list[ParsedExcelRow], list[dict[str, Any]]]:
+    """Turn the human-readable long table into one validated asset row per type."""
+
+    groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    errors: list[dict[str, Any]] = []
+    for row in workbook.rows:
+        values = normalize_row_values(row.values)
+        raw_type = _as_text(values.get("compact_asset_type"))
+        asset_type = COMPACT_ASSET_TYPE_ALIASES.get(raw_type, raw_type.upper())
+        allowed_types = SUPPORTED_SHEET_SPECS[row.sheet_name]
+        if asset_type not in allowed_types:
+            errors.append({
+                "sheet": row.sheet_name,
+                "row": row.row_number,
+                "field": "数据类别",
+                "message": f"该单表只允许：{'、'.join(COMPACT_ASSET_TYPE_ALIASES.get(item, item) for item in allowed_types)}",
+            })
+            continue
+        metric_name = _as_text(values.get("metric_name"))
+        metric_key = COMPACT_METRIC_ALIASES.get(metric_name, metric_name)
+        if not metric_key:
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "数据项", "message": "必须填写数据项"})
+            continue
+        if values.get("metric_value") is None or _as_text(values.get("metric_value")) == "":
+            errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "数据值", "message": "必须填写数据值"})
+            continue
+        label = _as_text(values.get("label"))
+        batch = _as_text(values.get("trade_batch_no"))
+        period = _as_text(values.get("period"))
+        key = (row.sheet_name, asset_type, label, batch, period)
+        group = groups.setdefault(
+            key,
+            {
+                "row_number": row.row_number,
+                "values": {
+                    "asset_type": asset_type,
+                    "label": label,
+                    "trade_batch_no": batch,
+                    "period": period,
+                    "record_count": values.get("record_count") or 1,
+                },
+                "metrics": [],
+            },
+        )
+        group["metrics"].append(
+            (metric_key, values.get("metric_value"), _as_text(values.get("time_point")), row)
+        )
+
+    compact_rows: list[ParsedExcelRow] = []
+    for group in groups.values():
+        values = dict(group["values"])
+        seen: set[str] = set()
+        for metric_key, metric_value, time_point, row in group["metrics"]:
+            if metric_key == "load_curve":
+                match = re.search(r"\d{1,2}", time_point)
+                if match is None or not 0 <= int(match.group(0)) <= 23:
+                    errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "时间点", "message": "负荷曲线时间点必须是 00时 至 23时"})
+                    continue
+                hour_key = f"load_{int(match.group(0)):02d}"
+                if hour_key in seen:
+                    errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "时间点", "message": "同一时间点不能重复"})
+                    continue
+                seen.add(hour_key)
+                values[hour_key] = metric_value
+                continue
+            if metric_key in seen:
+                errors.append({"sheet": row.sheet_name, "row": row.row_number, "field": "数据项", "message": "同一数据类别不能重复填写该数据项"})
+                continue
+            seen.add(metric_key)
+            values[metric_key] = metric_value
+        compact_rows.append(ParsedExcelRow(
+            sheet_name=workbook.sheet_names[0],
+            row_number=group["row_number"],
+            values=values,
+        ))
+    return compact_rows, errors
+
+
 def _prepare_excel(
     content: bytes,
     user: User,
@@ -371,7 +502,11 @@ def _prepare_excel(
         return None, [], [{"sheet": "工作簿", "row": 0, "field": "文件", "message": str(exc)}]
     prepared: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    for row in workbook.rows:
+    rows = list(workbook.rows)
+    if _is_compact_excel(workbook):
+        rows, compact_errors = _compact_rows_to_asset_rows(workbook)
+        errors.extend(compact_errors)
+    for row in rows:
         payload, metadata, row_errors = _row_to_payload(row, workbook, user)
         errors.extend(row_errors)
         if payload is not None:
@@ -394,7 +529,7 @@ def _excel_result(
     idempotent_replay: bool = False,
 ) -> dict[str, Any]:
     return {
-        "valid": workbook is not None and not errors and len(prepared) == sum((workbook.sheet_row_counts if workbook else {}).values()),
+        "valid": workbook is not None and not errors and bool(prepared),
         "file_name": file_name,
         "file_digest": workbook.file_digest if workbook else None,
         "role_code": user.role_code,
@@ -405,7 +540,7 @@ def _excel_result(
         "imported_count": imported_count,
         "idempotent_replay": idempotent_replay,
         "sheets": [
-            {"name": name, "row_count": workbook.sheet_row_counts[name], "allowed_asset_types": list(SHEET_SPECS[name])}
+            {"name": name, "row_count": workbook.sheet_row_counts[name], "allowed_asset_types": list(SUPPORTED_SHEET_SPECS[name])}
             for name in (workbook.sheet_names if workbook else ())
         ],
         "errors": errors[:500],
@@ -700,7 +835,7 @@ def withdraw_data_usage_request(
 ) -> dict[str, Any]:
     try:
         request = get_request(db, request_id, user)
-        if user.role_code != "ADMIN" and request.applicant_org_id != user.org_id:
+        if request.applicant_org_id != user.org_id:
             raise UsageRequestError(403, "APPLICANT_WITHDRAW_REQUIRED", "仅申请方可以撤回自己的申请")
     except UsageRequestError as exc:
         raise _usage_request_error(exc) from exc
@@ -724,7 +859,7 @@ def revoke_data_usage_request(
 ) -> dict[str, Any]:
     try:
         request = get_request(db, request_id, user)
-        if user.role_code != "ADMIN" and request.provider_org_id != user.org_id:
+        if request.provider_org_id != user.org_id:
             raise UsageRequestError(403, "PROVIDER_REVOKE_REQUIRED", "仅资产提供方可以撤销授权")
     except UsageRequestError as exc:
         raise _usage_request_error(exc) from exc
@@ -777,9 +912,10 @@ def list_uploads(
 @router.post("/uploads", status_code=status.HTTP_201_CREATED)
 def create_upload(
     payload: DataUploadCreate,
-    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE", "ADMIN")),
+    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE")),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_legacy_test_ingress()
     owner, signer_identity = _owner_context(db, payload, user)
     record, _ = _persist_upload(
         db,
@@ -798,6 +934,7 @@ async def validate_excel_upload(
     file: UploadFile = File(...),
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
 ) -> dict[str, Any]:
+    _require_legacy_test_ingress()
     file_name, content = await _read_excel_file(file)
     workbook, prepared, errors = _prepare_excel(content, user)
     return _excel_result(workbook, prepared, errors, file_name=file_name, user=user)
@@ -806,9 +943,10 @@ async def validate_excel_upload(
 @router.post("/uploads/excel/import")
 async def import_excel_upload(
     file: UploadFile = File(...),
-    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE", "ADMIN")),
+    user: User = Depends(require_roles("GENERATOR", "RETAILER", "EXCHANGE")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    _require_legacy_test_ingress()
     file_name, content = await _read_excel_file(file)
     workbook, prepared, errors = _prepare_excel(content, user)
     result = _excel_result(workbook, prepared, errors, file_name=file_name, user=user)

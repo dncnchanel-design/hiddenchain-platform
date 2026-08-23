@@ -79,7 +79,7 @@ def main() -> int:
             if path.is_file() and ".test." not in path.name
         )
         forbid(frontend_text, r"VITE_(?:DEMO|MOCK|ENV_LABEL)", "frontend contains a build-time demo/mock environment switch", findings)
-        forbid(frontend_text, r"演示环境|演示账号|默认账号|模拟计算", "frontend contains production-visible demo copy", findings)
+        forbid(frontend_text, r"演示账号|默认账号|模拟计算", "frontend contains production-visible demo credentials or simulated compute copy", findings)
         require(frontend_text, r"ProductConfigProvider", "frontend white-label configuration provider is missing", findings)
         require(frontend_text, r"/public/config", "frontend does not load public runtime branding", findings)
 

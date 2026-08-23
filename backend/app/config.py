@@ -37,7 +37,7 @@ def _load_local_env() -> None:
 _load_local_env()
 
 
-VALID_APP_ENVIRONMENTS = {"development", "test", "production"}
+VALID_APP_ENVIRONMENTS = {"development", "test", "demo", "production"}
 
 
 def _app_env() -> str:
@@ -49,6 +49,7 @@ def _default_environment_name(app_env: str) -> str:
     return {
         "development": "开发环境",
         "test": "测试环境",
+        "demo": "公开演示环境",
         "production": "",
     }.get(app_env, "")
 
@@ -79,7 +80,7 @@ class Settings:
     app_env: str = _app_env()
     product_name: str = os.getenv("PRODUCT_NAME", "隐链明算")
     product_short_name: str = os.getenv("PRODUCT_SHORT_NAME", "隐链明算")
-    product_subtitle: str = os.getenv("PRODUCT_SUBTITLE", "电力交易可信执行平台")
+    product_subtitle: str = os.getenv("PRODUCT_SUBTITLE", "多能源可信数据空间")
     logo: str = os.getenv("PRODUCT_LOGO", "")
     logo_compact: str = os.getenv("PRODUCT_LOGO_COMPACT", "")
     favicon: str = os.getenv("PRODUCT_FAVICON", "")
@@ -96,7 +97,7 @@ class Settings:
         "ENVIRONMENT_NAME", _default_environment_name(_app_env())
     )
     login_notice: str = os.getenv("LOGIN_NOTICE", "")
-    app_name: str = os.getenv("API_SERVICE_NAME", "隐链明算可信执行服务")
+    app_name: str = os.getenv("API_SERVICE_NAME", "隐链明算可信数据空间服务")
     api_prefix: str = "/api"
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{(RUNTIME_DIR / 'hiddenchain.db').as_posix()}"
@@ -120,6 +121,7 @@ class Settings:
     test_fixture_seed: bool = _bool_env(
         "TEST_FIXTURE_SEED", _app_env() in {"development", "test"}
     )
+    demo_catalog_seed: bool = _bool_env("DEMO_CATALOG_SEED", _app_env() == "demo")
     test_compute_delay_ms: int = _int_env("TEST_COMPUTE_DELAY_MS", 0)
     opa_url: str = os.getenv("OPA_URL", "").rstrip("/")
     opa_policy_path: str = os.getenv("OPA_POLICY_PATH", "/v1/data/hiddenchain/decision")
@@ -159,6 +161,10 @@ class Settings:
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     deepseek_timeout_seconds: float = _float_env("DEEPSEEK_TIMEOUT_SECONDS", 20.0)
     deepseek_max_tokens: int = _int_env("DEEPSEEK_MAX_TOKENS", 800)
+    platform_signing_private_key: str = os.getenv("PLATFORM_SIGNING_PRIVATE_KEY", "")
+    connector_endpoints_json: str = os.getenv("CONNECTOR_ENDPOINTS_JSON", "{}")
+    connector_public_keys_json: str = os.getenv("CONNECTOR_PUBLIC_KEYS_JSON", "{}")
+    connector_timeout_seconds: float = _float_env("CONNECTOR_TIMEOUT_SECONDS", 15.0)
 
 
 settings = Settings()

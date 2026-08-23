@@ -6,6 +6,22 @@ import { useAuth } from "../auth";
 import { BrandMark, productFooterItems, useProductConfig } from "../branding";
 import { Button, Notice } from "../components/ui";
 
+const demoAccounts = [
+  { label: "发电企业", username: "generator", password: "generator123" },
+  { label: "售电企业", username: "retailer", password: "retailer123" },
+  { label: "煤炭企业", username: "coal", password: "coal123" },
+  { label: "热能企业", username: "heat", password: "heat123" },
+  { label: "天然气企业", username: "gas", password: "gas123" },
+  { label: "石油企业", username: "oil", password: "oil123" },
+  { label: "电力交易中心", username: "exchange", password: "exchange123" },
+  { label: "煤炭交易中心", username: "exchange_coal", password: "exchange123" },
+  { label: "热能交易中心", username: "exchange_heat", password: "exchange123" },
+  { label: "天然气交易中心", username: "exchange_gas", password: "exchange123" },
+  { label: "石油交易中心", username: "exchange_oil", password: "exchange123" },
+  { label: "监管方", username: "regulator", password: "regulator123" },
+  { label: "平台运维", username: "admin", password: "admin123" },
+];
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -30,7 +46,7 @@ export function LoginPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (mode === "did") {
-      setError("去中心化身份认证尚未配置生产凭证，本次不会伪造登录结果。请切换账号密码登录，或联系管理员接入身份服务方。");
+      setError("去中心化身份认证尚未配置生产凭证，本次不会伪造登录结果。请切换账号密码登录，或由企业最高权限账号接入身份服务方。");
       return;
     }
     setBusy(true);
@@ -64,10 +80,11 @@ export function LoginPage() {
 
           <div className="trusted-login-tabs" role="tablist" aria-label="登录方式">
             <button type="button" role="tab" aria-selected={mode === "account"} className={mode === "account" ? "is-active" : ""} onClick={() => { setMode("account"); setError(""); }}>账号密码登录</button>
-            <button type="button" role="tab" aria-selected={mode === "did"} className={mode === "did" ? "is-active" : ""} onClick={() => { setMode("did"); setError(""); }}>去中心化身份认证</button>
+            <button type="button" role="tab" aria-selected={mode === "did"} className={mode === "did" ? "is-active" : ""} onClick={() => { setMode("did"); setError(""); }}>DID 身份认证</button>
           </div>
 
           {mode === "account" ? <>
+          {product.environmentName.includes("演示") && <label className="field trusted-demo-account"><span>演示身份</span><select defaultValue="" onChange={(event) => { if (!event.target.value) return; const account = demoAccounts[Number(event.target.value)]; if (account) { setUsername(account.username); setPassword(account.password); } }}><option value="">请选择企业或机构</option>{demoAccounts.map((account, index) => <option key={account.label} value={index}>{account.label}</option>)}</select></label>}
           <label className="field">
             <span>账号</span>
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required minLength={3} maxLength={64} autoFocus />
@@ -85,10 +102,10 @@ export function LoginPage() {
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
           <div className="login-form-options">
             <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />记住我</label>
-            <button type="button" onClick={() => setError("密码重置由组织管理员处理，请联系管理员重新配置凭证。")}>忘记密码？</button>
+            <button type="button" onClick={() => setError("密码重置需由所属企业的最高权限账号发起。")}>忘记密码？</button>
           </div>
           </> : <div className="trusted-did-login-panel">
-            <label className="field"><span>选择主体身份标识</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置身份标识（请联系管理员）</option></select></label>
+            <label className="field"><span>选择主体身份标识</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置身份标识（由企业最高权限账号配置）</option></select></label>
             <label className="field"><span>凭证引用</span><input value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="输入部署端提供的凭证引用" autoComplete="off" /></label>
             <div className="trusted-did-notice"><ShieldCheck size={15} /><span>当前环境未接入去中心化身份服务方。提交后只会提示未配置，不会创建会话或模拟认证成功。</span></div>
           </div>}
@@ -96,7 +113,7 @@ export function LoginPage() {
           <Button type="submit" variant="primary" busy={busy}>{mode === "did" ? "验证身份凭证" : "登录"}</Button>
           <div className="login-form-divider" aria-hidden="true"><span>或</span></div>
           <Button type="button" variant="secondary" onClick={() => { setMode((value) => value === "account" ? "did" : "account"); setError(""); }}>
-            {mode === "account" ? "使用DID身份认证" : "使用账号密码登录"}
+            {mode === "account" ? "使用 DID 身份认证" : "使用账号密码登录"}
           </Button>
 
           {product.loginNotice && <Notice>{product.loginNotice}</Notice>}

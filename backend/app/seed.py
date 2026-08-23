@@ -23,20 +23,47 @@ from .services.tool_catalog import ensure_agent_tool_catalog
 from .services.asset_registry import project_upload_to_asset_registry
 
 
+BUSINESS_OWNER_PERMISSIONS = [
+    "MANAGE_CATALOG",
+    "MANAGE_CONNECTOR",
+    "MANAGE_PUBLICATION_POLICY",
+    "APPROVE_AUTHORIZATION",
+    "CREATE_COMPUTE_TASK",
+    "VIEW_COMPUTE_RESULT",
+    "VIEW_AUDIT",
+    "MANAGE_MEMBERS",
+]
+
 ORGS = [
-    ("org-generator-t01", "GENERATOR", "齐鲁新能源发电有限公司", "91370000GEN001"),
-    ("org-retailer-t01", "RETAILER", "海岱售电服务有限公司", "91370000RET001"),
-    ("org-exchange-t01", "EXCHANGE", "区域电力交易中心", "91370000EXC001"),
-    ("org-regulator-t01", "REGULATOR", "区域能源交易监管机构", "91370000REG001"),
-    ("org-admin-t01", "ADMIN", "隐链明算平台运维组织", "91370000ADM001"),
+    ("org-generator-t01", "GENERATOR", "electricity", "齐鲁新能源发电有限公司", "91370000GEN001"),
+    ("org-retailer-t01", "RETAILER", "electricity", "海岱售电服务有限公司", "91370000RET001"),
+    ("org-coal-t01", "COAL_ENTERPRISE", "coal", "山岳煤炭供应有限公司", "91370000COA001"),
+    ("org-heat-t01", "HEAT_ENTERPRISE", "heat", "暖城热能服务有限公司", "91370000HEA001"),
+    ("org-gas-t01", "GAS_ENTERPRISE", "gas", "清源天然气有限公司", "91370000GAS001"),
+    ("org-oil-t01", "OIL_ENTERPRISE", "oil", "海陆石油供应有限公司", "91370000OIL001"),
+    ("org-exchange-t01", "EXCHANGE", "electricity", "区域电力交易中心", "91370000EXC001"),
+    ("org-exchange-coal-t01", "EXCHANGE", "coal", "区域煤炭交易中心", "91370000EXC002"),
+    ("org-exchange-heat-t01", "EXCHANGE", "heat", "区域热能交易中心", "91370000EXC003"),
+    ("org-exchange-gas-t01", "EXCHANGE", "gas", "区域天然气交易中心", "91370000EXC004"),
+    ("org-exchange-oil-t01", "EXCHANGE", "oil", "区域石油交易中心", "91370000EXC005"),
+    ("org-regulator-t01", "REGULATOR", None, "区域能源监管机构", "91370000REG001"),
+    ("org-admin-t01", "ADMIN", None, "隐链明算平台运维组织", "91370000ADM001"),
 ]
 
 USERS = [
-    ("user-generator", "org-generator-t01", "generator", "generator123", "发电企业业务员", "GENERATOR"),
-    ("user-retailer", "org-retailer-t01", "retailer", "retailer123", "售电企业业务员", "RETAILER"),
-    ("user-exchange", "org-exchange-t01", "exchange", "exchange123", "交易中心验证员", "EXCHANGE"),
-    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管审计员", "REGULATOR"),
-    ("user-admin", "org-admin-t01", "admin", "admin123", "平台系统管理员", "ADMIN"),
+    ("user-generator", "org-generator-t01", "generator", "generator123", "发电企业账户", "GENERATOR", BUSINESS_OWNER_PERMISSIONS),
+    ("user-retailer", "org-retailer-t01", "retailer", "retailer123", "售电企业账户", "RETAILER", BUSINESS_OWNER_PERMISSIONS),
+    ("user-coal", "org-coal-t01", "coal", "coal123", "煤炭企业账户", "COAL_ENTERPRISE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-heat", "org-heat-t01", "heat", "heat123", "热能企业账户", "HEAT_ENTERPRISE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-gas", "org-gas-t01", "gas", "gas123", "天然气企业账户", "GAS_ENTERPRISE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-oil", "org-oil-t01", "oil", "oil123", "石油企业账户", "OIL_ENTERPRISE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-exchange", "org-exchange-t01", "exchange", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-exchange-coal", "org-exchange-coal-t01", "exchange_coal", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-exchange-heat", "org-exchange-heat-t01", "exchange_heat", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-exchange-gas", "org-exchange-gas-t01", "exchange_gas", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-exchange-oil", "org-exchange-oil-t01", "exchange_oil", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
+    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管方账户", "REGULATOR", ["CREATE_CROSS_ENERGY_QUERY", "CREATE_COMPUTE_TASK", "VIEW_COMPUTE_RESULT", "VIEW_AUDIT"]),
+    ("user-admin", "org-admin-t01", "admin", "admin123", "平台运维账户", "ADMIN", ["MANAGE_PLATFORM_OPERATIONS"]),
 ]
 
 
@@ -101,13 +128,15 @@ def seed_test_fixtures(db: Session) -> None:
     if db.scalar(select(Organization.org_id).limit(1)):
         return
 
-    for org_id, org_type, org_name, credit_code in ORGS:
+    for org_id, org_type, energy_domain, org_name, credit_code in ORGS:
         db.add(
             Organization(
                 org_id=org_id,
                 org_type=org_type,
                 org_name=org_name,
                 credit_code=credit_code,
+                energy_domain=energy_domain,
+                profile_json={"demo": True, "verified": True},
                 status="ACTIVE",
             )
         )
@@ -132,7 +161,7 @@ def seed_test_fixtures(db: Session) -> None:
             )
         )
 
-    for user_id, org_id, username, password, display_name, role in USERS:
+    for user_id, org_id, username, password, display_name, role, permissions in USERS:
         db.add(
             User(
                 user_id=user_id,
@@ -141,6 +170,8 @@ def seed_test_fixtures(db: Session) -> None:
                 password_hash=hash_password(password),
                 display_name=display_name,
                 role_code=role,
+                permissions_json=list(permissions),
+                is_org_owner=True,
                 status="ACTIVE",
             )
         )

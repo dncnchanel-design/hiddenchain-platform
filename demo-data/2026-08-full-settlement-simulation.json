@@ -1,0 +1,214 @@
+{
+  "fixture_id": "hiddenchain-2026-08-full-settlement-001",
+  "created_at": "2026-08-22",
+  "is_simulated": true,
+  "batch": {
+    "trade_batch_no": "TB-2026-08-FLOW-001",
+    "period": "2026-08",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31"
+  },
+  "organizations": {
+    "generator": {
+      "org_id": "org-generator-t01",
+      "name": "齐鲁新能源发电有限公司"
+    },
+    "retailer": {
+      "org_id": "org-retailer-t01",
+      "name": "海岱售电服务有限公司"
+    },
+    "exchange": {
+      "org_id": "org-exchange-t01",
+      "name": "区域电力交易中心"
+    }
+  },
+  "data_assets": [
+    {
+      "asset_type": "GENERATION_DATA",
+      "upload_id": "asset-generation-flow-001",
+      "owner_org_id": "org-generator-t01",
+      "label": "8月发电侧计量汇总（模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_METER",
+        "protocol": "HTTPS",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真电表来源证明"
+      },
+      "local_payload": {
+        "contract_id": "CONTRACT-FLOW-2026-08",
+        "period": "2026-08",
+        "record_count": 31,
+        "energy_mwh": 1250.0,
+        "meter_point": "GEN-METER-FLOW-001",
+        "source": "SIMULATION_METER_GENERATION"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    },
+    {
+      "asset_type": "RETAIL_DATA",
+      "upload_id": "asset-retail-flow-001",
+      "owner_org_id": "org-retailer-t01",
+      "label": "8月售电侧履约汇总（模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_METER",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真计量来源证明"
+      },
+      "local_payload": {
+        "contract_id": "CONTRACT-FLOW-2026-08",
+        "period": "2026-08",
+        "record_count": 31,
+        "energy_mwh": 1000.0,
+        "meter_point": "RET-METER-FLOW-001",
+        "source": "SIMULATION_METER_RETAIL"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    },
+    {
+      "asset_type": "RENEWABLE_FORECAST",
+      "upload_id": "asset-forecast-flow-001",
+      "owner_org_id": "org-generator-t01",
+      "label": "8月新能源预测（模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_FORECAST",
+        "protocol": "HTTPS",
+        "stage": "CLOUD",
+        "encryption": "TLS1.3",
+        "attestation": "仿真预测服务来源证明"
+      },
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 31,
+        "forecast_energy_mwh": 1300.0,
+        "forecast_accuracy_pct": 96.0,
+        "source": "SIMULATION_FORECAST"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    },
+    {
+      "asset_type": "VPP_RESOURCE",
+      "upload_id": "asset-vpp-flow-001",
+      "owner_org_id": "org-retailer-t01",
+      "label": "8月可调资源池（模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_VPP_GATEWAY",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "仿真资源网关来源证明"
+      },
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 1860,
+        "adjustable_capacity_mw": 20.0,
+        "storage_energy_mwh": 120.0,
+        "response_minutes": 5.0,
+        "source": "SIMULATION_VPP"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    },
+    {
+      "asset_type": "GRID_CONSTRAINT",
+      "upload_id": "asset-grid-flow-001",
+      "owner_org_id": "org-exchange-t01",
+      "label": "8月调度安全边界（模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_DISPATCH_GATE",
+        "protocol": "WebSocket",
+        "stage": "BUSINESS",
+        "encryption": "TLS1.3",
+        "attestation": "仿真调度边界来源证明"
+      },
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 24,
+        "n_minus_one_passed": true,
+        "max_residual_imbalance_mwh": 160.0,
+        "congestion_margin_pct": 18.0,
+        "dispatch_hours": 720.0,
+        "source": "SIMULATION_GRID_GATE"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    },
+    {
+      "asset_type": "USER_LOAD_CURVE",
+      "upload_id": "asset-load-flow-001",
+      "owner_org_id": "org-retailer-t01",
+      "label": "8月用户负荷曲线（脱敏模拟）",
+      "ingress": {
+        "source_type": "SIMULATION_MASKED_METER_GROUP",
+        "protocol": "MQTT",
+        "stage": "EDGE",
+        "encryption": "TLS1.3",
+        "attestation": "脱敏负荷来源证明"
+      },
+      "local_payload": {
+        "period": "2026-08",
+        "record_count": 24,
+        "load_curve": [
+          32,
+          30,
+          28,
+          27,
+          26,
+          28,
+          35,
+          44,
+          52,
+          58,
+          62,
+          65,
+          63,
+          60,
+          58,
+          60,
+          68,
+          76,
+          82,
+          78,
+          70,
+          58,
+          46,
+          38
+        ],
+        "source": "SIMULATION_MASKED_LOAD"
+      },
+      "validation_status": "PASSED",
+      "signature_status": "VALID"
+    }
+  ],
+  "privacy_analysis_request": {
+    "analysis_name": "8月用户负荷隐私分析（模拟）",
+    "dataset_ids": ["asset-load-flow-001"],
+    "analysis_type": "DR_POTENTIAL",
+    "privacy_level": "DIFFERENTIAL_PRIVACY",
+    "privacy_budget": 1.0,
+    "scenario_code": "VPP_AGGREGATION",
+    "sensitivity_level": "L4",
+    "latency_requirement": "MINUTE"
+  },
+  "business_validation_request": {
+    "task_name": "2026年8月可信结算全流程验收",
+    "rule_id": "rule-settlement-v1",
+    "participants": [
+      {
+        "org_id": "org-generator-t01",
+        "role_in_task": "GENERATOR"
+      },
+      {
+        "org_id": "org-retailer-t01",
+        "role_in_task": "RETAILER"
+      }
+    ],
+    "compute_mode": "LOCAL_CONTROLLED",
+    "algorithm_code": "CONTROLLED_SETTLEMENT_V1"
+  }
+}

@@ -198,43 +198,20 @@ def metrics(
     user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
-    records = db.scalars(select(MetricRecord).order_by(MetricRecord.recorded_at.desc()).limit(200)).all()
-    by_code: dict[str, list[float]] = {}
-    for record in records:
-        by_code.setdefault(record.metric_code, []).append(record.metric_value)
-    def avg(code: str) -> float:
-        values = by_code.get(code, [])
-        return round(sum(values) / len(values), 2) if values else 0
-
-    verified_count = db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0
-    task_total = db.scalar(select(func.count(SettlementTask.task_id))) or 0
-    audited_tasks = db.scalar(
-        select(func.count(SettlementTask.task_id)).where(SettlementTask.status == "AUDITED")
-    ) or 0
-    compute_jobs = db.scalars(select(PrivacyComputeJob)).all()
-    successful_jobs = [item for item in compute_jobs if item.status == "SUCCESS"]
-    api_bounded_jobs = [
-        item for item in successful_jobs
-        if (item.execution_attestation_json or {}).get("api_raw_records_returned") is False
-    ]
-    agreements_total = db.scalar(select(func.count(DataSpaceAgreement.agreement_id))) or 0
-    consumed_agreements = db.scalar(
-        select(func.count(DataSpaceAgreement.agreement_id)).where(DataSpaceAgreement.state == "CONSUMED")
-    ) or 0
     return {
-        "compute_cost_ms": avg("LOCAL_COMPUTE_DURATION_MS") or avg("MPC_DURATION_MS"),
-        "privacy_analysis_ms": avg("PRIVACY_ANALYSIS_MS"),
-        "verify_rate": avg("VERIFY_RATE") if records else None,
-        "agent_event_count": db.scalar(select(func.count(AgentEvent.event_id))) or 0,
-        "evidence_count": verified_count,
-        "active_data_refs": db.scalar(select(func.count(DataUpload.upload_id)).where(DataUpload.validation_status == "PASSED")) or 0,
-        "raw_data_centralized": None,
+        "compute_cost_ms": None,
+        "privacy_analysis_ms": None,
+        "verify_rate": None,
+        "agent_event_count": 0,
+        "evidence_count": 0,
+        "active_data_refs": 0,
+        "raw_data_centralized": False,
         "measurement_scope": settings.environment_name or settings.app_env,
-        "data_flow_efficiency_pct": round(100 * audited_tasks / max(task_total, 1), 2) if task_total else 0,
-        "api_output_boundary_rate_pct": round(100 * len(api_bounded_jobs) / max(len(successful_jobs), 1), 2) if successful_jobs else None,
+        "data_flow_efficiency_pct": 0,
+        "api_output_boundary_rate_pct": None,
         "cross_domain_non_export_rate_pct": None,
-        "authorized_call_count": consumed_agreements,
-        "authorized_agreement_count": agreements_total,
-        "baseline_note": "仅展示系统已记录的运行事实；未接入的跨域证明与现场基线不估算。",
-        "series": [model_dict(item) for item in records[:30]],
+        "authorized_call_count": 0,
+        "authorized_agreement_count": 0,
+        "baseline_note": "平台运维仅查看技术运行状态，不展示企业目录、授权、任务、结果或业务审计内容。",
+        "series": [],
     }

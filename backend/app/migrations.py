@@ -117,6 +117,22 @@ COMPUTE_CONTROL_INDEXES: tuple[str, ...] = (
     "ON privacy_compute_jobs (action_idempotency_key)",
 )
 
+ENTERPRISE_ACCOUNT_COLUMNS: dict[str, dict[str, str]] = {
+    "organizations": {
+        "energy_domain": "VARCHAR(24)",
+        "profile_json": "JSON NOT NULL DEFAULT '{}'",
+    },
+    "users": {
+        "permissions_json": "JSON NOT NULL DEFAULT '[]'",
+        "is_org_owner": "BOOLEAN NOT NULL DEFAULT FALSE",
+    },
+}
+
+ENTERPRISE_ACCOUNT_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_organizations_energy_domain "
+    "ON organizations (energy_domain)",
+)
+
 
 def _callable_source(value: Callable[..., Any]) -> str:
     try:
@@ -377,6 +393,12 @@ def _user_notifications(connection: Connection) -> None:
 def _privacy_compute_controls(connection: Connection) -> None:
     _add_columns(connection, "privacy_compute_jobs", COMPUTE_CONTROL_COLUMNS["privacy_compute_jobs"])
     _create_indexes(connection, COMPUTE_CONTROL_INDEXES)
+
+
+def _enterprise_account_scope(connection: Connection) -> None:
+    for table_name, columns in ENTERPRISE_ACCOUNT_COLUMNS.items():
+        _add_columns(connection, table_name, columns)
+    _create_indexes(connection, ENTERPRISE_ACCOUNT_INDEXES)
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -878,6 +900,20 @@ MIGRATIONS: tuple[Migration, ...] = (
             ),
             *(f"index:{statement}" for statement in COMPUTE_CONTROL_INDEXES),
             "retry:blocked-until-real-requeue-executor",
+        ),
+        checksum_helpers=(_add_columns, _create_indexes),
+    ),
+    Migration(
+        "20260823_001",
+        "add enterprise energy scope and delegated account permissions",
+        _enterprise_account_scope,
+        revision_schema=(
+            *(
+                f"column:{table_name}.{column_name}:{definition}"
+                for table_name, columns in sorted(ENTERPRISE_ACCOUNT_COLUMNS.items())
+                for column_name, definition in sorted(columns.items())
+            ),
+            *(f"index:{statement}" for statement in ENTERPRISE_ACCOUNT_INDEXES),
         ),
         checksum_helpers=(_add_columns, _create_indexes),
     ),

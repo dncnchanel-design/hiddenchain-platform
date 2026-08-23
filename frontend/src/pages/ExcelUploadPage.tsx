@@ -49,6 +49,11 @@ const roleRules: Record<string, string> = {
   REGULATOR: "监管角色仅可查看导入记录，不能执行上传。",
   ADMIN: "管理员可通过 Excel 受控批量导入全部模板类型，数据归属当前管理员组织。",
 };
+const roleSampleFiles: Record<string, string> = {
+  GENERATOR: "/sample-data/hiddenchain-single-table-generator.xlsx",
+  RETAILER: "/sample-data/hiddenchain-single-table-retailer.xlsx",
+  EXCHANGE: "/sample-data/hiddenchain-single-table-exchange.xlsx",
+};
 
 function formatFileSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -127,15 +132,15 @@ export function ExcelUploadPage() {
     <>
       <PageHeader
         title="Excel 批量上传"
-        description="按统一工作簿导入数据资产；系统会先校验全部工作表，全部通过后才一次性提交。"
-        actions={<><a className="button button-secondary" href="/sample-data/hiddenchain-excel-batch-data.xlsx" download><Download size={16} />下载示例数据</a><Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新记录</Button></>}
+        description="每个角色使用一个工作表导入本方数据；系统会先校验整张数据表，全部通过后才一次性提交。"
+        actions={<><a className="button button-secondary" href={roleSampleFiles[role] || "/sample-data/hiddenchain-excel-batch-data.xlsx"} download><Download size={16} />下载本角色单表模板</a><Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新记录</Button></>}
       />
 
       {notice && <Notice tone={notice.includes("失败") || notice.includes("未通过") ? "warning" : "success"}>{notice}</Notice>}
       {!canUpload && <Notice tone="info">{roleRules[role] || "当前角色仅可查看导入记录。"}</Notice>}
 
       <MetricStrip columns={4}>
-        <Metric label="工作表" value={validation?.sheet_count || 0} meta="标准模板共 10 组" />
+        <Metric label="工作表" value={validation?.sheet_count || 0} meta="本角色默认 1 张" />
         <Metric label="数据行" value={validation?.row_count || 0} meta="单次最多 5,000 行" />
         <Metric label="校验错误" value={validation?.errors.length || 0} tone={validation?.errors.length ? "red" : "green"} />
         <Metric label="当前状态" value={<StatusTag value={validation?.valid ? "PASSED" : file ? "PENDING" : "NOT_PROVIDED"} />} />
@@ -145,7 +150,7 @@ export function ExcelUploadPage() {
         <div className="upload-file-panel">
           <div className="upload-file-control">
             <FileSpreadsheet size={25} aria-hidden="true" />
-            <Field label="Excel 文件" hint="标准工作簿应包含 10 个数据组工作表，每组建议 100 条记录。" error={fileError}>
+            <Field label="Excel 文件" hint="本角色单表模板只包含 1 个工作表；旧版十工作表模板仍兼容。" error={fileError}>
               <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => chooseFile(event.target.files?.[0] || null)} disabled={!canUpload || busy} />
             </Field>
             {file && <div className="upload-file-meta"><strong>{file.name}</strong><span>{formatFileSize(file.size)}</span></div>}

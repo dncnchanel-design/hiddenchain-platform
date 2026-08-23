@@ -44,7 +44,7 @@ router = APIRouter(tags=["audit"])
 @router.get("/audit/timeline/{task_id}")
 def audit_timeline(
     task_id: str,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     task = db.get(SettlementTask, task_id)
@@ -101,7 +101,7 @@ def audit_timeline(
 
 @router.get("/audit/reports")
 def list_reports(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     reports = db.scalars(
@@ -123,7 +123,7 @@ def list_reports(
 @router.post("/audit/reports", status_code=status.HTTP_201_CREATED)
 def generate_report(
     payload: AuditReportCreate,
-    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     try:
@@ -149,7 +149,7 @@ def decide_report(
     report_id: str,
     payload: AuditReportDecisionRequest,
     response: Response,
-    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     report_reference = db.get(AuditReport, report_id)
@@ -317,7 +317,7 @@ def decide_report(
 @router.post("/agent/query")
 def agent_query(
     payload: AgentQueryRequest,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     try:
@@ -339,7 +339,7 @@ def agent_query(
 
 @router.get("/anomalies")
 def list_anomalies(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     return [model_dict(item) for item in db.scalars(select(AnomalyEvent).order_by(AnomalyEvent.created_at.desc())).all()]
@@ -349,7 +349,7 @@ def list_anomalies(
 def resolve_anomaly(
     event_id: str,
     payload: AnomalyResolve,
-    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     event = db.get(AnomalyEvent, event_id)
@@ -396,16 +396,35 @@ def list_logs(
     user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    query = select(AuditLog).order_by(AuditLog.occurred_at.desc()).limit(500)
+    technical_targets = {"SYSTEM", "RUNTIME", "PLATFORM", "DEPLOYMENT", "MIGRATION"}
+    query = (
+        select(AuditLog)
+        .where(AuditLog.target_type.in_(technical_targets))
+        .order_by(AuditLog.occurred_at.desc())
+        .limit(500)
+    )
     if action_code:
         query = query.where(AuditLog.action_code == action_code)
-    return [model_dict(item) for item in db.scalars(query).all()]
+    return [
+        {
+            "log_id": item.log_id,
+            "occurred_at": item.occurred_at,
+            "actor_name": "平台服务",
+            "action_code": item.action_code,
+            "target_type": item.target_type,
+            "target_id": "已脱敏",
+            "result": item.result,
+            "trace_id": item.trace_id,
+            "details_json": {"message": "业务内容不向平台运维账号开放"},
+        }
+        for item in db.scalars(query).all()
+    ]
 
 
 @router.get("/audit/lineage/{run_id}")
 def lineage_events(
     run_id: str,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
 ) -> dict:
     """Return redacted OpenLineage events for a trusted execution run."""
 

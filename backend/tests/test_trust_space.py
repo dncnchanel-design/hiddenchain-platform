@@ -44,10 +44,11 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert generator_body["capabilities"]["data_space_connector"]["capability_state"] == "ADAPTER"
     assert generator_body["capabilities"]["data_space_connector"]["readiness"] == "NOT_CONFIGURED"
     assert generator_body["capabilities"]["tee"]["capability_state"] == "BLOCKED"
-    assert generator_body["capabilities"]["blockchain_anchor"]["capability_state"] == "DEMO"
-    upload_menu = next(menu for menu in generator_body["visible_menus"] if menu["code"] == "excel-upload")
-    assert upload_menu["title"] == "数据上传"
-    assert upload_menu["path"] == "/trusted-space/upload"
+    assert generator_body["capabilities"]["audit_hash_chain"]["capability_state"] == "LOCAL_REAL"
+    assert generator_body["capabilities"]["blockchain_anchor"]["capability_state"] == "BLOCKED"
+    connector_menu = next(menu for menu in generator_body["visible_menus"] if menu["code"] == "connector")
+    assert connector_menu["title"] == "数据连接"
+    assert connector_menu["path"] == "/trusted-space/connector"
 
 
 def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, auth_headers):
@@ -100,7 +101,8 @@ def test_catalog_filters_pagination_and_provider_visibility(client, auth_headers
     assert generator.status_code == 200
     generator_items = generator.json()["items"]
     assert generator_items
-    assert all(item["provider"]["org_id"] == "org-generator-t01" for item in generator_items)
+    assert all(item["domain"] == "electricity" or item["provider"]["org_id"] in {"org-generator-t01", "org-retailer-t01", "org-exchange-t01"} for item in generator_items)
+    assert any(item["provider"]["org_id"] != "org-generator-t01" for item in generator_items)
 
     no_match = client.get(
         "/api/trust-space/catalog?q=asset-that-does-not-exist",
@@ -124,7 +126,8 @@ def test_identity_reports_recorded_did_and_honest_connector_boundary(client, aut
     assert body["connector"]["external_edc_runtime"] == "NOT_CONFIGURED"
     assert body["connector"]["capability_state"] in {"ADAPTER", "NOT_CONFIGURED"}
     assert body["capability_matrix"]["tee"]["capability_state"] == "BLOCKED"
-    assert body["capability_matrix"]["blockchain"]["capability_state"] == "DEMO"
+    assert body["capability_matrix"]["hash_chain"]["capability_state"] == "LOCAL_REAL"
+    assert body["capability_matrix"]["blockchain"]["capability_state"] == "BLOCKED"
     assert body["capability_matrix"]["connector_control_plane"]["readiness"] == "NOT_CONFIGURED"
 
 
@@ -156,7 +159,8 @@ def test_asset_detail_uses_real_id_and_enforces_visibility(client, auth_headers)
         f"/api/trust-space/assets/{retailer_asset.asset_id}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 404
+    assert cross_scope.status_code == 200
+    assert cross_scope.json()["actions"]["can_request_usage"] is True
     unknown = client.get(
         "/api/trust-space/assets/asset-does-not-exist",
         headers=auth_headers["exchange"],

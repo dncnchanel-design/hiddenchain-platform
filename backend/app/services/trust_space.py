@@ -61,10 +61,21 @@ from ..trust_models import (
 )
 
 
-ALL_ROLES = frozenset({"GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"})
-PROVIDER_ROLES = frozenset({"GENERATOR", "RETAILER"})
-APPLICANT_ROLES = frozenset({"GENERATOR", "RETAILER", "EXCHANGE"})
-OVERSIGHT_ROLES = frozenset({"REGULATOR", "ADMIN"})
+ENTERPRISE_ROLES = frozenset(
+    {
+        "GENERATOR",
+        "RETAILER",
+        "COAL_ENTERPRISE",
+        "HEAT_ENTERPRISE",
+        "GAS_ENTERPRISE",
+        "OIL_ENTERPRISE",
+    }
+)
+BUSINESS_ROLES = ENTERPRISE_ROLES | frozenset({"EXCHANGE", "REGULATOR"})
+ALL_ROLES = BUSINESS_ROLES | frozenset({"ADMIN"})
+PROVIDER_ROLES = ENTERPRISE_ROLES | frozenset({"EXCHANGE"})
+APPLICANT_ROLES = BUSINESS_ROLES
+OVERSIGHT_ROLES = frozenset({"REGULATOR"})
 
 MANUAL_TTC_TARGETS = frozenset(
     {
@@ -250,22 +261,21 @@ TRUST_SPACE_HELP: dict[str, dict[str, Any]] = {
 }
 
 TRUST_SPACE_MENUS: tuple[dict[str, Any], ...] = (
-    {"code": "workbench", "path": "/workbench", "title": "工作台", "roles": sorted(ALL_ROLES)},
-    {"code": "identity", "path": "/trusted-space/identity", "title": "身份中心", "roles": sorted(ALL_ROLES)},
-    {"code": "catalog", "path": "/trusted-space/catalog", "title": "数据目录", "roles": sorted(ALL_ROLES)},
-    {"code": "excel-upload", "path": "/trusted-space/upload", "title": "数据上传", "roles": sorted(ALL_ROLES)},
-    {"code": "asset-passport", "path": "/trusted-space/assets/:assetId", "title": "数据资产护照", "roles": sorted(ALL_ROLES)},
-    {"code": "access-requests", "path": "/data/access-requests", "title": "使用申请", "roles": sorted(APPLICANT_ROLES | OVERSIGHT_ROLES)},
-    {"code": "settlements", "path": "/settlements", "title": "合同与结算", "roles": sorted(ALL_ROLES)},
-    {"code": "compute", "path": "/compute", "title": "隐私计算", "roles": sorted(ALL_ROLES)},
-    {"code": "audit", "path": "/audit", "title": "审计中心", "roles": ["EXCHANGE", "REGULATOR", "ADMIN"]},
+    {"code": "overview", "path": "/trusted-space/workbench", "title": "运行总览", "roles": sorted(ALL_ROLES)},
+    {"code": "query", "path": "/trusted-space/query", "title": "智能数据查询", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "catalog", "path": "/trusted-space/catalog", "title": "数据目录", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "connector", "path": "/trusted-space/connector", "title": "数据连接", "roles": sorted(PROVIDER_ROLES)},
+    {"code": "authorization", "path": "/trusted-space/authorizations", "title": "数据授权", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "compute", "path": "/trusted-space/mpc", "title": "隐私计算", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "audit", "path": "/trusted-space/audit", "title": "审计追溯", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "participants", "path": "/trusted-space/identity", "title": "参与主体", "roles": sorted(ALL_ROLES)},
 )
 
 ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "GENERATOR": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
-        "can_request_usage": False,
+        "can_request_usage": True,
         "can_review_inbound_requests": True,
         "can_revoke_own_authorizations": True,
         "can_create_settlement": False,
@@ -276,7 +286,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "RETAILER": {
         "can_view_own_assets": True,
         "can_view_all_assets": False,
-        "can_request_usage": False,
+        "can_request_usage": True,
         "can_review_inbound_requests": True,
         "can_revoke_own_authorizations": True,
         "can_create_settlement": False,
@@ -298,7 +308,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     "REGULATOR": {
         "can_view_own_assets": False,
         "can_view_all_assets": True,
-        "can_request_usage": False,
+        "can_request_usage": True,
         "can_review_inbound_requests": False,
         "can_revoke_own_authorizations": False,
         "can_create_settlement": False,
@@ -308,16 +318,19 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "ADMIN": {
         "can_view_own_assets": False,
-        "can_view_all_assets": True,
+        "can_view_all_assets": False,
         "can_request_usage": False,
-        "can_review_inbound_requests": True,
+        "can_review_inbound_requests": False,
         "can_revoke_own_authorizations": False,
         "can_create_settlement": False,
         "can_confirm_own_result": False,
-        "can_view_audit": True,
+        "can_view_audit": False,
         "can_manage_system": True,
     },
 }
+
+for _enterprise_role in ("COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE"):
+    ROLE_CAPABILITIES[_enterprise_role] = dict(ROLE_CAPABILITIES["GENERATOR"])
 
 
 def _organization_map(db: Session) -> dict[str, Organization]:
@@ -342,14 +355,47 @@ def _source_map(db: Session) -> dict[str, DataSource]:
 
 def _visible_asset_query(user: User):
     query = select(DataAsset).where(DataAsset.status == "ACTIVE")
-    if user.role_code in PROVIDER_ROLES:
-        query = query.where(DataAsset.owner_org_id == user.org_id)
+    if user.role_code == "ADMIN":
+        query = query.where(DataAsset.asset_id == "__platform_admin_has_no_business_asset_access__")
     return query
+
+
+def _asset_energy_domain(asset: DataAsset, sources: dict[str, DataSource]) -> str:
+    source = sources.get(asset.source_id)
+    explicit = str((asset.metadata_json or {}).get("domain") or "")
+    if explicit:
+        return explicit
+    owner_domains = {
+        "org-generator-t01": "electricity",
+        "org-retailer-t01": "electricity",
+        "org-exchange-t01": "electricity",
+        "org-coal-t01": "coal",
+        "org-heat-t01": "heat",
+        "org-gas-t01": "gas",
+        "org-oil-t01": "oil",
+    }
+    if asset.owner_org_id in owner_domains:
+        return owner_domains[asset.owner_org_id]
+    return str(source.security_domain if source else "")
+
+
+def _asset_visible_in_energy_scope(
+    asset: DataAsset,
+    user: User,
+    organization: Organization | None,
+    sources: dict[str, DataSource],
+) -> bool:
+    if user.role_code == "ADMIN":
+        return False
+    if asset.owner_org_id == user.org_id or user.role_code == "REGULATOR":
+        return True
+    energy_domain = organization.energy_domain if organization else None
+    return bool(energy_domain and _asset_energy_domain(asset, sources) == energy_domain)
 
 
 def _task_scope_query(db: Session, user: User):
     query = select(SettlementTask)
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         query = query.where(
             SettlementTask.task_id.in_(
                 select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)
@@ -372,6 +418,10 @@ def _request_scope_query(user: User):
 
 def _capability(state: str, source: str, **extra: Any) -> dict[str, Any]:
     return {"capability_state": state, "source_of_truth": source, **extra}
+
+
+def _has_permission(user: User, permission: str) -> bool:
+    return permission in set(user.permissions_json or [])
 
 
 def _iso(value: Any) -> str | None:
@@ -405,6 +455,16 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
     role = ROLE_CAPABILITIES.get(user.role_code, {})
     visible_menus = [item for item in TRUST_SPACE_MENUS if user.role_code in item["roles"]]
     credential_status = did.credential_status if did else "NOT_CONFIGURED"
+    connector_sources = db.scalars(
+        select(DataSource).where(DataSource.owner_org_id == user.org_id)
+    ).all()
+    connector_state = (
+        "LOCAL_REAL"
+        if any(item.capability_label == "LOCAL_REAL" for item in connector_sources)
+        else "ADAPTER"
+        if connector_sources
+        else "NOT_CONFIGURED"
+    )
     return {
         "actor": {
             "user_id": user.user_id,
@@ -414,15 +474,22 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
             "role_label": {
                 "GENERATOR": "发电企业",
                 "RETAILER": "售电企业",
+                "COAL_ENTERPRISE": "煤炭企业",
+                "HEAT_ENTERPRISE": "热能企业",
+                "GAS_ENTERPRISE": "天然气企业",
+                "OIL_ENTERPRISE": "石油企业",
                 "EXCHANGE": "交易中心",
-                "REGULATOR": "监管机构",
-                "ADMIN": "平台管理员",
+                "REGULATOR": "监管方",
+                "ADMIN": "平台运维",
             }.get(user.role_code, user.role_code),
+            "permissions": list(user.permissions_json or []),
+            "is_org_owner": bool(user.is_org_owner),
         },
         "current_subject": {
             "org_id": user.org_id,
             "org_type": organization.org_type if organization else None,
             "org_name": organization.org_name if organization else None,
+            "energy_domain": organization.energy_domain if organization else None,
             "status": organization.status if organization else "NOT_CONFIGURED",
         },
         "identity_ref": {
@@ -443,13 +510,14 @@ def role_context(db: Session, user: User) -> dict[str, Any]:
         "capabilities": {
             "data_catalog": _capability("LOCAL_REAL", "data_assets/data_asset_versions"),
             "data_space_connector": _capability(
-                "ADAPTER",
-                "DataSpaceConnectorAdapter",
-                readiness="NOT_CONFIGURED",
-                external_runtime="NOT_CONFIGURED",
+                connector_state,
+                "enterprise connector registry",
+                readiness="CONFIGURED" if connector_state == "LOCAL_REAL" else "NOT_CONFIGURED",
+                raw_data_centrally_stored=False,
             ),
             "tee": _capability("BLOCKED", "runtime configuration", readiness="NOT_CONFIGURED"),
-            "blockchain_anchor": _capability("DEMO", "blockchain_anchors", consensus_verified=False),
+            "audit_hash_chain": _capability("LOCAL_REAL", "append-only hash chain", append_only=True),
+            "blockchain_anchor": _capability("BLOCKED", "external blockchain not configured", consensus_verified=False),
         },
     }
 
@@ -489,7 +557,7 @@ def contextual_help(db: Session, user: User, view: str) -> dict[str, Any]:
 
 def _ttc_allowed_actions(user: User, task: SettlementTask) -> list[str]:
     actions = ["view"]
-    if user.role_code not in {"EXCHANGE", "REGULATOR", "ADMIN"}:
+    if user.role_code not in {"EXCHANGE", "REGULATOR"}:
         return actions
     try:
         source = TTCState(task.ttc_state)
@@ -539,7 +607,7 @@ def _quick_action_items(
     audit_task_ids: list[str],
 ) -> list[dict[str, Any]]:
     has_assets = asset_count > 0
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         return [
             _quick_action(
                 code="VIEW_OWN_ASSETS",
@@ -641,14 +709,50 @@ def _quick_action_items(
 
 
 def workbench(db: Session, user: User) -> dict[str, Any]:
+    if user.role_code == "ADMIN":
+        return {
+            "kpis": {
+                "visible_assets": 0,
+                "visible_tasks": 0,
+                "usage_requests": 0,
+                "active_usage_requests": 0,
+                "inbound_usage_requests": 0,
+                "outbound_usage_requests": 0,
+                "compute_jobs": 0,
+                "audit_reports": 0,
+            },
+            "recent_assets": [],
+            "recent_tasks": [],
+            "recent_usage_requests": [],
+            "recent_compute_jobs": [],
+            "recent_audit_reports": [],
+            "quick_actions": ["VIEW_RUNTIME_STATUS"],
+            "quick_action_items": [
+                _quick_action(
+                    code="VIEW_RUNTIME_STATUS",
+                    label="查看平台运行状态",
+                    path="/metrics",
+                    allowed=True,
+                )
+            ],
+            "empty_state": False,
+            **_capability("LOCAL_REAL", "sanitized platform operations status"),
+        }
     organizations = _organization_map(db)
     source_map = _source_map(db)
-    assets = db.scalars(_visible_asset_query(user).order_by(DataAsset.created_at.desc()).limit(8)).all()
+    current_organization = organizations.get(user.org_id)
+    visible_asset_rows = [
+        item
+        for item in db.scalars(
+            _visible_asset_query(user).order_by(DataAsset.created_at.desc())
+        ).all()
+        if _asset_visible_in_energy_scope(item, user, current_organization, source_map)
+        and (user.role_code not in ENTERPRISE_ROLES or item.owner_org_id == user.org_id)
+    ]
+    assets = visible_asset_rows[:8]
     tasks = db.scalars(_task_scope_query(db, user).order_by(SettlementTask.updated_at.desc()).limit(8)).all()
     task_ids = [item.task_id for item in tasks]
-    asset_count = int(
-        db.scalar(select(func.count()).select_from(_visible_asset_query(user).subquery())) or 0
-    )
+    asset_count = len(visible_asset_rows)
     task_count = int(
         db.scalar(select(func.count()).select_from(_task_scope_query(db, user).subquery())) or 0
     )
@@ -696,21 +800,21 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
         db.scalars(task_scope.with_only_columns(SettlementTask.task_id)).all()
     )
     compute_query = select(PrivacyComputeJob)
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         compute_query = compute_query.where(PrivacyComputeJob.task_id.in_(all_task_ids or ["__none__"]))
     compute_jobs = db.scalars(compute_query.order_by(PrivacyComputeJob.created_at.desc()).limit(8)).all()
     compute_count_query = select(func.count(PrivacyComputeJob.job_id))
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         compute_count_query = compute_count_query.where(
             PrivacyComputeJob.task_id.in_(all_task_ids or ["__none__"])
         )
     compute_count = int(db.scalar(compute_count_query) or 0)
     audit_query = select(AuditReport)
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         audit_query = audit_query.where(AuditReport.task_id.in_(all_task_ids or ["__none__"]))
     audit_reports = db.scalars(audit_query.order_by(AuditReport.created_at.desc()).limit(8)).all()
     audit_count_query = select(func.count(AuditReport.report_id))
-    if user.role_code in PROVIDER_ROLES:
+    if user.role_code in ENTERPRISE_ROLES:
         audit_count_query = audit_count_query.where(AuditReport.task_id.in_(all_task_ids or ["__none__"]))
     audit_count = int(db.scalar(audit_count_query) or 0)
     result_rows = db.scalars(
@@ -868,7 +972,8 @@ def identity(db: Session, user: User) -> dict[str, Any]:
             "asset_registry": _capability("LOCAL_REAL", "data_assets/data_asset_versions"),
             "connector_control_plane": _capability("ADAPTER", "DataSpaceConnectorAdapter", readiness="NOT_CONFIGURED"),
             "tee": _capability("BLOCKED", "runtime configuration", readiness="NOT_CONFIGURED"),
-            "blockchain": _capability("DEMO", "blockchain_anchors", consensus_verified=False),
+            "hash_chain": _capability("LOCAL_REAL", "append-only audit hash chain", append_only=True),
+            "blockchain": _capability("BLOCKED", "external blockchain not configured", consensus_verified=False),
         },
         **_capability("LOCAL_REAL", "organizations/users/did_identities/data_sources"),
     }
@@ -888,11 +993,15 @@ def _asset_item(
     )
     source = sources.get(asset.source_id)
     can_request = user.role_code in APPLICANT_ROLES and asset.owner_org_id != user.org_id
-    can_review = user.role_code in PROVIDER_ROLES and asset.owner_org_id == user.org_id
+    can_review = (
+        user.role_code in PROVIDER_ROLES
+        and asset.owner_org_id == user.org_id
+        and _has_permission(user, "APPROVE_AUTHORIZATION")
+    )
     return {
         "asset_id": asset.asset_id,
-        "asset_code": asset.asset_code,
-        "asset_name": asset.asset_name,
+        "asset_code": "",
+        "asset_name": asset.asset_name or "未命名数据资源，请由提供企业补充中文名称",
         "asset_type": asset.asset_type,
         "classification": asset.classification,
         "sensitivity_level": asset.sensitivity_level,
@@ -945,9 +1054,12 @@ def catalog(
     organizations = _organization_map(db)
     sources = _source_map(db)
     assets = db.scalars(_visible_asset_query(user).order_by(DataAsset.created_at.desc())).all()
+    current_organization = organizations.get(user.org_id)
     normalized_query = query_text.strip().lower() if query_text else None
     filtered: list[DataAsset] = []
     for asset in assets:
+        if not _asset_visible_in_energy_scope(asset, user, current_organization, sources):
+            continue
         source = sources.get(asset.source_id)
         metadata = asset.metadata_json or {}
         asset_domain = str(metadata.get("domain") or (source.security_domain if source else ""))
@@ -990,10 +1102,10 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
     asset = db.get(DataAsset, asset_id)
     if asset is None:
         return None
-    if user.role_code in PROVIDER_ROLES and asset.owner_org_id != user.org_id:
-        return None
     organizations = _organization_map(db)
     sources = _source_map(db)
+    if not _asset_visible_in_energy_scope(asset, user, organizations.get(user.org_id), sources):
+        return None
     source = sources.get(asset.source_id)
     versions = db.scalars(
         select(DataAssetVersion)
@@ -1068,7 +1180,11 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
     passport = latest.get("passport") if latest else None
     duration_policy = duration_policy_for_version(db, versions[0]) if versions else None
     can_request = user.role_code in APPLICANT_ROLES and asset.owner_org_id != user.org_id
-    can_review = user.role_code in PROVIDER_ROLES and asset.owner_org_id == user.org_id
+    can_review = (
+        user.role_code in PROVIDER_ROLES
+        and asset.owner_org_id == user.org_id
+        and _has_permission(user, "APPROVE_AUTHORIZATION")
+    )
     return {
         "asset": {
             "asset_id": asset.asset_id,
@@ -1823,7 +1939,7 @@ def transition_ttc(
         raise LookupError("TTC_TASK_NOT_FOUND")
     if not _task_visible(db, task, user):
         raise PermissionError("TTC_TASK_SCOPE_DENIED")
-    if user.role_code not in {"EXCHANGE", "REGULATOR", "ADMIN"}:
+    if user.role_code not in {"EXCHANGE", "REGULATOR"}:
         raise PermissionError("TTC_OPERATION_FORBIDDEN")
     normalized = to_state.strip().upper()
     if normalized not in {"HUMAN_REVIEW", "REWORK", "INTERRUPTED", "CANCELLED"}:

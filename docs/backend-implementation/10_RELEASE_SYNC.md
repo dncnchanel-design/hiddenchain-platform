@@ -1,5 +1,18 @@
 # Release Synchronization
 
+## Current local simulation fixture batch — 2026-08-22
+
+```text
+LOCAL_CHANGE = add a complete Chinese full-settlement simulation fixture, expected result and runbook
+LOCAL_VERIFICATION = PASS (standalone end-to-end; focused fixture regression; backend full pytest)
+LOCAL_RESULT = 1,000 MWh settlement energy; 412,300.00 yuan payable; final status AUDITED
+GITHUB_PUSH = NOT_REQUESTED
+RENDER_DEPLOYMENT = NOT_REQUESTED
+RELEASE_BOUNDARY = development/test-only fixture; no production capability claim
+```
+
+This local batch is intentionally separate from the previously synchronized application and color changes. The fixture import endpoint is not a production endpoint.
+
 ## Current checkpoint — 2026-08-21 (post-publish review/test; docs-only sync)
 
 ```text
@@ -185,3 +198,16 @@ PRODUCTION_STATUS = NOT_RELEASED
 ```
 
 This record keeps the application payload SHA separate from the documentation-sync head, which is expected to be the final GitHub and Render release head after synchronization. The hosted service remains a review/test plane.
+## 2026-08-23 多能源可信数据空间发布候选
+
+```text
+LOCAL_SCOPE = 五类能源企业连接器 + 企业授权 + 固定函数隐私计算 + Ed25519 + 审计哈希链 + 八模块中文界面
+LOCAL_DATA_RESET = PASS（四个应用数据库旧表和记录已清空；演示目录重新生成）
+LOCAL_CONNECTOR_HEALTH = PASS（electricity / coal / heat / gas / oil）
+LOCAL_CONTROLLED_QUERY = PASS（授权申请 → 企业批准 → 企业侧求和 → 结果验签 → 审计；raw_records=false）
+FRONTEND_VERIFICATION = PASS（66 tests；ESLint；TypeScript；Vite production build；1440 与 390px 登录页检查）
+BACKEND_FULL_TEST = PASS（backend/tests + connector/tests 全量通过）
+GITHUB_SYNC = PENDING
+RENDER_SYNC = PENDING
+PRODUCTION_STATUS = NOT_RELEASED（Render 为公开演示环境；企业交付后部署内网）
+```

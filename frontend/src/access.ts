@@ -184,6 +184,8 @@ export function getAvailableWorkspaces(session: SessionPayload): WorkspaceId[] {
 }
 
 export function getDefaultPath(session: SessionPayload, workspace?: WorkspaceId): string {
+  const trustedSpaceHome = session.menus.find((menu) => menu.path === "/trusted-space/workbench")?.path;
+  if (!workspace && trustedSpaceHome) return trustedSpaceHome;
   const preferred = workspace || (session.user.role_code === "ADMIN" ? "admin" : "business");
   const routes = getVisibleRoutes(session, preferred);
   if (routes.length) return preferred === "admin" ? routes.find((route) => route.code === "overview")?.path || routes[0].path : routes.find((route) => route.code === "workbench")?.path || routes[0].path;

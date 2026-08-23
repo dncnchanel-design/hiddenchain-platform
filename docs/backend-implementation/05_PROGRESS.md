@@ -1,5 +1,26 @@
 # Progress Ledger
 
+## Current settlement sample batch — 2026-08-22 (full simulated settlement path)
+
+### Completed in this batch
+
+- Added a six-asset raw simulation fixture covering generation, retail fulfillment, renewable forecast, VPP resources, grid constraints and a masked user load curve.
+- Added a separate expected-result file with the deterministic arithmetic: 1,000 MWh settlement energy and 412,300.00 yuan payable amount.
+- Added a Chinese runbook covering local startup, fixture import, exchange review, generator confirmation, regulator audit approval, retailer confirmation and evidence-ledger verification.
+- Added a regression test that imports the new fixture, checks the calculation and completes both-party confirmation plus audit approval to the archived state.
+
+### Verification evidence
+
+- Standalone end-to-end execution: PASS; imported → generator confirmed → regulator approved → retailer confirmed → AUDITED.
+- Full-flow output: payable amount 412,300.00 yuan; privacy analysis SUCCESS; raw records returned FALSE; 8 evidence records; final evidence outbox published in the local demo anchor.
+- Focused fixture/workflow regression: PASS, 3 tests.
+- Backend full pytest: PASS, warnings only.
+
+### Release boundary
+
+- This batch is local working-tree data, documentation and regression-test work only. The fixture is development/test-only and was not synchronized to GitHub or Render in this task.
+- The local execution plane honestly remains application-process deterministic settlement; external MPC/TEE/cross-domain non-export proof and production chain finality are not claimed.
+
 ## Current frontend batch — 2026-08-22 (翡翠绿系统栏; local verified)
 
 ### Completed in this batch
@@ -244,3 +265,12 @@
 
 - 本次只调整默认品牌色及其派生色阶，不改变结算流程、权限、数据范围或页面布局。
 - Render 仍是评审/测试环境；同步到 GitHub 和 Render 后再记录最终发布头，未追踪的本地临时文件继续保留且不提交。
+## 2026-08-23 多能源可信数据空间重构
+
+- 完成电力、煤炭、热能、天然气、石油五类能源组织、交易中心和隔离企业连接器。
+- 平台改为目录元数据、企业授权、固定函数任务、受控结果和审计存证模型；公开演示环境拒绝旧原始文件上传入口。
+- 完成企业父账号、个人账号归属、最高权限账号授权和细粒度权限字段；平台运维从全部业务接口移除，只保留脱敏技术监控。
+- 完成 Ed25519 平台请求签名、连接器结果签名、时间戳、随机数、防重放、重复查询预算和最小聚合组控制。
+- 完成八模块中文界面、深蓝可信数据空间主题、中文资源名称回退、桌面与 390px 登录页验收。
+- 清空四个本地应用数据库的全部旧表和记录，新演示种子只生成组织、账号、中文目录元数据、连接器引用和护照规则。
+- 本地真实联调通过：交易中心申请发电量授权，发电企业审核批准，电力连接器执行固定求和函数，平台验证数字签名且未返回原始记录，并写入审计。

@@ -4,6 +4,11 @@
 
 - `2026-08-simulation-input.json`：固定虚拟输入。当前导入请求已改为 `LOCAL_CONTROLLED / CONTROLLED_SETTLEMENT_V1`。
 - `2026-08-simulation-result.json`：2026-08-13 旧版本生成的历史快照，包含当时的模拟适配器名称和未经外部证明的验收字段。它只用于比较旧数据结构，不代表当前实现。
+- `2026-08-full-settlement-simulation.json`：一笔可从导入、隐私分析、受控结算、双方确认到审计归档的完整模拟输入。
+- `2026-08-full-settlement-expected-result.json`：上述输入的人工核对答案；最终应结金额为 412300.00 元。
+- Excel 单表版样例位于 `frontend/public/sample-data/hiddenchain-single-table-*.xlsx`：发电方、售电方、交易中心各一个工作表，兼容 Excel 批量上传。
+
+完整操作顺序见 [`docs/FULL_SETTLEMENT_SIMULATION_RUNBOOK.md`](../docs/FULL_SETTLEMENT_SIMULATION_RUNBOOK.md)。
 
 production 中：
 

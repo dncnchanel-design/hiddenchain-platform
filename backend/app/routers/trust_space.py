@@ -682,7 +682,7 @@ def verify_evidence(
 def audit(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return trust_space_service.audit_list(db, user, page=page, page_size=page_size)
@@ -691,7 +691,7 @@ def audit(
 @router.get("/audit/tasks/{task_id}")
 def audit_task(
     task_id: str,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     payload = trust_space_service.audit_task(db, task_id, user)
@@ -703,7 +703,7 @@ def audit_task(
 @router.get("/audit/export")
 def export_audit(
     format: str = Query(default="json", pattern="^(json|csv)$"),
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> Response:
     payload = trust_space_service.audit_list(db, user, page=1, page_size=5000)

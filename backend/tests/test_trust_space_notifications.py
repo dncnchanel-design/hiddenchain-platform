@@ -50,7 +50,7 @@ def _etag(body: dict) -> dict[str, str]:
 
 
 def test_notifications_help_and_migration_contract(client, auth_headers):
-    assert migration_status(engine)["current"] == "20260821_005"
+    assert migration_status(engine)["current"] == "20260823_001"
     schema = client.get("/api/openapi.json").json()["paths"]
     for path in (
         "/api/trust-space/help",
@@ -293,7 +293,5 @@ def test_quick_action_codes_and_ttc_scope_are_stable(client, auth_headers):
 
     admin = client.get(
         "/api/trust-space/workbench", headers=auth_headers["admin"]
-    ).json()
-    admin_actions = {item["code"]: item for item in admin["quick_action_items"]}
-    assert admin_actions["VIEW_SYSTEM_CAPABILITIES"]["path"] == "/agents"
-    assert admin_actions["VIEW_RUNTIME_STATUS"]["path"] == "/metrics"
+    )
+    assert admin.status_code == 403

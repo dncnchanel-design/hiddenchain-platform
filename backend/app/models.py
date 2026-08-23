@@ -44,6 +44,8 @@ class Organization(Base, TimestampMixin):
     org_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     org_name: Mapped[str] = mapped_column(String(128), nullable=False)
     credit_code: Mapped[str | None] = mapped_column(String(64))
+    energy_domain: Mapped[str | None] = mapped_column(String(24), index=True)
+    profile_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False)
 
 
@@ -55,6 +57,8 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(96), nullable=False)
     role_code: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    permissions_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    is_org_owner: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
 
