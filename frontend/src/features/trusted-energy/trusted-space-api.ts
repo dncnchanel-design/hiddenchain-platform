@@ -424,11 +424,26 @@ export type UsageRequestList = {
 export type QueryIntent = {
   question: string;
   energy_domain?: string | null;
+  energy_domain_name?: string | null;
   resource?: string | null;
   function: string;
   function_name: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  region?: string | null;
   requires_authorization: boolean;
+  requires_confirmation: boolean;
   ready: boolean;
+  provider?: "deepseek" | "manual_rules";
+  model?: string | null;
+  request_id?: string | null;
+  duration_ms?: number | null;
+  notice: string;
+};
+
+export type QueryConfirmation = {
+  confirmed: boolean;
+  confirmation_token: string;
   notice: string;
 };
 
@@ -1018,6 +1033,19 @@ export function parseTrustedQuery(question: string) {
   return post<QueryIntent>("/trust-space/query/parse", { question });
 }
 
+export function confirmTrustedQuery(body: {
+  authorization_id: string;
+  energy_domain: string;
+  resource: string;
+  function: string;
+  start_date: string;
+  end_date: string;
+  region?: string;
+  decimals: number;
+}) {
+  return post<QueryConfirmation>("/trust-space/query/confirm", body);
+}
+
 export function executeTrustedQuery(body: {
   authorization_id: string;
   energy_domain: string;
@@ -1030,6 +1058,7 @@ export function executeTrustedQuery(body: {
   threshold?: number;
   group_by?: string;
   decimals: number;
+  confirmation_token: string;
 }) {
   return post<ControlledQueryResult>("/trust-space/query/execute", body);
 }

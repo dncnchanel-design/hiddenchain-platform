@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import secrets
 from datetime import UTC, date, datetime
@@ -20,7 +21,10 @@ from ..database import get_db
 from ..dependencies import get_current_user
 from ..models import DataUsageRequest, PrivacyComputeJob, User, new_id, utc_now
 from ..services.common import add_audit_log
+from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
+from ..services.query_translation import redact_query_text
 from ..security import canonical_json, sha256_json
+from ..schemas import TrustedSpaceQueryTranslation
 from ..trust_models import DataAsset
 
 
@@ -85,6 +89,35 @@ FUNCTION_LABELS = {
     "mpc_aggregation": "MPC 聚合",
 }
 
+DEEPSEEK_FUNCTION_LABELS = {
+    "sum": "求和",
+    "average": "平均值",
+    "max": "最大值",
+    "min": "最小值",
+    "count": "计数",
+    "trend": "趋势",
+}
+
+RESOURCE_CATALOG = {
+    "electricity": {"generation", "supply", "load", "price"},
+    "coal": {"production", "supply", "consumption", "inventory", "transport", "price"},
+    "heat": {"supply", "load", "fuel", "loss", "supply_temperature", "return_temperature", "price"},
+    "gas": {"supply", "consumption", "storage", "pipeline_flow", "pressure", "price"},
+    "oil": {"production", "refining", "inventory", "transport", "sales", "price"},
+}
+
+DOMAIN_LABELS = {
+    "electricity": "电力",
+    "coal": "煤炭",
+    "heat": "热能",
+    "gas": "天然气",
+    "oil": "石油",
+}
+
+
+class TrustedQueryTranslationRejected(ValueError):
+    """Raised when a DeepSeek preview is not a complete, locally safe shape."""
+
 
 class ParseRequest(BaseModel):
     question: str = Field(min_length=2, max_length=500)
@@ -102,6 +135,18 @@ class ExecuteRequest(BaseModel):
     threshold: float | None = None
     group_by: str | None = None
     decimals: int = Field(default=2, ge=0, le=6)
+    confirmation_token: str | None = Field(default=None, min_length=1)
+
+
+class ConfirmRequest(BaseModel):
+    authorization_id: str
+    energy_domain: str
+    resource: str
+    function: str
+    start_date: date
+    end_date: date
+    region: str | None = None
+    decimals: int = Field(default=2, ge=0, le=6)
 
 
 def _match(text: str, vocabulary: dict[str, tuple[str, ...]]) -> str | None:
@@ -109,6 +154,153 @@ def _match(text: str, vocabulary: dict[str, tuple[str, ...]]) -> str | None:
         if any(term in text for term in terms):
             return code
     return None
+
+
+def _query_prompt_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "energy_domain": domain,
+            "energy_domain_name": DOMAIN_LABELS[domain],
+            "resources": sorted(resources),
+        }
+        for domain, resources in RESOURCE_CATALOG.items()
+    ]
+
+
+def _validate_selection(
+    *,
+    energy_domain: str,
+    resource: str,
+    function: str,
+    start_date: date,
+    end_date: date,
+) -> None:
+    if energy_domain not in RESOURCE_CATALOG:
+        raise HTTPException(422, "能源种类不在固定查询范围内")
+    if resource not in RESOURCE_CATALOG[energy_domain]:
+        raise HTTPException(422, "数据资源不属于所选能源范围")
+    if function not in FUNCTION_LABELS:
+        raise HTTPException(422, "仅允许使用页面列出的固定函数")
+    if start_date > end_date:
+        raise HTTPException(422, "查询开始日期不能晚于结束日期")
+
+
+def _translation_from_model(raw_payload: dict[str, Any]) -> TrustedSpaceQueryTranslation:
+    try:
+        translation = TrustedSpaceQueryTranslation.model_validate(raw_payload)
+    except Exception as exc:
+        raise TrustedQueryTranslationRejected("DeepSeek 翻译结果缺少必要字段或包含非法字段") from exc
+    if translation.resource and not any(
+        translation.resource in resources for resources in RESOURCE_CATALOG.values()
+    ):
+        raise TrustedQueryTranslationRejected("DeepSeek 翻译结果包含未登记的数据资源")
+    if translation.energy_domain and translation.resource:
+        if translation.resource not in RESOURCE_CATALOG[translation.energy_domain]:
+            raise TrustedQueryTranslationRejected("DeepSeek 翻译出的能源种类与数据资源不匹配")
+    if translation.function and translation.function not in DEEPSEEK_FUNCTION_LABELS:
+        raise TrustedQueryTranslationRejected("DeepSeek 翻译出了未开放的固定函数")
+    if translation.start_date and translation.end_date and translation.start_date > translation.end_date:
+        raise TrustedQueryTranslationRejected("DeepSeek 翻译出的时间范围无效")
+    return translation
+
+
+def _intent_response(
+    *,
+    question: str,
+    translation: TrustedSpaceQueryTranslation,
+    provider: str,
+    notice: str,
+    model: str | None = None,
+    request_id: str | None = None,
+    duration_ms: int | None = None,
+) -> dict[str, Any]:
+    function = translation.function or ""
+    ready = all(
+        (
+            translation.energy_domain,
+            translation.resource,
+            translation.function,
+            translation.start_date,
+            translation.end_date,
+        )
+    )
+    return {
+        "question": question,
+        "energy_domain": translation.energy_domain,
+        "energy_domain_name": DOMAIN_LABELS.get(translation.energy_domain or "", "未识别"),
+        "resource": translation.resource,
+        "function": function,
+        "function_name": FUNCTION_LABELS.get(function, "未识别固定函数"),
+        "start_date": translation.start_date.isoformat() if translation.start_date else None,
+        "end_date": translation.end_date.isoformat() if translation.end_date else None,
+        "region": translation.region,
+        "requires_authorization": True,
+        "requires_confirmation": True,
+        "ready": ready,
+        "provider": provider,
+        "model": model,
+        "request_id": request_id,
+        "duration_ms": duration_ms,
+        "notice": notice,
+    }
+
+
+def _manual_parse(question: str) -> TrustedSpaceQueryTranslation:
+    domain = _match(question, DOMAIN_TERMS)
+    resource = _match(question, RESOURCE_TERMS)
+    function = _match(question, FUNCTION_TERMS) or "sum"
+    if domain and resource and resource not in RESOURCE_CATALOG[domain]:
+        resource = None
+    return TrustedSpaceQueryTranslation(
+        energy_domain=domain,
+        resource=resource,
+        function=function if function in FUNCTION_LABELS else None,
+    )
+
+
+def _confirmation_claims(payload: ConfirmRequest, user: User) -> dict[str, Any]:
+    return {
+        "user_id": user.user_id,
+        "authorization_id": payload.authorization_id,
+        "energy_domain": payload.energy_domain,
+        "resource": payload.resource,
+        "function": payload.function,
+        "start_date": payload.start_date.isoformat(),
+        "end_date": payload.end_date.isoformat(),
+        "region": payload.region or None,
+        "decimals": payload.decimals,
+    }
+
+
+def _issue_confirmation_token(claims: dict[str, Any]) -> str:
+    encoded = base64.urlsafe_b64encode(canonical_json(claims).encode()).decode().rstrip("=")
+    signature = hmac.new(settings.signing_secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def _verify_confirmation_token(token: str, payload: ExecuteRequest, user: User) -> None:
+    try:
+        encoded, signature = token.split(".", 1)
+        expected = hmac.new(settings.signing_secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError
+        padding = "=" * (-len(encoded) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(f"{encoded}{padding}").decode())
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError, base64.binascii.Error) as exc:
+        raise HTTPException(409, "确认令牌无效，请重新核对查询条件") from exc
+    expected_claims = {
+        "user_id": user.user_id,
+        "authorization_id": payload.authorization_id,
+        "energy_domain": payload.energy_domain,
+        "resource": payload.resource,
+        "function": payload.function,
+        "start_date": payload.start_date.isoformat(),
+        "end_date": payload.end_date.isoformat(),
+        "region": payload.region or None,
+        "decimals": payload.decimals,
+    }
+    if claims != expected_claims:
+        raise HTTPException(409, "查询条件已变化，请重新确认后再执行")
 
 
 def _configured_map(raw: str, label: str) -> dict[str, str]:
@@ -169,21 +361,135 @@ def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageR
 
 
 @router.post("/parse")
-def parse_question(payload: ParseRequest, user: User = Depends(get_current_user)) -> dict[str, Any]:
+def parse_question(
+    payload: ParseRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     if user.role_code == "ADMIN":
         raise HTTPException(403, "平台运维账号不能发起业务查询")
-    domain = _match(payload.question, DOMAIN_TERMS)
-    resource = _match(payload.question, RESOURCE_TERMS)
-    function = _match(payload.question, FUNCTION_TERMS) or "sum"
+    question = payload.question.strip()
+    provider = "deepseek"
+    generated: dict[str, Any] = {}
+    try:
+        generated = translate_trusted_space_query(
+            question=redact_query_text(question),
+            context={
+                "allowed_functions": [
+                    {"id": code, "label": label}
+                    for code, label in DEEPSEEK_FUNCTION_LABELS.items()
+                ],
+                "catalog": _query_prompt_catalog(),
+                "constraints": {
+                    "single_metric": True,
+                    "single_function": True,
+                    "single_period": True,
+                    "raw_data_access": False,
+                },
+            },
+        )
+        translation = _translation_from_model(generated["payload"])
+        response = _intent_response(
+            question=question,
+            translation=translation,
+            provider=generated["provider"],
+            notice="DeepSeek 只完成固定字段翻译；请核对下方条件，确认后才会创建计算任务。",
+            model=generated["model"],
+            request_id=generated["request_id"],
+            duration_ms=generated["duration_ms"],
+        )
+    except DeepSeekUnavailable as exc:
+        if str(exc).startswith("DeepSeek returned"):
+            raise HTTPException(422, "DeepSeek 翻译结果无法确认，请重新描述查询需求") from exc
+        provider = "manual_rules"
+        translation = _manual_parse(question)
+        response = _intent_response(
+            question=question,
+            translation=translation,
+            provider=provider,
+            notice="DeepSeek 当前不可用，已切换为手动规则预览；系统不会因此执行查询。",
+        )
+    except TrustedQueryTranslationRejected as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    add_audit_log(
+        db,
+        action="TRANSLATE_TRUSTED_SPACE_QUERY",
+        target_type="TRUSTED_SPACE_QUERY_TRANSLATION",
+        target_id=sha256_json(
+            {
+                "question": redact_query_text(question),
+                "energy_domain": response["energy_domain"],
+                "resource": response["resource"],
+                "function": response["function"],
+                "start_date": response["start_date"],
+                "end_date": response["end_date"],
+                "region": response["region"],
+            }
+        ),
+        result="READY" if response["ready"] else "NEEDS_INPUT",
+        user=user,
+        details={
+            "question": redact_query_text(question),
+            "translation": {
+                key: response[key]
+                for key in (
+                    "energy_domain",
+                    "resource",
+                    "function",
+                    "start_date",
+                    "end_date",
+                    "region",
+                )
+            },
+            "provider": response["provider"],
+            "model": response["model"],
+            "request_id": response["request_id"],
+            "raw_data_accessed": False,
+        },
+    )
+    db.commit()
+    return response
+
+
+@router.post("/confirm")
+def confirm_query(
+    payload: ConfirmRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if user.role_code == "ADMIN":
+        raise HTTPException(403, "平台运维账号不能发起业务查询")
+    if "CREATE_COMPUTE_TASK" not in set(user.permissions_json or []):
+        raise HTTPException(403, "当前账号没有创建计算任务的权限")
+    _validate_selection(
+        energy_domain=payload.energy_domain,
+        resource=payload.resource,
+        function=payload.function,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+    )
+    _authorization(db, payload.authorization_id, user)
+    claims = _confirmation_claims(payload, user)
+    token = _issue_confirmation_token(claims)
+    add_audit_log(
+        db,
+        action="CONFIRM_TRUSTED_SPACE_QUERY",
+        target_type="TRUSTED_SPACE_QUERY_CONFIRMATION",
+        target_id=sha256_json(claims),
+        result="SUCCESS",
+        user=user,
+        details={
+            **claims,
+            "raw_data_accessed": False,
+            "confirmation_token_issued": True,
+        },
+    )
+    db.commit()
     return {
-        "question": payload.question,
-        "energy_domain": domain,
-        "resource": resource,
-        "function": function,
-        "function_name": FUNCTION_LABELS[function],
-        "requires_authorization": True,
-        "ready": bool(domain and resource),
-        "notice": "系统只解析查询意图，正式计算仍由固定函数和企业授权决定。",
+        "confirmed": True,
+        "confirmation_token": token,
+        "notice": "查询条件已确认，只有完全一致的条件才能执行。",
     }
 
 
@@ -195,8 +501,16 @@ def execute_query(
 ) -> dict[str, Any]:
     if "CREATE_COMPUTE_TASK" not in set(user.permissions_json or []):
         raise HTTPException(403, "当前账号没有创建计算任务的权限")
-    if payload.function not in FUNCTION_LABELS:
-        raise HTTPException(422, "仅允许使用页面列出的固定函数")
+    if not payload.confirmation_token:
+        raise HTTPException(409, "请先核对并确认查询条件")
+    _validate_selection(
+        energy_domain=payload.energy_domain,
+        resource=payload.resource,
+        function=payload.function,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+    )
+    _verify_confirmation_token(payload.confirmation_token, payload, user)
     authorization, asset = _authorization(db, payload.authorization_id, user)
     metadata = asset.metadata_json or {}
     authorized_domain = str(metadata.get("domain") or "")

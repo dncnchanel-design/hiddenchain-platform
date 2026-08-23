@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, PieChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { AriaComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import type { EChartsOption } from "echarts";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ControlledQueryResult } from "../trusted-space-api";
 import { buildQueryChartModel } from "../query-chart";
 
-echarts.use([BarChart, PieChart, AriaComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, LineChart, PieChart, AriaComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 export function QueryResultChart({ result }: { result: ControlledQueryResult }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -50,10 +50,12 @@ export function QueryResultChart({ result }: { result: ControlledQueryResult }) 
           animation: !reduceMotion,
           aria: { enabled: true },
           grid: { top: 20, right: 18, bottom: labels.length > 6 ? 58 : 38, left: 56, containLabel: true },
-          tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (value) => `${value} ${model.unit}` },
+          tooltip: { trigger: "axis", axisPointer: { type: model.kind === "line" ? "line" : "shadow" }, valueFormatter: (value) => `${value} ${model.unit}` },
           xAxis: { type: "category", data: labels, axisTick: { alignWithLabel: true }, axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, fontSize: 11, interval: 0, rotate: labels.length > 6 ? 35 : 0 } },
           yAxis: { type: "value", name: model.unit, nameTextStyle: { color: muted, fontSize: 11 }, axisLabel: { color: muted, fontSize: 11 }, splitLine: { lineStyle: { color: line, type: "dashed" } } },
-          series: [{ type: "bar", data: model.data.map(({ value }) => value), barMaxWidth: 42, itemStyle: { color: primary, borderRadius: [5, 5, 0, 0] }, emphasis: { itemStyle: { color: info } } }],
+          series: model.kind === "line"
+            ? [{ type: "line", data: model.data.map(({ value }) => value), smooth: false, symbol: "circle", symbolSize: 7, lineStyle: { color: info, width: 2 }, itemStyle: { color: info }, areaStyle: { color: `${info}18` }, emphasis: { scale: true } }]
+            : [{ type: "bar", data: model.data.map(({ value }) => value), barMaxWidth: 42, itemStyle: { color: primary, borderRadius: [5, 5, 0, 0] }, emphasis: { itemStyle: { color: info } } }],
         };
 
     chart.setOption(option);

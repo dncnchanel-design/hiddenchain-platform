@@ -4,9 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { PageFrame } from "../components/PageFrame";
 import { QueryResultChart } from "../components/QueryResultChart";
 import { Badge, Button, Card, CardContent, CardHeader, FieldLabel, Input, Select, SurfaceHeader, Textarea } from "../components/ui-primitives";
-import { executeTrustedQuery, loadUsageRequests, parseTrustedQuery, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
+import { confirmTrustedQuery, executeTrustedQuery, loadUsageRequests, parseTrustedQuery, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
 
 const domainOptions = [
+  { value: "", label: "请选择能源种类" },
   { value: "electricity", label: "电力" },
   { value: "coal", label: "煤炭" },
   { value: "heat", label: "热能" },
@@ -23,6 +24,7 @@ const resourceOptions: Record<string, Array<{ value: string; label: string }>> =
 };
 
 const functionOptions = [
+  { value: "", label: "请选择固定函数" },
   { value: "sum", label: "求和" },
   { value: "average", label: "平均值" },
   { value: "max", label: "最大值" },
@@ -44,6 +46,10 @@ function resultEntries(value: ControlledQueryResult["result"]) {
   return [["计算结果", value]];
 }
 
+function resourceLabel(domain: string | null | undefined, resource: string | null | undefined) {
+  return resourceOptions[domain || ""]?.find((item) => item.value === resource)?.label || "待补充";
+}
+
 export function QueryPage() {
   const navigate = useNavigate();
   const [question, setQuestion] = useState("查询2026年8月煤炭库存平均值");
@@ -57,6 +63,7 @@ export function QueryPage() {
   const [endDate, setEndDate] = useState("2026-08-23");
   const [region, setRegion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ControlledQueryResult | null>(null);
 
@@ -69,20 +76,31 @@ export function QueryPage() {
       .catch((reason) => setError(reason instanceof Error ? reason.message : "授权记录加载失败"));
   }, []);
 
-  const resources = useMemo(() => resourceOptions[domain] || [], [domain]);
+  const resources = useMemo(() => [
+    { value: "", label: domain ? "请选择数据资源" : "请先选择能源种类" },
+    ...(resourceOptions[domain] || []),
+  ], [domain]);
 
   async function parseQuestion() {
     setBusy(true);
     setError("");
+    setConfirmed(false);
     try {
       const parsed = await parseTrustedQuery(question);
       setIntent(parsed);
       if (parsed.energy_domain) {
         setDomain(parsed.energy_domain);
         const nextResources = resourceOptions[parsed.energy_domain] || [];
-        setResource(parsed.resource && nextResources.some((item) => item.value === parsed.resource) ? parsed.resource : nextResources[0]?.value || "");
+        setResource(parsed.resource && nextResources.some((item) => item.value === parsed.resource) ? parsed.resource : "");
+      } else {
+        setDomain("");
+        setResource("");
       }
-      if (parsed.function) setFixedFunction(parsed.function);
+      setFixedFunction(parsed.function || "");
+      setStartDate(parsed.start_date || "");
+      setEndDate(parsed.end_date || "");
+      setRegion(parsed.region || "");
+      setConfirmed(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "查询意图解析失败");
     } finally {
@@ -95,11 +113,19 @@ export function QueryPage() {
       setError("请先取得数据提供企业的批准授权");
       return;
     }
+    if (!confirmed) {
+      setError("请先勾选已核对查询条件，再创建计算任务");
+      return;
+    }
+    if (!domain || !resource || !fixedFunction || !startDate || !endDate) {
+      setError("能源种类、数据资源、固定函数和时间范围都必须填写");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult(null);
     try {
-      setResult(await executeTrustedQuery({
+      const query = {
         authorization_id: authorizationId,
         energy_domain: domain,
         resource,
@@ -108,7 +134,10 @@ export function QueryPage() {
         end_date: endDate,
         region: region || undefined,
         decimals: 2,
-      }));
+      };
+      const confirmation = await confirmTrustedQuery(query);
+      setResult(await executeTrustedQuery({ ...query, confirmation_token: confirmation.confirmation_token }));
+      setConfirmed(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "计算任务执行失败");
     } finally {
@@ -116,30 +145,39 @@ export function QueryPage() {
     }
   }
 
-  return <PageFrame title="智能数据查询" description="用中文描述需求，系统只负责解析意图；授权核验和正式计算由固定规则完成。">
+  return <PageFrame title="智能数据查询" description="DeepSeek 只把人话翻译成固定查询条件；授权核验、计算和图表数据都来自后端确定性链路。">
     <div className="trusted-query-layout">
       <div className="trusted-query-main">
         <Card className="trusted-query-question">
           <CardHeader><SurfaceHeader title="描述查询需求" description="不会把自然语言直接变成任意代码或任意数据库语句" /></CardHeader>
           <CardContent>
             <FieldLabel htmlFor="trusted-question">查询内容</FieldLabel>
-            <Textarea id="trusted-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：查询2026年8月煤炭库存平均值" />
-            <div className="trusted-query-actions"><Button variant="primary" busy={busy} onClick={parseQuestion}><Search size={15} />解析查询</Button><span>行业缩写可直接使用 DID、CSV、API、PSI、MPC</span></div>
-            {intent && <div className="trusted-intent-summary"><CheckCircle2 size={16} /><span>{intent.notice}</span><Badge tone={intent.ready ? "success" : "warning"}>{intent.ready ? "已识别" : "需要补充"}</Badge></div>}
+            <Textarea id="trusted-question" value={question} onChange={(event) => { setQuestion(event.target.value); setIntent(null); setConfirmed(false); }} placeholder="例如：查询2026年8月煤炭库存平均值" />
+            <div className="trusted-query-actions"><Button variant="primary" busy={busy} onClick={parseQuestion}><Search size={15} />翻译查询</Button><span>DeepSeek 不读取数据，只返回固定字段；不可用时可手动选择。</span></div>
+            {intent && <div className={`trusted-intent-summary ${intent.provider === "manual_rules" ? "is-manual" : ""}`}><CheckCircle2 size={16} /><span>{intent.notice}</span><Badge tone={intent.ready ? "success" : "warning"}>{intent.ready ? (intent.provider === "manual_rules" ? "手动预览" : "待确认") : "需要补充"}</Badge></div>}
+            {intent && <div className="trusted-query-preview" aria-label="翻译预览">
+              <div><span>能源种类</span><strong>{intent.energy_domain_name || "待补充"}</strong></div>
+              <div><span>数据资源</span><strong>{resourceLabel(intent.energy_domain, intent.resource)}</strong></div>
+              <div><span>固定函数</span><strong>{intent.function_name}</strong></div>
+              <div><span>开始日期</span><strong>{intent.start_date || "待补充"}</strong></div>
+              <div><span>结束日期</span><strong>{intent.end_date || "待补充"}</strong></div>
+              <div><span>地区</span><strong>{intent.region || "全部已授权地区"}</strong></div>
+            </div>}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader><SurfaceHeader title="确认固定计算条件" description="企业授权范围与连接器隐私下限会在执行前再次核验" /></CardHeader>
           <CardContent className="trusted-query-form">
-            <div><FieldLabel>能源种类</FieldLabel><Select value={domain} onChange={(event) => { const next = event.target.value; setDomain(next); setResource(resourceOptions[next]?.[0]?.value || ""); }} options={domainOptions} /></div>
-            <div><FieldLabel>数据资源</FieldLabel><Select value={resource} onChange={(event) => setResource(event.target.value)} options={resources} /></div>
-            <div><FieldLabel>固定函数</FieldLabel><Select value={fixedFunction} onChange={(event) => setFixedFunction(event.target.value)} options={functionOptions} /></div>
-            <div className="trusted-query-wide"><FieldLabel>企业授权</FieldLabel><Select value={authorizationId} onChange={(event) => setAuthorizationId(event.target.value)} options={authorizations.length ? authorizations.map((item) => ({ value: item.request_id, label: `${item.asset.asset_name || "未命名数据资源"}，由${item.provider.org_name}批准` })) : [{ value: "", label: "暂无已批准授权" }]} /></div>
-            <div><FieldLabel htmlFor="query-start">开始日期</FieldLabel><Input id="query-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
-            <div><FieldLabel htmlFor="query-end">结束日期</FieldLabel><Input id="query-end" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
-            <div><FieldLabel htmlFor="query-region" hint="可不填">地区</FieldLabel><Input id="query-region" value={region} onChange={(event) => setRegion(event.target.value)} placeholder="全部已授权地区" /></div>
-            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。</span></div><Button variant="primary" busy={busy} onClick={execute}><Calculator size={15} />创建计算任务</Button></div>
+            <div><FieldLabel>能源种类</FieldLabel><Select value={domain} onChange={(event) => { const next = event.target.value; setDomain(next); setResource(""); setConfirmed(false); }} options={domainOptions} /></div>
+            <div><FieldLabel>数据资源</FieldLabel><Select value={resource} onChange={(event) => { setResource(event.target.value); setConfirmed(false); }} options={resources} /></div>
+            <div><FieldLabel>固定函数</FieldLabel><Select value={fixedFunction} onChange={(event) => { setFixedFunction(event.target.value); setConfirmed(false); }} options={functionOptions} /></div>
+            <div className="trusted-query-wide"><FieldLabel>企业授权</FieldLabel><Select value={authorizationId} onChange={(event) => { setAuthorizationId(event.target.value); setConfirmed(false); }} options={authorizations.length ? authorizations.map((item) => ({ value: item.request_id, label: `${item.asset.asset_name || "未命名数据资源"}，由${item.provider.org_name}批准` })) : [{ value: "", label: "暂无已批准授权" }]} /></div>
+            <div><FieldLabel htmlFor="query-start">开始日期</FieldLabel><Input id="query-start" type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setConfirmed(false); }} /></div>
+            <div><FieldLabel htmlFor="query-end">结束日期</FieldLabel><Input id="query-end" type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setConfirmed(false); }} /></div>
+            <div><FieldLabel htmlFor="query-region" hint="可不填">地区</FieldLabel><Input id="query-region" value={region} onChange={(event) => { setRegion(event.target.value); setConfirmed(false); }} placeholder="全部已授权地区" /></div>
+            <div className="trusted-query-wide trusted-confirmation-row"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={busy} /><span>我已核对能源种类、数据资源、固定函数、时间范围和地区，确认按这些条件创建任务。</span></label></div>
+            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。</span></div><Button variant="primary" busy={busy} disabled={!confirmed} onClick={execute}><Calculator size={15} />确认并创建任务</Button></div>
           </CardContent>
         </Card>
       </div>

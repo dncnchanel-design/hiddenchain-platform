@@ -276,6 +276,17 @@ class TrustedQueryTranslation(StrictModel):
     output_mode: Literal["SUMMARY", "CHART", "COMPUTE_ONLY"]
 
 
+class TrustedSpaceQueryTranslation(StrictModel):
+    """Canonical preview for the single-metric trusted-space query page."""
+
+    energy_domain: Literal["electricity", "coal", "heat", "gas", "oil"] | None = None
+    resource: str | None = Field(default=None, min_length=1, max_length=64)
+    function: Literal["sum", "average", "max", "min", "count", "trend"] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    region: str | None = Field(default=None, max_length=64)
+
+
 class TrustedExecutionRequest(StrictModel):
     """Natural-language/API request for the eight-step trusted execution loop."""
 

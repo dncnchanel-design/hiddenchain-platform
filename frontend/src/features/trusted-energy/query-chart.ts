@@ -1,6 +1,6 @@
 import type { ControlledQueryResult } from "./trusted-space-api";
 
-export type QueryChartKind = "bar" | "pie";
+export type QueryChartKind = "bar" | "line" | "pie";
 
 export type QueryChartData = {
   label: string;
@@ -34,10 +34,10 @@ export function buildQueryChartModel(result: ControlledQueryResult): QueryChartM
 
   if (typeof raw === "number" && Number.isFinite(raw)) {
     const model = {
-      kind: "bar" as const,
+      kind: result.function_name === "趋势" ? "line" as const : "bar" as const,
       title: `${result.function_name}结果`,
       description: "按固定函数返回单项计算结果",
-      unit: RATE_FUNCTION_NAMES.has(result.function_name) ? "%" : result.unit,
+      unit: RATE_FUNCTION_NAMES.has(result.function_name) || result.function_name === "趋势" ? "%" : result.unit,
       data: [{ label: result.resource_name, value: raw }],
     };
     return { ...model, ariaLabel: chartAriaLabel(result, model) };
@@ -62,15 +62,13 @@ export function buildQueryChartModel(result: ControlledQueryResult): QueryChartM
 
   const isTrend = result.function_name === "趋势" || "变化率" in raw || "方向" in raw;
   if (isTrend) {
-    const rate = values.find(({ label }) => label === "变化率");
-    if (!rate) return null;
     const direction = typeof raw["方向"] === "string" ? raw["方向"] : "未说明";
     const model = {
-      kind: "bar" as const,
-      title: "趋势变化率",
-      description: `方向：${direction}；只展示连接器返回的变化率`,
+      kind: "line" as const,
+      title: "趋势变化",
+      description: `方向：${direction}；只展示连接器返回的数值摘要`,
       unit: "%",
-      data: [rate],
+      data: values,
     };
     return { ...model, ariaLabel: chartAriaLabel(result, model) };
   }

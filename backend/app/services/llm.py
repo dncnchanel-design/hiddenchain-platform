@@ -87,6 +87,29 @@ QUERY_TRANSLATION_SYSTEM_PROMPT = """你是隐链明算平台的查询指令翻�
 """
 
 
+TRUSTED_SPACE_QUERY_SYSTEM_PROMPT = """你是隐链明算“智能数据查询”的固定函数翻译器。
+你的唯一任务是把用户的中文查询需求翻译成一个受限的结构化查询条件，不能查询数据、不能计算、不能生成图表、不能输出数值、不能输出 SQL 或代码。
+
+强制规则：
+1. 只能从 supplied_catalog 中选择一个能源种类和一个数据资源。
+2. function 只能是 sum、average、max、min、count、trend。
+3. 只能输出 JSON，不能输出解释、Markdown 或额外字段。
+4. 无法唯一判断的字段必须输出 null，不能猜测；日期无法判断时 start_date 和 end_date 都输出 null。
+5. 只允许提取地区名称作为 region；没有地区就输出 null，不要创造筛选条件。
+6. 不要读取、推断或编造任何业务数据值。
+
+只输出如下 JSON：
+{
+  "energy_domain": "electricity|coal|heat|gas|oil|null",
+  "resource": "供给目录中的资源 ID|null",
+  "function": "sum|average|max|min|count|trend|null",
+  "start_date": "YYYY-MM-DD|null",
+  "end_date": "YYYY-MM-DD|null",
+  "region": "地区名称|null"
+}
+"""
+
+
 def _request_url() -> str:
     return f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
 
@@ -328,6 +351,32 @@ def translate_query_intent(*, question: str, context: dict[str, Any]) -> dict[st
         raise DeepSeekUnavailable("DeepSeek returned invalid translation JSON") from exc
     if not isinstance(payload, dict):
         raise DeepSeekUnavailable("DeepSeek translation root must be an object")
+    return {
+        "payload": payload,
+        "provider": "deepseek",
+        "model": settings.deepseek_model,
+        "request_id": completion["request_id"],
+        "duration_ms": completion["duration_ms"],
+        "usage": completion["usage"],
+    }
+
+
+def translate_trusted_space_query(*, question: str, context: dict[str, Any]) -> dict[str, Any]:
+    """Translate a single trusted-space query into fixed local fields only."""
+
+    completion = _post_json_completion(
+        system_prompt=TRUSTED_SPACE_QUERY_SYSTEM_PROMPT,
+        request_payload={
+            "question": question,
+            "supplied_catalog": context,
+        },
+    )
+    try:
+        payload = json.loads(completion["content"])
+    except json.JSONDecodeError as exc:
+        raise DeepSeekUnavailable("DeepSeek returned invalid trusted-query JSON") from exc
+    if not isinstance(payload, dict):
+        raise DeepSeekUnavailable("DeepSeek trusted-query JSON root must be an object")
     return {
         "payload": payload,
         "provider": "deepseek",
