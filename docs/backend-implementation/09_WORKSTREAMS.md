@@ -135,7 +135,7 @@ This entry records the current application flow and hosted review/test synchroni
 
 | Workstream | Execution boundary | Evidence | Status |
 | --- | --- | --- | --- |
-| Default theme palette | Main agent; `frontend/src/brand-theme.ts`, `styles.css`, trusted-space theme and runtime defaults | Default brand primary is `#0A806C`; derived action, surface, border and focus tokens are aligned | VERIFIED_LOCAL |
+| Default theme palette | Main agent; `frontend/src/brand-theme.ts`, `styles.css`, trusted-space theme and runtime defaults | Default trusted-space-navy primary is `#1768A0`; platform operations and trusted-space shells share navy/cyan tokens, while green remains semantic success only | VERIFIED_LOCAL |
 | Contrast and responsive check | Main agent | White on primary `4.86:1`; desktop and 390px local browser checks show the new color and no horizontal overflow | VERIFIED_LOCAL |
 | Release synchronization | Main agent retains commit, push and Render ownership | Local checks passed; GitHub and Render publication follows after the final release commit | PENDING_RELEASE |
 ## 2026-08-23 当前工作流

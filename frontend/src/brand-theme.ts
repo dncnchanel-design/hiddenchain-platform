@@ -9,40 +9,39 @@ export interface BrandThemeConfig {
 }
 
 export const DEFAULT_BRAND_THEME: BrandThemeConfig = {
-  themeId: "power-grid-green",
-  primary: "#0A806C",
+  themeId: "trusted-space-navy",
+  primary: "#1768A0",
 };
 
-export const POWER_GRID_GREEN_TOKENS = {
-  primary: "#0A806C",
-  primaryHover: "#007462",
-  primaryActive: "#006151",
-  bgSoft: "#DEF0EB",
-  bgSubtle: "#EFFAF6",
-  bgSelected: "#BDDED5",
-  border: "#91C8B9",
-  focusRing: "rgba(10, 128, 108, 0.18)",
+export const TRUSTED_SPACE_NAVY_TOKENS = {
+  primary: "#1768A0",
+  primaryHover: "#125681",
+  primaryActive: "#0E4264",
+  bgSoft: "#EAF5FC",
+  bgSubtle: "#F6F9FC",
+  bgSelected: "#DCECF8",
+  border: "#A6CBE4",
+  focusRing: "rgba(23, 104, 160, 0.18)",
   textOnPrimary: "#FFFFFF",
 } as const;
 
 /**
- * Curated starting ramp for the neutral technical theme named above. These are
- * product defaults, not claimed customer or State Grid brand values. Any
+ * Curated starting ramp for the trusted data-space theme named above. Any
  * deployment override is rebuilt from its primary color by the OKLCH ramp
  * generator below.
  */
-export const POWER_GRID_GREEN_SCALE: BrandScale = {
-  50: POWER_GRID_GREEN_TOKENS.bgSubtle,
-  100: POWER_GRID_GREEN_TOKENS.bgSoft,
-  200: POWER_GRID_GREEN_TOKENS.bgSelected,
-  300: POWER_GRID_GREEN_TOKENS.border,
-  400: "#61AC9A",
-  500: POWER_GRID_GREEN_TOKENS.primary,
-  600: POWER_GRID_GREEN_TOKENS.primary,
-  700: POWER_GRID_GREEN_TOKENS.primaryHover,
-  800: POWER_GRID_GREEN_TOKENS.primaryActive,
-  900: "#00372D",
-  950: "#00261F",
+export const TRUSTED_SPACE_NAVY_SCALE: BrandScale = {
+  50: TRUSTED_SPACE_NAVY_TOKENS.bgSubtle,
+  100: TRUSTED_SPACE_NAVY_TOKENS.bgSoft,
+  200: TRUSTED_SPACE_NAVY_TOKENS.bgSelected,
+  300: TRUSTED_SPACE_NAVY_TOKENS.border,
+  400: "#74A9CA",
+  500: TRUSTED_SPACE_NAVY_TOKENS.primary,
+  600: TRUSTED_SPACE_NAVY_TOKENS.primary,
+  700: TRUSTED_SPACE_NAVY_TOKENS.primaryHover,
+  800: TRUSTED_SPACE_NAVY_TOKENS.primaryActive,
+  900: "#0A2540",
+  950: "#06192C",
 };
 
 type Oklch = { l: number; c: number; h: number };
@@ -145,7 +144,7 @@ function oklchToHex(color: Oklch): string {
 
 export function generateBrandScale(primary: string): BrandScale {
   const normalized = normalizeHex(primary);
-  if (normalized === DEFAULT_BRAND_THEME.primary.toUpperCase()) return { ...POWER_GRID_GREEN_SCALE };
+  if (normalized === DEFAULT_BRAND_THEME.primary.toUpperCase()) return { ...TRUSTED_SPACE_NAVY_SCALE };
   const base = hexToOklch(normalized);
   const scale = { 500: normalized } as BrandScale;
   for (const step of BRAND_SCALE_STEPS) {
@@ -185,7 +184,7 @@ export function createBrandThemeVariables(theme: BrandThemeConfig): Record<strin
   const hoverStep = actionSteps[Math.min(actionIndex + 1, actionSteps.length - 1)];
   const activeStep = actionSteps[Math.min(actionIndex + 2, actionSteps.length - 1)];
   const semantic = isDefaultTheme
-    ? POWER_GRID_GREEN_TOKENS
+    ? TRUSTED_SPACE_NAVY_TOKENS
     : {
         primary: scale[primaryStep],
         primaryHover: scale[hoverStep],

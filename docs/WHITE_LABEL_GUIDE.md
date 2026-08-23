@@ -10,8 +10,8 @@
 | `PRODUCT_LOGO` | 完整 Logo URL/站内路径 | 空，使用文字标识 |
 | `PRODUCT_LOGO_COMPACT` | 折叠侧栏 Logo | 空 |
 | `PRODUCT_FAVICON` | favicon URL/站内路径 | 空 |
-| `BRAND_THEME_ID` | 部署主题技术标识，不在普通用户界面展示 | power-grid-green |
-| `BRAND_PRIMARY` | 品牌视觉基准色，由前端统一生成完整色阶与语义 Token | #0A806C |
+| `BRAND_THEME_ID` | 部署主题技术标识，不在普通用户界面展示 | trusted-space-navy |
+| `BRAND_PRIMARY` | 品牌视觉基准色，由前端统一生成完整色阶与语义 Token | #1768A0 |
 | `CUSTOMER_NAME` | 客户单位 | 空 |
 | `OPERATOR_NAME` | 运营单位 | 空 |
 | `BUILDER_NAME` | 建设单位 | 空 |

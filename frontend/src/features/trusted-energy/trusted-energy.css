@@ -1,23 +1,23 @@
 .trusted-space-shell {
-  --energy-system-bar: #0b7768;
-  --energy-brand: #0a806c;
-  --energy-brand-hover: #007462;
-  --energy-brand-soft: #def0eb;
-  --energy-brand-selected: #bdded5;
-  --energy-brand-border: #91c8b9;
-  --energy-canvas: #f2f4f5;
+  --energy-system-bar: #0a2540;
+  --energy-brand: #1768a0;
+  --energy-brand-hover: #125681;
+  --energy-brand-soft: #eaf5fc;
+  --energy-brand-selected: #dcecf8;
+  --energy-brand-border: #a6cbe4;
+  --energy-canvas: #f6f9fc;
   --energy-surface: #ffffff;
-  --energy-ink: #202b30;
-  --energy-secondary: #526067;
-  --energy-muted: #68747a;
-  --energy-disabled: #919a9e;
-  --energy-line: #cfd6d8;
-  --energy-line-soft: #e4e8e9;
-  --energy-success: #2e7d32;
-  --energy-success-soft: #edf7ee;
-  --energy-info: #1769aa;
-  --energy-info-soft: #eaf3fb;
-  --energy-warning: #a86500;
+  --energy-ink: #10233f;
+  --energy-secondary: #40536d;
+  --energy-muted: #65758b;
+  --energy-disabled: #8795a8;
+  --energy-line: #d7e1ed;
+  --energy-line-soft: #e8eef5;
+  --energy-success: #0a8f68;
+  --energy-success-soft: #e7f7f1;
+  --energy-info: #1768a0;
+  --energy-info-soft: #eaf5fc;
+  --energy-warning: #c87900;
   --energy-warning-soft: #fff5e5;
   --energy-danger: #c23b3b;
   --energy-danger-soft: #fff0f0;
@@ -623,7 +623,7 @@
 .trusted-nav-item, .trusted-nav-agent { min-width: 104px; padding: 0 15px; justify-content: center; border-bottom-width: 3px; color: #42556f; font-size: 13px; }
 .trusted-nav-item:hover, .trusted-nav-agent:hover { color: #1768a0; background: #f1f8fc; }
 .trusted-nav-item-active { color: #1768a0; background: #f8fcff; border-bottom-color: #00a3e0; }
-.trusted-nav-agent { min-width: auto; color: #078a69; }
+.trusted-nav-agent { min-width: auto; color: #1768a0; }
 
 .trusted-context-bar { min-height: 40px; padding: 0 28px; background: #f7f9fc; border-bottom-color: #e0e8f2; font-size: 12px; }
 .trusted-context-right button { color: #1768a0; }
