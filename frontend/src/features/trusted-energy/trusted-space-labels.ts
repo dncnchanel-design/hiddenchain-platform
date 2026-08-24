@@ -15,6 +15,8 @@ const PURPOSE_LABELS: Record<string, string> = {
   MODEL_TRAINING: "模型训练",
   AUDIT_REVIEW: "审计复核",
   CONTROLLED_OTHER: "其他受控用途",
+  REGULATORY_CROSS_ENERGY_REVIEW: "能源监管",
+  REGULATORY_EMERGENCY_RESPONSE: "应急处置",
   POWER_SETTLEMENT: "电力结算",
   GRID_SECURITY_CHECK: "电网安全校核",
   VPP_AGGREGATION: "虚拟电厂聚合",

@@ -1,5 +1,15 @@
 # Workstreams and File Ownership
 
+## Current Trusted Space authorization closure — 2026-08-24
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Existing five application purposes | Main agent; `ApplyPage.tsx`, `data_usage_requests.py`, authorization records | Five-purpose submit → provider approval → contract/agreement regression passes | VERIFIED_LOCAL |
+| Regulatory application purposes | Main agent; `ApplyPage.tsx`, `data_usage_requests.py`, authorization detail | Energy regulation/emergency response whitelist, legal basis and authority reference are sent and displayed | IMPLEMENTED_LOCAL |
+| Output-policy preservation | Main agent; `data_usage_requests.py` | Approved contract retains `AGGREGATE_ONLY` or `MASKED_QUERY` selected by the applicant | VERIFIED_LOCAL |
+| Verification | Main agent | Backend full pytest; frontend 71 tests; typecheck/Vite build; diff check pass | VERIFIED_LOCAL |
+| Release/deployment | Main agent | Commit, GitHub branch convergence, Render review/test deployment pending | PENDING |
+
 ## Current settlement sample batch — 2026-08-22
 
 | Workstream | Execution boundary | Evidence | Status |

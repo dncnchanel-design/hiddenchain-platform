@@ -1,5 +1,25 @@
 # Progress Ledger
 
+## Current Trusted Space authorization closure — 2026-08-24
+
+### Completed in this batch
+
+- Added regulator-facing whitelist purposes for energy regulation and emergency response, including required legal-basis and auditable authority-reference fields.
+- Preserved the five existing application purposes and verified each can submit, reach provider approval, and create an active contract/agreement.
+- Fixed approved contracts to preserve the selected controlled output mode instead of rewriting `MASKED_QUERY` as `AGGREGATE_ONLY`.
+- Added regulatory terms and authority-reference visibility to the authorization detail view.
+
+### Verification evidence
+
+- Backend full pytest: PASS.
+- Backend authorization regression: PASS, including regulatory masked-query approval and all five existing purposes.
+- Frontend unit tests: PASS, 71 tests; TypeScript/Vite production build: PASS.
+- `git diff --check`: PASS.
+
+### Release boundary
+
+- Local implementation is verified. GitHub push and Render review/test deployment remain pending until the release commit is created and the branches are converged.
+
 ## Current settlement sample batch — 2026-08-22 (full simulated settlement path)
 
 ### Completed in this batch

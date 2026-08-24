@@ -124,6 +124,84 @@ def test_cross_energy_requests_are_provider_gated_for_enterprise_and_regulator(
     assert not_whitelisted.json()["detail"]["code"] == "REGULATORY_PURPOSE_NOT_WHITELISTED"
 
 
+def test_regulatory_request_preserves_whitelist_terms_and_masked_output(client, auth_headers):
+    reference = _asset_reference()
+    response = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["regulator"], "Idempotency-Key": "regulatory-masked-query-001"},
+        json={
+            **reference,
+            "purpose": "REGULATORY_CROSS_ENERGY_REVIEW",
+            "usage_mode": "MASKED_QUERY",
+            "requested_scope": {
+                "output_mode": "MASKED_QUERY",
+                "raw_data_export": False,
+                "max_uses": 2,
+            },
+            "requested_fields": ["summary", "quality_metrics"],
+            "duration_days": 30,
+            "terms": {
+                "output_mode": "MASKED_QUERY",
+                "raw_data_export": False,
+                "regulatory_basis": "ENERGY_REGULATION",
+                "authority_ref": "ER-2026-COAL-001",
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["purpose"] == "REGULATORY_CROSS_ENERGY_REVIEW"
+    assert body["terms"]["regulatory_basis"] == "ENERGY_REGULATION"
+    assert body["terms"]["authority_ref"] == "ER-2026-COAL-001"
+    approved = client.post(
+        f"/api/data/access-requests/{body['request_id']}/approve",
+        headers={**auth_headers["generator"], **_etag(body)},
+        json={"reason": "能源监管事项已核验，允许脱敏汇总查询"},
+    )
+    assert approved.status_code == 200, approved.text
+    with SessionLocal() as db:
+        request_row = db.get(DataUsageRequest, body["request_id"])
+        contract = db.get(DataContract, request_row.contract_id) if request_row else None
+        assert contract is not None
+        assert contract.policy_json["constraint"]["output_mode"] == "MASKED_QUERY"
+
+
+def test_all_five_application_purposes_reach_provider_approval(client, auth_headers):
+    purposes = (
+        "SETTLEMENT_ANALYSIS",
+        "CROSS_CHECK",
+        "MODEL_TRAINING",
+        "AUDIT_REVIEW",
+        "CONTROLLED_OTHER",
+    )
+    for index, purpose in enumerate(purposes):
+        created = client.post(
+            "/api/data/access-requests",
+            headers={**auth_headers["exchange"], "Idempotency-Key": f"five-purpose-{index}"},
+            json={
+                **_payload(),
+                "purpose": purpose,
+                "requested_scope": {
+                    **_payload()["requested_scope"],
+                    "purpose_code": purpose,
+                    "algorithm_code": f"CONTROLLED_{purpose}_V1",
+                },
+            },
+        )
+        assert created.status_code == 201, created.text
+        submitted = created.json()
+        approved = client.post(
+            f"/api/data/access-requests/{submitted['request_id']}/approve",
+            headers={**auth_headers["generator"], **_etag(submitted)},
+            json={"reason": f"已审核{purpose}用途，允许受控处理"},
+        )
+        assert approved.status_code == 200, approved.text
+        approved_body = approved.json()
+        assert approved_body["status"] == "APPROVED"
+        assert approved_body["contract_id"]
+        assert approved_body["agreement_id"]
+
+
 def test_raw_data_export_is_rejected_before_provider_review(client, auth_headers):
     response = client.post(
         "/api/data/access-requests",

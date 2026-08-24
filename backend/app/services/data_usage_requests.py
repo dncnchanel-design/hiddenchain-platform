@@ -103,6 +103,20 @@ def _raise(status_code: int, code: str, detail: str) -> None:
     raise UsageRequestError(status_code, code, detail)
 
 
+def _requested_output_mode(
+    *,
+    usage_mode: str,
+    terms: dict[str, Any],
+    requested_scope: dict[str, Any],
+) -> str:
+    """Keep the persisted contract aligned with the selected controlled method."""
+
+    explicit = str(terms.get("output_mode") or requested_scope.get("output_mode") or "").strip()
+    if explicit in _REGULATORY_OUTPUT_MODES:
+        return explicit
+    return "MASKED_QUERY" if usage_mode == "MASKED_QUERY" else "AGGREGATE_ONLY"
+
+
 def _validate_regulatory_request(
     payload: DataUsageRequestCreate,
     user: User,
@@ -687,7 +701,11 @@ def transition_request(
                 "data_scope": request.requested_scope_json,
                 "requested_fields": request.requested_fields_json,
                 "usage_mode": request.usage_mode,
-                "output_mode": "AGGREGATE_ONLY",
+                "output_mode": _requested_output_mode(
+                    usage_mode=request.usage_mode,
+                    terms=request.terms_json,
+                    requested_scope=request.requested_scope_json,
+                ),
                 "raw_data_export": False,
                 "provider_decision_required": True,
                 "valid_from": now.isoformat(),
