@@ -8,7 +8,7 @@
 | Regulatory application purposes | Main agent; `ApplyPage.tsx`, `data_usage_requests.py`, authorization detail | Energy regulation/emergency response whitelist, legal basis and authority reference are sent and displayed | IMPLEMENTED_LOCAL |
 | Output-policy preservation | Main agent; `data_usage_requests.py` | Approved contract retains `AGGREGATE_ONLY` or `MASKED_QUERY` selected by the applicant | VERIFIED_LOCAL |
 | Verification | Main agent | Backend full pytest; frontend 71 tests; typecheck/Vite build; diff check pass | VERIFIED_LOCAL |
-| Release/deployment | Main agent | Commit, GitHub branch convergence, Render review/test deployment pending | PENDING |
+| Release/deployment | Main agent | `d6e7a1e` pushed to GitHub `main` and `agent/deep-brand-green`; Render review/test trigger not available in the current workspace | GITHUB_SYNCED_RENDER_PENDING |
 
 ## Current settlement sample batch — 2026-08-22
 

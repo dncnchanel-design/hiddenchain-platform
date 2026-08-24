@@ -5,8 +5,11 @@
 ```text
 LOCAL_CHANGE = complete existing five application purposes and add regulator whitelist application flow
 LOCAL_VERIFICATION = PASS (backend full pytest; frontend 71 tests; frontend typecheck/build; diff check)
-GITHUB_PUSH = PENDING (release commit not created)
-RENDER_DEPLOYMENT = PENDING (must deploy the final synchronized commit)
+LOCAL_CODE_COMMIT = d6e7a1efc0894614e6f015213a0878e02014d487
+GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
+GITHUB_BRANCHES = main; agent/deep-brand-green
+GITHUB_PUSH = PASS (both branches point to LOCAL_CODE_COMMIT)
+RENDER_DEPLOYMENT = PENDING (live service still reports build_sha=21ac3422; no Render API key/deploy hook/session is available locally)
 RELEASE_BOUNDARY = review/test deployment only; no production capability claim
 ```
 

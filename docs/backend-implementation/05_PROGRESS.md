@@ -18,7 +18,7 @@
 
 ### Release boundary
 
-- Local implementation is verified. GitHub push and Render review/test deployment remain pending until the release commit is created and the branches are converged.
+- Local implementation is verified. Release commit `d6e7a1e` is pushed to both GitHub `main` and `agent/deep-brand-green`; Render review/test deployment is still pending external trigger access.
 
 ## Current settlement sample batch — 2026-08-22 (full simulated settlement path)
 
