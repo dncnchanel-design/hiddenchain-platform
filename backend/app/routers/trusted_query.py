@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import secrets
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -19,13 +19,24 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import DataUsageRequest, PrivacyComputeJob, User, new_id, utc_now
+from ..models import (
+    DataRequestBatch,
+    DataRequestItem,
+    DataUsageRequest,
+    ExecutionReceipt,
+    PrivacyComputeJob,
+    DidIdentity,
+    User,
+    new_id,
+    utc_now,
+)
 from ..services.common import add_audit_log
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
 from ..security import canonical_json, sha256_json
 from ..schemas import TrustedSpaceQueryTranslation
-from ..trust_models import DataAsset
+from ..services.local_data_boundary import matching_rule, rule_decision, subject_node_config
+from ..trust_models import DataAsset, DataAssetVersion
 
 
 router = APIRouter(prefix="/trust-space/query", tags=["trusted-query"])
@@ -124,7 +135,8 @@ class ParseRequest(BaseModel):
 
 
 class ExecuteRequest(BaseModel):
-    authorization_id: str
+    authorization_id: str | None = None
+    provider_org_id: str | None = None
     energy_domain: str
     resource: str
     function: str
@@ -139,7 +151,8 @@ class ExecuteRequest(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
-    authorization_id: str
+    authorization_id: str | None = None
+    provider_org_id: str | None = None
     energy_domain: str
     resource: str
     function: str
@@ -262,6 +275,7 @@ def _confirmation_claims(payload: ConfirmRequest, user: User) -> dict[str, Any]:
     return {
         "user_id": user.user_id,
         "authorization_id": payload.authorization_id,
+        "provider_org_id": payload.provider_org_id,
         "energy_domain": payload.energy_domain,
         "resource": payload.resource,
         "function": payload.function,
@@ -291,6 +305,7 @@ def _verify_confirmation_token(token: str, payload: ExecuteRequest, user: User) 
     expected_claims = {
         "user_id": user.user_id,
         "authorization_id": payload.authorization_id,
+        "provider_org_id": payload.provider_org_id,
         "energy_domain": payload.energy_domain,
         "resource": payload.resource,
         "function": payload.function,
@@ -358,6 +373,221 @@ def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageR
     if asset is None:
         raise HTTPException(409, "授权对应的数据资源不存在")
     return authorization, asset
+
+
+def _resolve_authorization(
+    db: Session,
+    *,
+    authorization_id: str | None,
+    provider_org_id: str | None,
+    energy_domain: str,
+    resource: str,
+    function: str,
+    start_date: date,
+    end_date: date,
+    region: str | None,
+    user: User,
+) -> tuple[DataUsageRequest, DataAsset]:
+    if authorization_id:
+        return _authorization(db, authorization_id, user)
+    if user.role_code != "REGULATOR" or "CREATE_CROSS_ENERGY_QUERY" not in set(user.permissions_json or []):
+        raise HTTPException(403, "无授权编号时只有具备监管申请权限的 REGULATOR 可以命中主体规则")
+    if not provider_org_id:
+        raise HTTPException(422, "规则自动调用必须明确指定数据主体")
+
+    assets = db.scalars(
+        select(DataAsset).where(DataAsset.owner_org_id == provider_org_id, DataAsset.status == "ACTIVE")
+    ).all()
+    asset = next(
+        (
+            item
+            for item in assets
+            if (item.metadata_json or {}).get("domain") == energy_domain
+            and (item.metadata_json or {}).get("resource_id") == resource
+        ),
+        None,
+    )
+    if asset is None:
+        raise HTTPException(404, "该主体没有可用的目录资源")
+    rule = matching_rule(
+        db,
+        owner_org_id=provider_org_id,
+        resource_id=resource,
+        function_code=function,
+        requested_scope={
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "region": region,
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+        },
+    )
+    if rule is None or rule_decision(rule) != "AUTO_CALL":
+        raise HTTPException(403, "该请求未命中主体批准的自动调用规则，请先向企业申请")
+    version = db.scalar(
+        select(DataAssetVersion).where(DataAssetVersion.asset_id == asset.asset_id, DataAssetVersion.status == "ACTIVE").order_by(DataAssetVersion.version_no.desc())
+    )
+    applicant_did = db.scalar(
+        select(DidIdentity).where(DidIdentity.owner_id == user.org_id, DidIdentity.org_id == user.org_id).order_by(DidIdentity.created_at.desc())
+    )
+    provider_did = db.scalar(
+        select(DidIdentity).where(DidIdentity.owner_id == provider_org_id, DidIdentity.org_id == provider_org_id).order_by(DidIdentity.created_at.desc())
+    )
+    if version is None or applicant_did is None or provider_did is None:
+        raise HTTPException(409, "主体目录或身份凭证不完整，无法执行规则调用")
+    fingerprint = sha256_json(
+        {
+            "applicant_org_id": user.org_id,
+            "provider_org_id": provider_org_id,
+            "asset_id": asset.asset_id,
+            "resource": resource,
+            "function": function,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "region": region,
+            "rule_id": rule.rule_id,
+        }
+    )
+    existing = db.scalar(
+        select(DataUsageRequest).where(DataUsageRequest.request_fingerprint == fingerprint)
+    )
+    if existing is not None:
+        return _authorization(db, existing.request_id, user)
+    now = utc_now()
+    request = DataUsageRequest(
+        request_id=new_id(),
+        asset_id=asset.asset_id,
+        asset_version_id=version.version_id,
+        applicant_user_id=user.user_id,
+        applicant_org_id=user.org_id,
+        provider_org_id=provider_org_id,
+        applicant_did=applicant_did.did_id,
+        provider_did=provider_did.did_id,
+        purpose="REGULATORY_CROSS_ENERGY_REVIEW",
+        usage_mode="MPC_AGGREGATE",
+        requested_scope_json={
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "region": region,
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+        },
+        requested_fields_json=[resource, function],
+        terms_json={
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+            "authorization_source": "SUBJECT_APPROVED_RULE",
+            "rule_id": rule.rule_id,
+            "rule_version": f"v{rule.version_no}",
+        },
+        duration_days=max(1, (end_date - start_date).days + 1),
+        expires_at=now + timedelta(days=1),
+        status="APPROVED",
+        decision_reason="命中主体预先批准的自动调用规则",
+        decision_hash=rule.rule_hash,
+        decision_capability_label="RULE_AUTO",
+        state_version=1,
+        request_fingerprint=fingerprint,
+        submitted_at=now,
+        decided_at=now,
+        trace_id=f"trace-{new_id()[:24]}",
+    )
+    db.add(request)
+    add_audit_log(
+        db,
+        action="REGULATOR_RULE_AUTO_AUTHORIZED",
+        target_type="DATA_USAGE_REQUEST",
+        target_id=request.request_id,
+        result="SUCCESS",
+        user=user,
+        details={
+            "provider_org_id": provider_org_id,
+            "rule_id": rule.rule_id,
+            "rule_version": rule.version_no,
+            "raw_data_accessed": False,
+        },
+    )
+    db.flush()
+    return request, asset
+
+
+def _request_item(
+    db: Session,
+    *,
+    authorization: DataUsageRequest,
+    asset: DataAsset,
+    payload: ExecuteRequest,
+    user: User,
+) -> DataRequestItem:
+    """Bind a query to one provider-scoped item and make retries idempotent."""
+
+    existing = db.scalar(
+        select(DataRequestItem).where(
+            DataRequestItem.authorization_id == authorization.request_id,
+            DataRequestItem.provider_org_id == authorization.provider_org_id,
+        )
+    )
+    if existing is not None:
+        if existing.status in {"REVOKED", "REJECTED", "FAILED"}:
+            raise HTTPException(403, "该主体请求项已拒绝或撤销，不能继续调用")
+        return existing
+
+    metadata = asset.metadata_json or {}
+    resource_id = str(metadata.get("resource_id") or payload.resource)
+    requested_scope = {
+        "start_date": payload.start_date.isoformat(),
+        "end_date": payload.end_date.isoformat(),
+        "region": payload.region,
+        "function": payload.function,
+        "output_mode": "AGGREGATE_ONLY",
+        "raw_data_export": False,
+    }
+    rule = matching_rule(
+        db,
+        owner_org_id=authorization.provider_org_id,
+        resource_id=resource_id,
+        function_code=payload.function,
+        requested_scope=requested_scope,
+    )
+    if rule_decision(rule) == "FORBIDDEN":
+        raise HTTPException(403, "该主体规则禁止外部调用")
+    confirmation_hash = sha256_json(
+        {
+            "authorization_id": authorization.request_id,
+            "provider_org_id": authorization.provider_org_id,
+            "resource": payload.resource,
+            "function": payload.function,
+            "start_date": payload.start_date.isoformat(),
+            "end_date": payload.end_date.isoformat(),
+        }
+    )
+    batch = DataRequestBatch(
+        batch_id=new_id(),
+        applicant_user_id=user.user_id,
+        applicant_org_id=user.org_id,
+        purpose=authorization.purpose,
+        requested_scope_json=requested_scope,
+        allow_partial=False,
+        status="EXECUTING",
+        confirmation_hash=confirmation_hash,
+        idempotency_key=f"authorization:{authorization.request_id}",
+    )
+    item = DataRequestItem(
+        request_item_id=new_id(),
+        batch_id=batch.batch_id,
+        provider_org_id=authorization.provider_org_id,
+        asset_id=authorization.asset_id,
+        authorization_id=authorization.request_id,
+        matched_rule_id=rule.rule_id if rule else None,
+        matched_rule_version=f"v{rule.version_no}" if rule else None,
+        scope_json=requested_scope,
+        status="READY",
+        idempotency_key=f"authorization:{authorization.request_id}",
+    )
+    db.add(batch)
+    db.add(item)
+    db.flush()
+    return item
 
 
 @router.post("/parse")
@@ -469,7 +699,22 @@ def confirm_query(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
-    _authorization(db, payload.authorization_id, user)
+    authorization, _asset = _resolve_authorization(
+        db,
+        authorization_id=payload.authorization_id,
+        provider_org_id=payload.provider_org_id,
+        energy_domain=payload.energy_domain,
+        resource=payload.resource,
+        function=payload.function,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        region=payload.region,
+        user=user,
+    )
+    if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
+        raise HTTPException(403, "确认的主体与授权主体不一致")
+    payload.authorization_id = authorization.request_id
+    payload.provider_org_id = authorization.provider_org_id
     claims = _confirmation_claims(payload, user)
     token = _issue_confirmation_token(claims)
     add_audit_log(
@@ -510,8 +755,46 @@ def execute_query(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
+    authorization, asset = _resolve_authorization(
+        db,
+        authorization_id=payload.authorization_id,
+        provider_org_id=payload.provider_org_id,
+        energy_domain=payload.energy_domain,
+        resource=payload.resource,
+        function=payload.function,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        region=payload.region,
+        user=user,
+    )
+    payload.authorization_id = authorization.request_id
+    payload.provider_org_id = authorization.provider_org_id
     _verify_confirmation_token(payload.confirmation_token, payload, user)
-    authorization, asset = _authorization(db, payload.authorization_id, user)
+    if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
+        raise HTTPException(403, "执行主体与授权主体不一致")
+    payload.provider_org_id = authorization.provider_org_id
+    request_item = _request_item(
+        db,
+        authorization=authorization,
+        asset=asset,
+        payload=payload,
+        user=user,
+    )
+    if request_item.status == "SUCCEEDED" and request_item.result_json:
+        return {
+            "task_id": request_item.result_json.get("task_id"),
+            "request_item_id": request_item.request_item_id,
+            "authorization_scope": authorization.request_id,
+            "generated_at": request_item.result_json.get("generated_at"),
+            "result": request_item.result_json.get("result"),
+            "unit": request_item.result_json.get("unit"),
+            "resource_name": request_item.result_json.get("resource_name") or "未命名数据资源",
+            "function_name": request_item.result_json.get("function_name") or FUNCTION_LABELS[payload.function],
+            "digital_signature": "已验证",
+            "audit_recorded": True,
+            "raw_records_returned": False,
+            "idempotent_replay": True,
+        }
     metadata = asset.metadata_json or {}
     authorized_domain = str(metadata.get("domain") or "")
     authorized_resource = str(metadata.get("resource_id") or "")
@@ -519,16 +802,22 @@ def execute_query(
         raise HTTPException(403, "计算能源范围超出企业批准的授权")
     if authorized_resource and authorized_resource != payload.resource:
         raise HTTPException(403, "计算数据资源超出企业批准的授权")
-    endpoints = _configured_map(settings.connector_endpoints_json, "企业连接器地址")
-    public_keys = _configured_map(settings.connector_public_keys_json, "企业连接器公钥")
-    endpoint = endpoints.get(payload.energy_domain)
-    expected_public_key = public_keys.get(payload.energy_domain)
+    node = subject_node_config(db, authorization.provider_org_id)
+    endpoint = node.get("endpoint") if node else None
+    expected_public_key = node.get("public_key") if node else None
     if not endpoint:
-        raise HTTPException(503, "对应能源连接器暂不可用")
+        request_item.status = "PENDING_RETRY"
+        request_item.failure_code = "SUBJECT_NODE_OFFLINE"
+        request_item.failure_detail = "主体本地节点未配置或暂不可用，平台未读取中央缓存"
+        db.commit()
+        raise HTTPException(503, "主体本地节点暂不可用，任务已进入待重试状态")
     task_id = f"TASK-{datetime.now(UTC).strftime('%Y%m%d')}-{secrets.token_hex(4).upper()}"
     connector_payload = {
         "task_id": task_id,
         "authorization_id": authorization.request_id,
+        "request_item_id": request_item.request_item_id,
+        "provider_org_id": authorization.provider_org_id,
+        "rule_version": request_item.matched_rule_version,
         "resource": payload.resource,
         "function": payload.function,
         "start_date": payload.start_date.isoformat(),
@@ -581,7 +870,7 @@ def execute_query(
         job_id=new_id(),
         task_id=task_id,
         algorithm_code=payload.function,
-        adapter_code=f"ENTERPRISE_CONNECTOR_{payload.energy_domain.upper()}",
+        adapter_code=f"LOCAL_SUBJECT_NODE_{authorization.provider_org_id}",
         input_hashes_json=[authorization.decision_hash or authorization.request_fingerprint],
         output_hash=output_hash,
         result_json=result,
@@ -591,6 +880,9 @@ def execute_query(
             "raw_records_returned": False,
             "authorization_id": authorization.request_id,
             "applicant_org_id": user.org_id,
+            "provider_org_id": authorization.provider_org_id,
+            "request_item_id": request_item.request_item_id,
+            "node_code": node.get("node_code") if node else None,
         },
         status="SUCCEEDED",
         progress=100,
@@ -611,12 +903,36 @@ def execute_query(
             "result_hash": output_hash,
             "raw_records_returned": False,
             "signature_verified": True,
-            "trust_bootstrap": "DEMO_FIRST_USE" if payload.energy_domain not in public_keys else "PRECONFIGURED_PUBLIC_KEY",
+            "trust_bootstrap": "DEMO_FIRST_USE" if not expected_public_key else "PRECONFIGURED_PUBLIC_KEY",
         },
+    )
+    request_item.status = "SUCCEEDED"
+    request_item.result_json = result
+    request_item.result_hash = output_hash
+    request_item.completed_at = utc_now()
+    db.add(
+        ExecutionReceipt(
+            receipt_id=new_id(),
+            request_item_id=request_item.request_item_id,
+            provider_org_id=authorization.provider_org_id,
+            task_id=task_id,
+            request_hash=sha256_json(connector_payload),
+            result_hash=output_hash,
+            node_code=node.get("node_code") if node else "UNKNOWN",
+            node_signature=str(result.get("signature") or ""),
+            result_summary_json={
+                "result": result.get("result"),
+                "unit": result.get("unit"),
+                "record_count": result.get("record_count"),
+                "raw_records_returned": False,
+            },
+            visible_to_orgs_json=[user.org_id, authorization.provider_org_id],
+        )
     )
     db.commit()
     return {
         "task_id": task_id,
+        "request_item_id": request_item.request_item_id,
         "authorization_scope": authorization.request_id,
         "generated_at": result.get("generated_at"),
         "result": result.get("result"),
@@ -639,7 +955,10 @@ def list_query_tasks(
         raise HTTPException(403, "当前账号没有查看计算结果的权限")
     candidate_jobs = db.scalars(
         select(PrivacyComputeJob)
-        .where(PrivacyComputeJob.adapter_code.like("ENTERPRISE_CONNECTOR_%"))
+        .where(
+            PrivacyComputeJob.adapter_code.like("LOCAL_SUBJECT_NODE_%")
+            | PrivacyComputeJob.adapter_code.like("ENTERPRISE_CONNECTOR_%")
+        )
         .order_by(PrivacyComputeJob.created_at.desc())
         .limit(200)
     ).all()

@@ -90,6 +90,7 @@ if DOMAIN not in RESOURCE_DEFINITIONS:
     raise RuntimeError("ENERGY_DOMAIN is not supported")
 CONNECTOR_NAME = os.getenv("CONNECTOR_NAME", f"{DOMAIN_LABELS[DOMAIN]}企业连接器")
 CONNECTOR_ID = os.getenv("CONNECTOR_ID", f"connector-{DOMAIN}")
+ORGANIZATION_ID = os.getenv("ORGANIZATION_ID", "").strip()
 DATABASE_PATH = Path(os.getenv("CONNECTOR_DATABASE_PATH", "/app/runtime/connector.db"))
 MIN_GROUP_SIZE = max(3, int(os.getenv("PRIVACY_MIN_GROUP_SIZE", "3")))
 MAX_DECIMALS = min(6, max(0, int(os.getenv("PRIVACY_MAX_DECIMALS", "2"))))
@@ -187,6 +188,13 @@ def _initialize() -> None:
               repeated_count INTEGER NOT NULL DEFAULT 1,
               occurred_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS local_execution_receipts(
+              request_item_id TEXT PRIMARY KEY,
+              request_hash TEXT NOT NULL,
+              result_hash TEXT NOT NULL,
+              result_json TEXT NOT NULL,
+              occurred_at INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS connector_config(
               config_key TEXT PRIMARY KEY,
               config_value TEXT NOT NULL
@@ -199,6 +207,9 @@ def _initialize() -> None:
 class ComputeRequest(BaseModel):
     task_id: str = Field(min_length=6, max_length=96)
     authorization_id: str = Field(min_length=6, max_length=96)
+    request_item_id: str | None = Field(default=None, min_length=6, max_length=96)
+    provider_org_id: str | None = Field(default=None, min_length=3, max_length=96)
+    rule_version: str | None = Field(default=None, max_length=32)
     resource: str
     function: str
     start_date: date
@@ -211,6 +222,10 @@ class ComputeRequest(BaseModel):
 
 
 def _verify_platform_request(payload: ComputeRequest, timestamp: str, nonce: str, signature: str, presented_public_key: str | None) -> None:
+    if payload.provider_org_id and not ORGANIZATION_ID:
+        raise HTTPException(503, "主体节点未绑定组织身份")
+    if payload.provider_org_id and ORGANIZATION_ID and payload.provider_org_id != ORGANIZATION_ID:
+        raise HTTPException(403, "请求主体与本地节点身份不一致")
     public_text = os.getenv("PLATFORM_SIGNING_PUBLIC_KEY", "").strip()
     if not public_text:
         if os.getenv("ALLOW_DEMO_KEY_REGISTRATION", "false").lower() not in {"1", "true", "yes", "on"} or not presented_public_key:
@@ -230,7 +245,13 @@ def _verify_platform_request(payload: ComputeRequest, timestamp: str, nonce: str
     now = int(datetime.now(UTC).timestamp())
     if abs(now - occurred_at) > NONCE_TTL_SECONDS:
         raise HTTPException(401, "请求已过期")
-    message = {"timestamp": timestamp, "nonce": nonce, "payload": payload.model_dump(mode="json")}
+    signed_payload = payload.model_dump(mode="json")
+    # Keep the legacy connector test/protocol compatible while making the
+    # subject-bound fields part of every new request when supplied.
+    for field_name in ("request_item_id", "provider_org_id", "rule_version"):
+        if signed_payload.get(field_name) is None:
+            signed_payload.pop(field_name, None)
+    message = {"timestamp": timestamp, "nonce": nonce, "payload": signed_payload}
     try:
         public_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_text))
         public_key.verify(base64.b64decode(signature), _canonical(message))
@@ -327,6 +348,7 @@ def health() -> dict[str, Any]:
     return {
         "status": "就绪",
         "connector": CONNECTOR_NAME,
+        "organization_id": ORGANIZATION_ID or None,
         "energy_domain": DOMAIN,
         "raw_data_centrally_stored": False,
         "public_key": PUBLIC_KEY,
@@ -337,6 +359,7 @@ def health() -> dict[str, Any]:
 def catalog() -> dict[str, Any]:
     return {
         "energy_domain": DOMAIN,
+        "organization_id": ORGANIZATION_ID or None,
         "resources": [
             {"resource_id": resource, "name": name, "unit": unit, "granularity": "日度及受支持的小时级"}
             for resource, name, unit in RESOURCE_DEFINITIONS[DOMAIN]
@@ -355,6 +378,15 @@ def compute(
     x_platform_public_key: str | None = Header(default=None, alias="X-Platform-Public-Key"),
 ) -> dict[str, Any]:
     _verify_platform_request(payload, x_request_timestamp, x_request_nonce, x_request_signature, x_platform_public_key)
+    request_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
+    if payload.request_item_id:
+        with _database() as connection:
+            prior = connection.execute(
+                "SELECT request_hash, result_hash, result_json FROM local_execution_receipts WHERE request_item_id = ?",
+                (payload.request_item_id,),
+            ).fetchone()
+        if prior is not None:
+            return json.loads(prior["result_json"])
     query_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
     now = int(datetime.now(UTC).timestamp())
     with _database() as connection:
@@ -379,6 +411,9 @@ def compute(
     envelope = {
         "task_id": payload.task_id,
         "authorization_id": payload.authorization_id,
+        "request_item_id": payload.request_item_id,
+        "provider_org_id": ORGANIZATION_ID or payload.provider_org_id,
+        "rule_version": payload.rule_version,
         "connector_id": CONNECTOR_ID,
         "energy_domain": DOMAIN,
         "resource_name": next(name for code, name, _unit in RESOURCE_DEFINITIONS[DOMAIN] if code == payload.resource),
@@ -391,10 +426,19 @@ def compute(
         "capability": "本地受控计算" if payload.function != "mpc_aggregation" else "本地计算份额",
     }
     signature = PRIVATE_KEY.sign(_canonical(envelope))
-    return {
+    response = {
         **envelope,
         "signature": base64.b64encode(signature).decode(),
         "public_key": PUBLIC_KEY,
         "signature_algorithm": "Ed25519",
         "signature_valid": True,
     }
+    if payload.request_item_id:
+        result_hash = hashlib.sha256(_canonical(envelope)).hexdigest()
+        with _database() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO local_execution_receipts(request_item_id, request_hash, result_hash, result_json, occurred_at) VALUES (?, ?, ?, ?, ?)",
+                (payload.request_item_id, request_hash, result_hash, json.dumps(response, ensure_ascii=False, sort_keys=True), now),
+            )
+            connection.commit()
+    return response

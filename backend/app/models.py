@@ -328,6 +328,142 @@ class DataUsageRequest(Base, TimestampMixin):
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class LocalSubjectNode(Base, TimestampMixin):
+    """A registered local node owned by one concrete energy subject.
+
+    ``energy_domain`` is deliberately not used as the routing key.  Two
+    organisations in the same domain must still have different nodes,
+    credentials and local storage.
+    """
+
+    __tablename__ = "local_subject_nodes"
+    __table_args__ = (
+        UniqueConstraint("org_id", name="uq_local_subject_node_org"),
+        UniqueConstraint("node_code", name="uq_local_subject_node_code"),
+    )
+
+    node_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), nullable=False, index=True)
+    node_code: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    endpoint_ref: Mapped[str | None] = mapped_column(String(255))
+    public_key: Mapped[str | None] = mapped_column(Text)
+    environment: Mapped[str] = mapped_column(String(24), default="LOCAL_REAL", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False, index=True)
+    last_health_status: Mapped[str] = mapped_column(String(24), default="UNKNOWN", nullable=False)
+    last_health_at: Mapped[datetime | None] = mapped_column(DateTime)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class AccessRule(Base, TimestampMixin):
+    """Versioned rule decided by the data-owning subject."""
+
+    __tablename__ = "access_rules"
+    __table_args__ = (
+        UniqueConstraint("owner_org_id", "rule_code", "version_no", name="uq_access_rule_version"),
+    )
+
+    rule_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    rule_code: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    version_no: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    energy_domain: Mapped[str | None] = mapped_column(String(24), index=True)
+    asset_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    resource_id: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    function_code: Mapped[str] = mapped_column(String(48), nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), default="ENTERPRISE_APPROVAL", nullable=False, index=True)
+    scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    limits_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False, index=True)
+    rule_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"), index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class DataRequestBatch(Base, TimestampMixin):
+    """Parent request created after a REGULATOR confirms a split preview."""
+
+    __tablename__ = "data_request_batches"
+    __table_args__ = (
+        UniqueConstraint("applicant_org_id", "idempotency_key", name="uq_data_request_batch_idempotency"),
+    )
+
+    batch_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    applicant_user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    applicant_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(128), nullable=False)
+    requested_scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    allow_partial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="CONFIRMED", nullable=False, index=True)
+    confirmation_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class DataRequestItem(Base, TimestampMixin):
+    """One subject-scoped authorization/execution item under a batch."""
+
+    __tablename__ = "data_request_items"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "provider_org_id", name="uq_data_request_item_provider"),
+        UniqueConstraint("batch_id", "idempotency_key", name="uq_data_request_item_idempotency"),
+    )
+
+    request_item_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("data_request_batches.batch_id"), index=True)
+    provider_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    asset_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    authorization_id: Mapped[str | None] = mapped_column(ForeignKey("data_usage_requests.request_id"), index=True)
+    matched_rule_id: Mapped[str | None] = mapped_column(ForeignKey("access_rules.rule_id"), index=True)
+    matched_rule_version: Mapped[str | None] = mapped_column(String(32))
+    scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING_APPROVAL", nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    result_hash: Mapped[str | None] = mapped_column(String(128))
+    failure_code: Mapped[str | None] = mapped_column(String(96))
+    failure_detail: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ExecutionReceipt(Base, TimestampMixin):
+    """Central, scope-limited receipt; the local node keeps the full audit."""
+
+    __tablename__ = "execution_receipts"
+    __table_args__ = (
+        UniqueConstraint("request_item_id", "request_hash", name="uq_execution_receipt_request_hash"),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    request_item_id: Mapped[str] = mapped_column(ForeignKey("data_request_items.request_item_id"), index=True)
+    provider_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    request_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    result_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    node_code: Mapped[str] = mapped_column(String(96), nullable=False)
+    node_signature: Mapped[str] = mapped_column(Text, nullable=False)
+    result_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    visible_to_orgs_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="CONFIRMED", nullable=False, index=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
+class EvidenceProjection(Base, TimestampMixin):
+    """A projection of evidence visible to one explicitly allowed audience."""
+
+    __tablename__ = "evidence_projections"
+
+    projection_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    receipt_id: Mapped[str | None] = mapped_column(ForeignKey("execution_receipts.receipt_id"), index=True)
+    subject_org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    visible_to_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    evidence_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    scope_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    projection_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
 class PrivacyComputeJob(Base, TimestampMixin):
     __tablename__ = "privacy_compute_jobs"
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

@@ -43,6 +43,8 @@ services:
         value: "60"
       - key: CONNECTOR_ENDPOINTS_JSON
         value: '{"electricity":"https://hiddenchain-electricity-connector.onrender.com","coal":"https://hiddenchain-coal-connector.onrender.com","heat":"https://hiddenchain-heat-connector.onrender.com","gas":"https://hiddenchain-gas-connector.onrender.com","oil":"https://hiddenchain-oil-connector.onrender.com"}'
+      - key: SUBJECT_NODE_ENDPOINTS_JSON
+        value: '{"org-generator-t01":"https://hiddenchain-electricity-connector.onrender.com","org-retailer-t01":"https://hiddenchain-electricity-retailer-connector.onrender.com","org-exchange-t01":"https://hiddenchain-electricity-exchange-connector.onrender.com","org-coal-t01":"https://hiddenchain-coal-connector.onrender.com","org-heat-t01":"https://hiddenchain-heat-connector.onrender.com","org-gas-t01":"https://hiddenchain-gas-connector.onrender.com","org-oil-t01":"https://hiddenchain-oil-connector.onrender.com"}'
       - key: CONNECTOR_PUBLIC_KEYS_JSON
         value: '{}'
       - key: JWT_SECRET
@@ -65,7 +67,9 @@ services:
       - key: CONNECTOR_NAME
         value: 电力企业连接器
       - key: CONNECTOR_ID
-        value: connector-electricity
+        value: node-org-generator-t01
+      - key: ORGANIZATION_ID
+        value: org-generator-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/electricity.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
@@ -86,7 +90,9 @@ services:
       - key: CONNECTOR_NAME
         value: 煤炭企业连接器
       - key: CONNECTOR_ID
-        value: connector-coal
+        value: node-org-coal-t01
+      - key: ORGANIZATION_ID
+        value: org-coal-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/coal.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
@@ -107,7 +113,9 @@ services:
       - key: CONNECTOR_NAME
         value: 热能企业连接器
       - key: CONNECTOR_ID
-        value: connector-heat
+        value: node-org-heat-t01
+      - key: ORGANIZATION_ID
+        value: org-heat-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/heat.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
@@ -128,7 +136,9 @@ services:
       - key: CONNECTOR_NAME
         value: 天然气企业连接器
       - key: CONNECTOR_ID
-        value: connector-gas
+        value: node-org-gas-t01
+      - key: ORGANIZATION_ID
+        value: org-gas-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/gas.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
@@ -149,9 +159,57 @@ services:
       - key: CONNECTOR_NAME
         value: 石油企业连接器
       - key: CONNECTOR_ID
-        value: connector-oil
+        value: node-org-oil-t01
+      - key: ORGANIZATION_ID
+        value: org-oil-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/oil.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-electricity-retailer-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: electricity
+      - key: CONNECTOR_NAME
+        value: 售电企业本地节点
+      - key: CONNECTOR_ID
+        value: node-org-retailer-t01
+      - key: ORGANIZATION_ID
+        value: org-retailer-t01
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/retailer.db
+      - key: ALLOW_DEMO_KEY_REGISTRATION
+        value: "true"
+      - key: CONNECTOR_SIGNING_PRIVATE_KEY
+        generateValue: true
+
+  - type: web
+    name: hiddenchain-electricity-exchange-connector
+    runtime: docker
+    plan: free
+    dockerfilePath: ./connector/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ENERGY_DOMAIN
+        value: electricity
+      - key: CONNECTOR_NAME
+        value: 电力交易中心本地节点
+      - key: CONNECTOR_ID
+        value: node-org-exchange-t01
+      - key: ORGANIZATION_ID
+        value: org-exchange-t01
+      - key: CONNECTOR_DATABASE_PATH
+        value: /app/runtime/exchange.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
       - key: CONNECTOR_SIGNING_PRIVATE_KEY

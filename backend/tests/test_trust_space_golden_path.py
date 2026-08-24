@@ -99,11 +99,11 @@ def test_migration_upgrade_from_003_to_latest_is_idempotent(tmp_path):
                 )
 
         assert migration_status(isolated)["current"] == "20260821_003"
-        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001", "20260824_001"]
+        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001", "20260824_001", "20260824_002"]
         assert apply_migrations(isolated) == []
         status = migration_status(isolated)
         assert status["status"] == "READY"
-        assert status["current"] == "20260824_001"
+        assert status["current"] == "20260824_002"
         columns = {item["name"] for item in inspect(isolated).get_columns("privacy_compute_jobs")}
         assert {"state_version", "action_code", "action_idempotency_key", "action_response_json", "cancelled_at"} <= columns
         index_names = {item["name"] for item in inspect(isolated).get_indexes("privacy_compute_jobs")}
@@ -171,7 +171,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
 
     catalog = client.get(
         "/api/trust-space/catalog?page=1&page_size=100",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert catalog.status_code == 200, catalog.text
     generator_item = next(
@@ -201,7 +201,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     }
     detail = client.get(
         f"/api/trust-space/assets/{reference['asset_id']}",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert detail.status_code == 200
     assert detail.json()["asset"]["asset_id"] == reference["asset_id"]
@@ -212,19 +212,23 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         f"/api/trust-space/assets/{retailer_asset['asset_id']}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 200
-    assert cross_scope.json()["asset"]["provider"]["org_id"] == "org-retailer-t01"
+    assert cross_scope.status_code == 404
 
     request_payload = {
         **reference,
-        "purpose": "GOLDEN_PATH_AUDIT",
+        "purpose": "REGULATORY_CROSS_ENERGY_REVIEW",
         "usage_mode": "MPC_AGGREGATE",
         "requested_scope": {"fields": ["energy_mwh", "period"], "max_uses": 1},
         "requested_fields": ["energy_mwh", "period"],
         "duration_days": 30,
-        "terms": {"output_mode": "AGGREGATE_ONLY", "raw_data_export": False},
+        "terms": {
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+            "regulatory_basis": "ENERGY_REGULATION",
+            "authority_ref": "GOLDEN-REG-001",
+        },
     }
-    create_headers = {**auth_headers["exchange"], "Idempotency-Key": "golden-usage-001"}
+    create_headers = {**auth_headers["regulator"], "Idempotency-Key": "golden-usage-001"}
     created = client.post("/api/data/access-requests", headers=create_headers, json=request_payload)
     assert created.status_code == 201, created.text
     request = created.json()
@@ -235,7 +239,10 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     conflict = client.post(
         "/api/data/access-requests",
         headers=create_headers,
-        json={**request_payload, "purpose": "GOLDEN_PATH_CONFLICT"},
+        json={
+            **request_payload,
+            "terms": {**request_payload["terms"], "authority_ref": "GOLDEN-REG-002"},
+        },
     )
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "IDEMPOTENCY_REBINDING"
@@ -283,7 +290,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
 
     contract = client.get(
         f"/api/trust-space/contracts/{approved_body['contract_id']}",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert contract.status_code == 200
     assert contract.json()["agreement"]["agreement_id"] == approved_body["agreement_id"]
@@ -373,14 +380,14 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     assert settled_body["compute_job"]["status"] == "SUCCESS"
     assert settled_body["compute_job"]["privacy_guarantees"]["api_raw_records_returned"] is False
 
-    results = client.get("/api/trust-space/results?page=1&page_size=100", headers=auth_headers["exchange"])
+    results = client.get("/api/trust-space/results?page=1&page_size=100", headers=auth_headers["regulator"])
     assert results.status_code == 200
     assert results.json()["total"] >= len(settled_body["results"])
     result_by_org = {item["org_id"]: item for item in settled_body["results"] if item.get("org_id")}
     generator_result_id = result_by_org["org-generator-t01"]["result_id"]
     result_detail = client.get(
         f"/api/trust-space/results/{generator_result_id}",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert result_detail.status_code == 200
     assert result_detail.json()["result"]["result_hash"]
@@ -441,14 +448,14 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
 
     assistant_session = client.post(
         "/api/trust-space/assistant/sessions",
-        headers={**auth_headers["exchange"], "Idempotency-Key": "golden-assistant-session"},
+        headers={**auth_headers["generator"], "Idempotency-Key": "golden-assistant-session"},
         json={"page_path": "/trusted-space/assets", "entity_type": "data_asset", "entity_id": reference["asset_id"]},
     )
     assert assistant_session.status_code == 201
     session_id = assistant_session.json()["session_id"]
     read_plan = client.post(
         f"/api/trust-space/assistant/sessions/{session_id}/messages",
-        headers={**auth_headers["exchange"], "If-Match": '"1"', "Idempotency-Key": "golden-assistant-read"},
+        headers={**auth_headers["generator"], "If-Match": '"1"', "Idempotency-Key": "golden-assistant-read"},
         json={"content": "检查资产完整性"},
     )
     assert read_plan.status_code == 201
@@ -456,20 +463,20 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     assert plan["capability_state"] == "LOCAL_REAL_DETERMINISTIC"
     executed = client.post(
         f"/api/trust-space/assistant/sessions/{session_id}/plans/{plan['plan_id']}/execute",
-        headers={**auth_headers["exchange"], "If-Match": '"1"'},
+        headers={**auth_headers["generator"], "If-Match": '"1"'},
         json={},
     )
     assert executed.status_code == 200
     assert executed.json()["plan"]["status"] == "SUCCEEDED"
-    before_requests = client.get("/api/data/access-requests", headers=auth_headers["exchange"]).json()["total"]
+    before_requests = client.get("/api/data/access-requests", headers=auth_headers["regulator"]).json()["total"]
     write_session = client.post(
         "/api/trust-space/assistant/sessions",
-        headers={**auth_headers["exchange"], "Idempotency-Key": "golden-assistant-write-session"},
+        headers={**auth_headers["regulator"], "Idempotency-Key": "golden-assistant-write-session"},
         json={"page_path": "/trusted-space/catalog", "entity_type": "data_asset", "entity_id": reference["asset_id"]},
     ).json()
     write_plan_response = client.post(
         f"/api/trust-space/assistant/sessions/{write_session['session_id']}/messages",
-        headers={**auth_headers["exchange"], "If-Match": '"1"', "Idempotency-Key": "golden-assistant-write"},
+        headers={**auth_headers["regulator"], "If-Match": '"1"', "Idempotency-Key": "golden-assistant-write"},
         json={"content": "提交申请"},
     )
     assert write_plan_response.status_code == 201
@@ -477,11 +484,11 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     assert write_plan["status"] == "PENDING_REVIEW"
     write_execution = client.post(
         f"/api/trust-space/assistant/sessions/{write_session['session_id']}/plans/{write_plan['plan_id']}/execute",
-        headers={**auth_headers["exchange"], "If-Match": '"1"'},
+        headers={**auth_headers["regulator"], "If-Match": '"1"'},
         json={},
     )
     assert write_execution.status_code == 200
     assert write_execution.json()["plan"]["status"] == "PENDING_REVIEW"
     assert write_execution.json()["plan"]["steps"][0]["output"]["business_mutation"] is False
-    after_requests = client.get("/api/data/access-requests", headers=auth_headers["exchange"]).json()["total"]
+    after_requests = client.get("/api/data/access-requests", headers=auth_headers["regulator"]).json()["total"]
     assert after_requests == before_requests

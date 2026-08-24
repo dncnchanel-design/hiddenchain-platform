@@ -8,6 +8,7 @@ import { Badge, Button, Card, CardContent, Input, RemoteState, Select, StatusBad
 import { PageFrame } from "../components/PageFrame";
 import { useRemote } from "../../../hooks";
 import { sensitivityLabel } from "../trusted-space-labels";
+import { useTrustedSpaceContext } from "../trusted-space-context";
 
 const PAGE_SIZE = 12;
 
@@ -18,6 +19,8 @@ function filterValues(items: CatalogAsset[], value: string | null, field: "asset
 }
 
 export function CatalogPage() {
+  const { context } = useTrustedSpaceContext();
+  const metadataOnly = context?.actor.role_code === "REGULATOR";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchText = searchParams.get("q") || "";
@@ -87,16 +90,16 @@ export function CatalogPage() {
     {remote.error && !payload && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
     {payload && !items.length && <RemoteState empty emptyLabel="当前范围暂无匹配的数据资产" />}
     {payload && items.length > 0 && <>
-      <div className="trusted-catalog-list">{items.map((asset) => <CatalogAssetRow key={asset.asset_id} asset={asset} onOpen={() => navigate(routeForView("asset", asset.asset_id))} onApply={() => navigate(routeForView("apply", asset.asset_id))} />)}</div>
+      <div className="trusted-catalog-list">{items.map((asset) => <CatalogAssetRow key={asset.asset_id} asset={asset} metadataOnly={metadataOnly} onOpen={() => navigate(routeForView("asset", asset.asset_id))} onApply={() => navigate(routeForView("apply", asset.asset_id))} />)}</div>
       <div className="trusted-step-footer" aria-label="数据目录分页"><span>第 {page} 页 · 共 {payload.total} 项</span><div><Button variant="secondary" size="sm" disabled={!canGoPrevious || remote.loading} onClick={() => updateFilter("page", String(page - 1))}>上一页</Button><Button variant="secondary" size="sm" disabled={!canGoNext || remote.loading} onClick={() => updateFilter("page", String(page + 1))}>下一页</Button></div></div>
     </>}
     {payload && remote.refreshing && <div className="trusted-inline-status" role="status">正在刷新目录…</div>}
   </PageFrame>;
 }
 
-function CatalogAssetRow({ asset, onOpen, onApply }: { asset: CatalogAsset; onOpen: () => void; onApply: () => void }) {
+function CatalogAssetRow({ asset, metadataOnly, onOpen, onApply }: { asset: CatalogAsset; metadataOnly: boolean; onOpen: () => void; onApply: () => void }) {
   const providerName = asset.provider.org_name || asset.provider.org_id;
   const version = asset.latest_version;
   const assetName = asset.asset_name?.trim() || "未命名数据资源";
-  return <Card className="trusted-asset-row"><CardContent><div className="trusted-asset-main"><span className="trusted-asset-icon"><Database size={18} /></span><div><div className="trusted-asset-title"><h2>{assetName}</h2><Badge tone={asset.sensitivity_level === "L4" ? "danger" : asset.sensitivity_level === "L3" ? "warning" : "neutral"}>{sensitivityLabel(asset.sensitivity_level)}</Badge><StatusBadge value={asset.status} /></div><p>{DOMAIN_LABELS[asset.domain || ""] || "未标注能源范围"}{assetName === "未命名数据资源" ? "，请由提供企业补充中文名称" : ""}</p><div className="trusted-asset-meta"><span><UserRound size={13} />{providerName}</span><span>{ASSET_TYPE_LABELS[asset.asset_type] || "数据资源"} · {labelForCode(asset.source.capability_label)}</span><span>{version ? `第 ${version.version_no} 版` : "未发布"}</span></div></div></div><div className="trusted-asset-stats"><div><small>目录记录数</small><strong>{version?.record_count ?? "暂无"}</strong></div><div><small>数据状态</small><strong>{labelForCode(version?.status)}</strong></div><div><small>连接状态</small><strong>{labelForCode(asset.source.status)}</strong></div><div className="trusted-asset-actions"><Button variant="secondary" size="sm" onClick={onOpen}>查看详情 <ArrowUpRight size={13} /></Button>{asset.actions.can_request_usage ? <Button variant="primary" size="sm" onClick={onApply}>申请授权</Button> : <Button variant="secondary" size="sm" disabled title="当前账号不能申请该数据资源">申请授权</Button>}</div></div></CardContent></Card>;
+  return <Card className="trusted-asset-row"><CardContent><div className="trusted-asset-main"><span className="trusted-asset-icon"><Database size={18} /></span><div><div className="trusted-asset-title"><h2>{assetName}</h2><Badge tone={asset.sensitivity_level === "L4" ? "danger" : asset.sensitivity_level === "L3" ? "warning" : "neutral"}>{sensitivityLabel(asset.sensitivity_level)}</Badge><StatusBadge value={asset.status} /></div><p>{DOMAIN_LABELS[asset.domain || ""] || "未标注能源范围"}{assetName === "未命名数据资源" ? "，请由提供企业补充中文名称" : ""}</p><div className="trusted-asset-meta"><span><UserRound size={13} />{providerName}</span><span>{ASSET_TYPE_LABELS[asset.asset_type] || "数据资源"} · {labelForCode(asset.source.capability_label)}</span><span>{version ? `第 ${version.version_no} 版` : "未发布"}</span></div></div></div><div className="trusted-asset-stats"><div><small>{metadataOnly ? "目录状态" : "目录记录数"}</small><strong>{metadataOnly ? "仅显示元数据" : version?.record_count ?? "暂无"}</strong></div><div><small>数据状态</small><strong>{labelForCode(version?.status)}</strong></div><div><small>连接状态</small><strong>{labelForCode(asset.source.status)}</strong></div><div className="trusted-asset-actions"><Button variant="secondary" size="sm" onClick={onOpen}>查看详情 <ArrowUpRight size={13} /></Button>{asset.actions.can_request_usage ? <Button variant="primary" size="sm" onClick={onApply}>申请授权</Button> : <Button variant="secondary" size="sm" disabled title="当前账号不能申请该数据资源">申请授权</Button>}</div></div></CardContent></Card>;
 }

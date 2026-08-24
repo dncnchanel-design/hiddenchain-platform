@@ -6,9 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import (
+    AccessRule,
     DataUpload,
     DidIdentity,
     Organization,
+    LocalSubjectNode,
     SettlementRule,
     SettlementTask,
     Signature,
@@ -24,6 +26,9 @@ from .services.asset_registry import project_upload_to_asset_registry
 
 
 BUSINESS_OWNER_PERMISSIONS = [
+    "VIEW_DATA",
+    "REQUEST_DATA",
+    "MANAGE_RULES",
     "MANAGE_CATALOG",
     "MANAGE_CONNECTOR",
     "MANAGE_PUBLICATION_POLICY",
@@ -62,7 +67,7 @@ USERS = [
     ("user-exchange-heat", "org-exchange-heat-t01", "exchange_heat", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
     ("user-exchange-gas", "org-exchange-gas-t01", "exchange_gas", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
     ("user-exchange-oil", "org-exchange-oil-t01", "exchange_oil", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
-    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管方账户", "REGULATOR", ["CREATE_CROSS_ENERGY_QUERY", "CREATE_COMPUTE_TASK", "VIEW_COMPUTE_RESULT", "VIEW_AUDIT"]),
+    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管方账户", "REGULATOR", ["VIEW_DATA", "REQUEST_DATA", "CREATE_CROSS_ENERGY_QUERY", "CREATE_COMPUTE_TASK", "VIEW_COMPUTE_RESULT", "VIEW_AUDIT"]),
     ("user-admin", "org-admin-t01", "admin", "admin123", "平台运维账户", "ADMIN", ["MANAGE_PLATFORM_OPERATIONS"]),
 ]
 
@@ -196,6 +201,42 @@ def seed_test_fixtures(db: Session) -> None:
 
     db.flush()
     ensure_agent_tool_catalog(db)
+
+    for org_id, org_type, _energy_domain, _org_name, _credit_code in ORGS:
+        if org_type not in {"GENERATOR", "RETAILER", "COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE", "EXCHANGE"}:
+            continue
+        db.add(
+            LocalSubjectNode(
+                org_id=org_id,
+                node_code=f"local-node-{org_id}",
+                endpoint_ref=None,
+                public_key=None,
+                environment="DEMO_ADAPTER",
+                status="ACTIVE",
+                metadata_json={
+                    "raw_data_location": "subject_internal_server",
+                    "synthetic_data_only": True,
+                },
+            )
+        )
+
+    db.add(
+        AccessRule(
+            owner_org_id="org-generator-t01",
+            rule_code="GENERATION_DAILY_STATS",
+            version_no=1,
+            energy_domain="electricity",
+            resource_id="generation",
+            function_code="average",
+            mode="AUTO_CALL",
+            scope_json={"granularity": "DAY", "output_mode": "AGGREGATE_ONLY"},
+            limits_json={"minimum_record_count": 3, "max_duration_days": 31, "granularity": "DAY", "output_mode": "AGGREGATE_ONLY"},
+            status="ACTIVE",
+            rule_hash=sha256_json({"owner_org_id": "org-generator-t01", "resource_id": "generation", "function_code": "average", "version_no": 1}),
+            approved_by_user_id="user-generator",
+        )
+    )
+    db.flush()
 
     rule_parameters = {
         "contract_price": 420.0,

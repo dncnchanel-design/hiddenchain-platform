@@ -62,7 +62,10 @@ _BUSINESS_APPLICANTS = {
     "EXCHANGE",
     "REGULATOR",
 }
-_READ_ALL = {"REGULATOR"}
+# REGULATOR is the only cross-subject applicant, not a bypass around the
+# provider boundary.  It sees its own request records and only the result
+# scope granted by each provider.
+_READ_ALL: frozenset[str] = frozenset()
 _PROVIDER_REVIEWERS = {
     "GENERATOR",
     "RETAILER",

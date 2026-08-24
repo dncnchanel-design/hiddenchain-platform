@@ -164,6 +164,14 @@ class Settings:
     platform_signing_private_key: str = os.getenv("PLATFORM_SIGNING_PRIVATE_KEY", "")
     connector_endpoints_json: str = os.getenv("CONNECTOR_ENDPOINTS_JSON", "{}")
     connector_public_keys_json: str = os.getenv("CONNECTOR_PUBLIC_KEYS_JSON", "{}")
+    # Production routes by concrete provider organization, never by energy
+    # domain.  The old connector maps remain as a demo/upgrade fallback only.
+    subject_node_endpoints_json: str = os.getenv(
+        "SUBJECT_NODE_ENDPOINTS_JSON", os.getenv("CONNECTOR_ENDPOINTS_JSON", "{}")
+    )
+    subject_node_public_keys_json: str = os.getenv(
+        "SUBJECT_NODE_PUBLIC_KEYS_JSON", os.getenv("CONNECTOR_PUBLIC_KEYS_JSON", "{}")
+    )
     connector_timeout_seconds: float = _float_env("CONNECTOR_TIMEOUT_SECONDS", 15.0)
 
 

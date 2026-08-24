@@ -447,8 +447,36 @@ export type QueryConfirmation = {
   notice: string;
 };
 
+export type AccessRule = CapabilityEnvelope & {
+  rule_id: string;
+  owner_org_id: string;
+  rule_code: string;
+  version_no: number;
+  version: string;
+  energy_domain?: string | null;
+  asset_id?: string | null;
+  resource_id: string;
+  function_code: string;
+  mode: "AUTO_CALL" | "ENTERPRISE_APPROVAL" | "FORBIDDEN" | string;
+  scope: Record<string, unknown>;
+  limits: Record<string, unknown>;
+  status: string;
+  rule_hash: string;
+  approved_by_user_id?: string | null;
+  approved_at?: string | null;
+  revoked_at?: string | null;
+  raw_data_export: false;
+};
+
+export type AccessRuleListPayload = CapabilityEnvelope & {
+  items: AccessRule[];
+  metadata_only: boolean;
+  raw_data_exposed: false;
+};
+
 export type ControlledQueryResult = {
   task_id: string;
+  request_item_id?: string;
   authorization_scope: string;
   generated_at: string;
   result: number | string | Record<string, number | string>;
@@ -459,6 +487,7 @@ export type ControlledQueryResult = {
   audit_recorded: boolean;
   raw_records_returned: boolean;
   capability: string;
+  idempotent_replay?: boolean;
 };
 
 export type OrganizationRef = {
@@ -1029,12 +1058,37 @@ export function loadUsageRequest(requestId: string, signal?: AbortSignal) {
   return api<UsageRequest>(`/data/access-requests/${encodeURIComponent(requestId)}`, { signal, cacheTtlMs: 1_500 });
 }
 
+export function loadAccessRules(params: { ownerOrgId?: string } = {}, signal?: AbortSignal) {
+  return api<AccessRuleListPayload>(`/data/access-rules${queryString({ owner_org_id: params.ownerOrgId })}`, { signal, cacheTtlMs: 1_500 });
+}
+
+export function createAccessRule(
+  body: {
+    rule_code: string;
+    energy_domain?: string;
+    asset_id?: string;
+    resource_id: string;
+    function_code: string;
+    mode: "AUTO_CALL" | "ENTERPRISE_APPROVAL" | "FORBIDDEN";
+    scope?: Record<string, unknown>;
+    limits?: Record<string, unknown>;
+  },
+  options: ApiCommandOptions,
+) {
+  return post<AccessRule>("/data/access-rules", body, options);
+}
+
+export function revokeAccessRule(ruleId: string, options: ApiCommandOptions) {
+  return post<AccessRule>(`/data/access-rules/${encodeURIComponent(ruleId)}/revoke`, {}, options);
+}
+
 export function parseTrustedQuery(question: string) {
   return post<QueryIntent>("/trust-space/query/parse", { question });
 }
 
 export function confirmTrustedQuery(body: {
-  authorization_id: string;
+  authorization_id?: string;
+  provider_org_id?: string;
   energy_domain: string;
   resource: string;
   function: string;
@@ -1047,7 +1101,8 @@ export function confirmTrustedQuery(body: {
 }
 
 export function executeTrustedQuery(body: {
-  authorization_id: string;
+  authorization_id?: string;
+  provider_org_id?: string;
   energy_domain: string;
   resource: string;
   function: string;

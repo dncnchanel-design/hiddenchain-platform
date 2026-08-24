@@ -17,6 +17,10 @@ services:
         condition: service_started
       electricity-connector:
         condition: service_healthy
+      electricity-retailer-connector:
+        condition: service_healthy
+      electricity-exchange-connector:
+        condition: service_healthy
       coal-connector:
         condition: service_healthy
       heat-connector:
@@ -46,6 +50,7 @@ services:
       EXECUTION_AUDIT_WORKERS: "2"
       CONNECTOR_TIMEOUT_SECONDS: "60"
       CONNECTOR_ENDPOINTS_JSON: '{"electricity":"http://electricity-connector:8000","coal":"http://coal-connector:8000","heat":"http://heat-connector:8000","gas":"http://gas-connector:8000","oil":"http://oil-connector:8000"}'
+      SUBJECT_NODE_ENDPOINTS_JSON: '{"org-generator-t01":"http://electricity-connector:8000","org-retailer-t01":"http://electricity-retailer-connector:8000","org-exchange-t01":"http://electricity-exchange-connector:8000","org-coal-t01":"http://coal-connector:8000","org-heat-t01":"http://heat-connector:8000","org-gas-t01":"http://gas-connector:8000","org-oil-t01":"http://oil-connector:8000"}'
       CONNECTOR_PUBLIC_KEYS_JSON: '{}'
       DEEPSEEK_ENABLED: "false"
     volumes:
@@ -72,6 +77,7 @@ services:
       ENERGY_DOMAIN: electricity
       CONNECTOR_NAME: 电力企业连接器
       CONNECTOR_ID: connector-electricity
+      ORGANIZATION_ID: org-generator-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/electricity.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
@@ -91,6 +97,7 @@ services:
       ENERGY_DOMAIN: coal
       CONNECTOR_NAME: 煤炭企业连接器
       CONNECTOR_ID: connector-coal
+      ORGANIZATION_ID: org-coal-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/coal.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${COAL_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
@@ -106,6 +113,7 @@ services:
       ENERGY_DOMAIN: heat
       CONNECTOR_NAME: 热能企业连接器
       CONNECTOR_ID: connector-heat
+      ORGANIZATION_ID: org-heat-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/heat.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${HEAT_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
@@ -121,6 +129,7 @@ services:
       ENERGY_DOMAIN: gas
       CONNECTOR_NAME: 天然气企业连接器
       CONNECTOR_ID: connector-gas
+      ORGANIZATION_ID: org-gas-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/gas.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${GAS_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
@@ -136,11 +145,44 @@ services:
       ENERGY_DOMAIN: oil
       CONNECTOR_NAME: 石油企业连接器
       CONNECTOR_ID: connector-oil
+      ORGANIZATION_ID: org-oil-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/oil.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${OIL_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
     volumes:
       - oil-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
+  electricity-retailer-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: electricity
+      ORGANIZATION_ID: org-retailer-t01
+      CONNECTOR_NAME: 售电企业本地节点
+      CONNECTOR_ID: node-org-retailer-t01
+      CONNECTOR_DATABASE_PATH: /app/runtime/retailer.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_RETAILER_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - electricity-retailer-connector-runtime:/app/runtime
+    healthcheck: *connector-health
+
+  electricity-exchange-connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      ENERGY_DOMAIN: electricity
+      ORGANIZATION_ID: org-exchange-t01
+      CONNECTOR_NAME: 电力交易中心本地节点
+      CONNECTOR_ID: node-org-exchange-t01
+      CONNECTOR_DATABASE_PATH: /app/runtime/exchange.db
+      CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_EXCHANGE_CONNECTOR_SIGNING_PRIVATE_KEY}
+      ALLOW_DEMO_KEY_REGISTRATION: "true"
+    volumes:
+      - electricity-exchange-connector-runtime:/app/runtime
     healthcheck: *connector-health
 
 volumes:
@@ -150,3 +192,5 @@ volumes:
   heat-connector-runtime:
   gas-connector-runtime:
   oil-connector-runtime:
+  electricity-retailer-connector-runtime:
+  electricity-exchange-connector-runtime:

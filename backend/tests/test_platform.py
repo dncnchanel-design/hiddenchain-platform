@@ -264,7 +264,7 @@ def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, 
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     catalog = client.get(
         "/api/data/catalog?trade_batch_no=TB-2026-07-T01",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert catalog.status_code == 200
     payload = catalog.json()

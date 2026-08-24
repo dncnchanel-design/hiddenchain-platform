@@ -345,7 +345,7 @@ def test_computation_truth_labels_and_log_cursor(client, auth_headers):
     forbidden = client.get(
         f"/api/trust-space/computations/{job_id}", headers=auth_headers["regulator"]
     )
-    assert forbidden.status_code == 200
+    assert forbidden.status_code == 404
     blocked = client.get(
         f"/api/trust-space/computations/{empty_job_id}", headers=auth_headers["exchange"]
     )
@@ -560,17 +560,17 @@ def test_audit_scope_and_server_exports_are_real_and_typed(client, auth_headers)
         )
         db.commit()
 
-    audit = client.get("/api/trust-space/audit", headers=auth_headers["exchange"])
+    audit = client.get("/api/trust-space/audit", headers=auth_headers["regulator"])
     assert audit.status_code == 200, audit.text
     assert any(item["action_code"] == "BATCH3_AUDIT_EVENT" for item in audit.json()["items"])
     task_audit = client.get(
-        f"/api/trust-space/audit/tasks/{TASK_ID}", headers=auth_headers["exchange"]
+        f"/api/trust-space/audit/tasks/{TASK_ID}", headers=auth_headers["regulator"]
     )
     assert task_audit.status_code == 200
     assert task_audit.json()["task"]["task_id"] == TASK_ID
 
     json_export = client.get(
-        "/api/trust-space/audit/export?format=json", headers=auth_headers["exchange"]
+        "/api/trust-space/audit/export?format=json", headers=auth_headers["regulator"]
     )
     assert json_export.status_code == 200
     assert json_export.headers["content-type"].startswith("application/json")
@@ -584,7 +584,7 @@ def test_audit_scope_and_server_exports_are_real_and_typed(client, auth_headers)
     assert audit_event["result_label"] == "成功"
     assert json_payload["field_labels"]["record_type"] == "记录类型"
     csv_export = client.get(
-        "/api/trust-space/audit/export?format=csv", headers=auth_headers["exchange"]
+        "/api/trust-space/audit/export?format=csv", headers=auth_headers["regulator"]
     )
     assert csv_export.status_code == 200
     assert csv_export.headers["content-type"].startswith("text/csv")

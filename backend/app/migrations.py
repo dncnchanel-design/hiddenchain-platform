@@ -101,6 +101,16 @@ ASSISTANT_TABLE_NAMES = frozenset(
 )
 NOTIFICATION_TABLE_NAMES = frozenset({"user_notifications"})
 REVOKED_TOKEN_TABLE_NAMES = frozenset({"revoked_access_tokens"})
+LOCAL_DATA_BOUNDARY_TABLE_NAMES = frozenset(
+    {
+        "local_subject_nodes",
+        "access_rules",
+        "data_request_batches",
+        "data_request_items",
+        "execution_receipts",
+        "evidence_projections",
+    }
+)
 
 COMPUTE_CONTROL_COLUMNS: dict[str, dict[str, str]] = {
     "privacy_compute_jobs": {
@@ -393,6 +403,27 @@ def _user_notifications(connection: Connection) -> None:
 
 def _revoked_access_tokens(connection: Connection) -> None:
     _create_revision_tables(connection, REVOKED_TOKEN_TABLE_NAMES)
+
+
+LOCAL_DATA_BOUNDARY_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_access_rules_owner_resource_status "
+    "ON access_rules (owner_org_id, resource_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_data_request_batches_applicant_status "
+    "ON data_request_batches (applicant_org_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_data_request_items_batch_status "
+    "ON data_request_items (batch_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_data_request_items_provider_status "
+    "ON data_request_items (provider_org_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_execution_receipts_provider_executed "
+    "ON execution_receipts (provider_org_id, executed_at)",
+    "CREATE INDEX IF NOT EXISTS ix_evidence_projections_visible_org_created "
+    "ON evidence_projections (visible_to_org_id, created_at)",
+)
+
+
+def _local_data_boundary(connection: Connection) -> None:
+    _create_revision_tables(connection, LOCAL_DATA_BOUNDARY_TABLE_NAMES)
+    _create_indexes(connection, LOCAL_DATA_BOUNDARY_INDEXES)
 
 
 def _privacy_compute_controls(connection: Connection) -> None:
@@ -928,6 +959,17 @@ MIGRATIONS: tuple[Migration, ...] = (
         _revoked_access_tokens,
         revision_schema=tuple(f"table:{name}" for name in sorted(REVOKED_TOKEN_TABLE_NAMES)),
         checksum_helpers=(_create_revision_tables,),
+    ),
+    Migration(
+        "20260824_002",
+        "add local subject nodes, scoped requests, rules, receipts, and evidence projections",
+        _local_data_boundary,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(LOCAL_DATA_BOUNDARY_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in LOCAL_DATA_BOUNDARY_INDEXES),
+            "central-raw-data:never-required-by-trusted-query",
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
     ),
 )
 

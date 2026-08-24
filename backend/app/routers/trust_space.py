@@ -677,7 +677,10 @@ def verify_evidence(
     if evidence is None:
         raise HTTPException(status_code=404, detail={"code": "EVIDENCE_NOT_FOUND", "message": "证据不存在"})
     task = db.get(trust_space_service.SettlementTask, evidence.task_id) if evidence.task_id else None
-    if task is None or not trust_space_service._task_visible(db, task, user):
+    if task is None or (
+        user.role_code != "REGULATOR"
+        and not trust_space_service._task_visible(db, task, user)
+    ):
         raise HTTPException(status_code=403, detail={"code": "EVIDENCE_SCOPE_DENIED", "message": "无权核验证据"})
     result = LocalEvidenceLedgerAdapter.verify(evidence)
     add_audit_log(

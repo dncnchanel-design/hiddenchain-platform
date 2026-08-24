@@ -4,7 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { PageFrame } from "../components/PageFrame";
 import { QueryResultChart } from "../components/QueryResultChart";
 import { Badge, Button, Card, CardContent, CardHeader, FieldLabel, Input, Select, SurfaceHeader, Textarea } from "../components/ui-primitives";
-import { confirmTrustedQuery, executeTrustedQuery, loadUsageRequests, parseTrustedQuery, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
+import { confirmTrustedQuery, executeTrustedQuery, loadAccessRules, loadUsageRequests, parseTrustedQuery, type AccessRule, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
+import { useTrustedSpaceContext } from "../trusted-space-context";
 
 const domainOptions = [
   { value: "", label: "请选择能源种类" },
@@ -52,10 +53,14 @@ function resourceLabel(domain: string | null | undefined, resource: string | nul
 
 export function QueryPage() {
   const navigate = useNavigate();
+  const { context } = useTrustedSpaceContext();
+  const isRegulator = context?.actor.role_code === "REGULATOR";
   const [question, setQuestion] = useState("查询2026年8月煤炭库存平均值");
   const [intent, setIntent] = useState<QueryIntent | null>(null);
   const [authorizations, setAuthorizations] = useState<UsageRequest[]>([]);
+  const [accessRules, setAccessRules] = useState<AccessRule[]>([]);
   const [authorizationId, setAuthorizationId] = useState("");
+  const [providerOrgId, setProviderOrgId] = useState("");
   const [domain, setDomain] = useState("coal");
   const [resource, setResource] = useState("inventory");
   const [fixedFunction, setFixedFunction] = useState("average");
@@ -75,6 +80,23 @@ export function QueryPage() {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "授权记录加载失败"));
   }, []);
+
+  useEffect(() => {
+    if (!isRegulator) return;
+    loadAccessRules()
+      .then((payload) => setAccessRules(payload.items))
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "主体规则加载失败"));
+  }, [isRegulator]);
+
+  const matchingAutoRules = useMemo(
+    () => accessRules.filter((rule) => rule.mode === "AUTO_CALL" && rule.energy_domain === domain && rule.resource_id === resource && rule.function_code === fixedFunction),
+    [accessRules, domain, resource, fixedFunction],
+  );
+
+  useEffect(() => {
+    if (!isRegulator) return;
+    setProviderOrgId((current) => matchingAutoRules.some((rule) => rule.owner_org_id === current) ? current : matchingAutoRules[0]?.owner_org_id || "");
+  }, [isRegulator, matchingAutoRules]);
 
   const resources = useMemo(() => [
     { value: "", label: domain ? "请选择数据资源" : "请先选择能源种类" },
@@ -109,8 +131,9 @@ export function QueryPage() {
   }
 
   async function execute() {
-    if (!authorizationId) {
-      setError("请先取得数据提供企业的批准授权");
+    const autoRule = matchingAutoRules.find((rule) => rule.owner_org_id === providerOrgId) || matchingAutoRules[0];
+    if (!authorizationId && !autoRule) {
+      setError(isRegulator ? "当前条件没有命中主体预先批准规则，请先发起企业授权申请" : "请先取得数据提供企业的批准授权");
       return;
     }
     if (!confirmed) {
@@ -126,7 +149,8 @@ export function QueryPage() {
     setResult(null);
     try {
       const query = {
-        authorization_id: authorizationId,
+        authorization_id: authorizationId || undefined,
+        provider_org_id: authorizationId ? undefined : autoRule?.owner_org_id,
         energy_domain: domain,
         resource,
         function: fixedFunction,
@@ -145,7 +169,7 @@ export function QueryPage() {
     }
   }
 
-  return <PageFrame title="智能数据查询" description="DeepSeek 只把人话翻译成固定查询条件；授权核验、计算和图表数据都来自后端确定性链路。">
+  return <PageFrame title="智能数据查询" description={isRegulator ? "Agent 只负责拆解需求；能源局确认后，系统按主体规则或企业审批执行，原始数据不会离开主体节点。" : "DeepSeek 只把人话翻译成固定查询条件；授权核验、计算和图表数据都来自后端确定性链路。"}>
     <div className="trusted-query-layout">
       <div className="trusted-query-main">
         <Card className="trusted-query-question">
@@ -172,12 +196,12 @@ export function QueryPage() {
             <div><FieldLabel>能源种类</FieldLabel><Select value={domain} onChange={(event) => { const next = event.target.value; setDomain(next); setResource(""); setConfirmed(false); }} options={domainOptions} /></div>
             <div><FieldLabel>数据资源</FieldLabel><Select value={resource} onChange={(event) => { setResource(event.target.value); setConfirmed(false); }} options={resources} /></div>
             <div><FieldLabel>固定函数</FieldLabel><Select value={fixedFunction} onChange={(event) => { setFixedFunction(event.target.value); setConfirmed(false); }} options={functionOptions} /></div>
-            <div className="trusted-query-wide"><FieldLabel>企业授权</FieldLabel><Select value={authorizationId} onChange={(event) => { setAuthorizationId(event.target.value); setConfirmed(false); }} options={authorizations.length ? authorizations.map((item) => ({ value: item.request_id, label: `${item.asset.asset_name || "未命名数据资源"}，由${item.provider.org_name}批准` })) : [{ value: "", label: "暂无已批准授权" }]} /></div>
+            <div className="trusted-query-wide"><FieldLabel>{isRegulator ? "主体规则 / 企业授权" : "企业授权"}</FieldLabel>{isRegulator && !authorizationId ? <Select value={providerOrgId} onChange={(event) => { setProviderOrgId(event.target.value); setConfirmed(false); }} options={matchingAutoRules.length ? matchingAutoRules.map((rule) => ({ value: rule.owner_org_id, label: `${rule.owner_org_id} · ${rule.version} · 可自动调用` })) : [{ value: "", label: "当前条件未命中自动规则" }]} /> : <Select value={authorizationId} onChange={(event) => { setAuthorizationId(event.target.value); setConfirmed(false); }} options={authorizations.length ? authorizations.map((item) => ({ value: item.request_id, label: `${item.asset.asset_name || "未命名数据资源"}，由${item.provider.org_name}批准` })) : [{ value: "", label: "暂无已批准授权" }]} />}</div>
             <div><FieldLabel htmlFor="query-start">开始日期</FieldLabel><Input id="query-start" type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setConfirmed(false); }} /></div>
             <div><FieldLabel htmlFor="query-end">结束日期</FieldLabel><Input id="query-end" type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setConfirmed(false); }} /></div>
             <div><FieldLabel htmlFor="query-region" hint="可不填">地区</FieldLabel><Input id="query-region" value={region} onChange={(event) => { setRegion(event.target.value); setConfirmed(false); }} placeholder="全部已授权地区" /></div>
             <div className="trusted-query-wide trusted-confirmation-row"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={busy} /><span>我已核对能源种类、数据资源、固定函数、时间范围和地区，确认按这些条件创建任务。</span></label></div>
-            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。</span></div><Button variant="primary" busy={busy} disabled={!confirmed} onClick={execute}><Calculator size={15} />确认并创建任务</Button></div>
+            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>{isRegulator && !authorizationId && matchingAutoRules.length ? "已命中主体批准规则；只返回规则允许的聚合结果。" : "原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。"}</span></div><Button variant="primary" busy={busy} disabled={!confirmed} onClick={execute}><Calculator size={15} />确认并创建任务</Button></div>
           </CardContent>
         </Card>
       </div>
@@ -186,12 +210,12 @@ export function QueryPage() {
         <Card>
           <CardHeader><SurfaceHeader title="授权前置条件" /></CardHeader>
           <CardContent className="trusted-query-rule-list">
-            <div><FileSignature size={16} /><span><strong>必须先申请</strong><small>数据提供企业批准后才能计算</small></span></div>
+            <div><FileSignature size={16} /><span><strong>{isRegulator ? "规则或申请" : "必须先申请"}</strong><small>{isRegulator ? "命中主体预设规则可直接调用，否则需要企业批准" : "数据提供企业批准后才能计算"}</small></span></div>
             <div><ShieldCheck size={16} /><span><strong>范围不能扩大</strong><small>字段、期间、粒度、用途和次数均受授权约束</small></span></div>
             <div><Calculator size={16} /><span><strong>只运行固定函数</strong><small>不执行任意代码、任意 SQL 或 AI 脚本</small></span></div>
           </CardContent>
         </Card>
-        {!authorizations.length && <div className="trusted-query-empty-auth"><strong>当前没有已批准授权</strong><p>请先在数据目录选择资源，向提供企业提交授权申请。</p><Button variant="secondary" onClick={() => navigate("/trusted-space/catalog")}>前往数据目录</Button></div>}
+        {!authorizations.length && (!isRegulator || !matchingAutoRules.length) && <div className="trusted-query-empty-auth"><strong>{isRegulator ? "当前没有可直接调用的主体规则" : "当前没有已批准授权"}</strong><p>请先在数据目录选择资源，向提供企业提交授权申请。</p><Button variant="secondary" onClick={() => navigate("/trusted-space/catalog")}>前往数据目录</Button></div>}
       </aside>
     </div>
 

@@ -33,6 +33,7 @@ from ..services.adapters import DataSpaceConnectorAdapter
 from ..services.credentials import JsonLdCredentialAdapter
 from ..services.common import add_audit_log
 from ..services.data_usage_requests import DataUsageRequestStatus, duration_policy_for_version
+from ..services.local_data_boundary import can_view_subject_metadata, can_view_subject_value
 from ..services.notifications import (
     publish_computation_action,
     publish_contract_event,
@@ -267,7 +268,7 @@ TRUST_SPACE_MENUS: tuple[dict[str, Any], ...] = (
     {"code": "connector", "path": "/trusted-space/connector", "title": "数据连接", "roles": sorted(PROVIDER_ROLES)},
     {"code": "authorization", "path": "/trusted-space/authorizations", "title": "数据授权", "roles": sorted(BUSINESS_ROLES)},
     {"code": "compute", "path": "/trusted-space/mpc", "title": "隐私计算", "roles": sorted(BUSINESS_ROLES)},
-    {"code": "audit", "path": "/trusted-space/audit", "title": "审计追溯", "roles": sorted(BUSINESS_ROLES)},
+    {"code": "audit", "path": "/trusted-space/audit", "title": "审计追溯", "roles": sorted(OVERSIGHT_ROLES)},
     {"code": "participants", "path": "/trusted-space/identity", "title": "参与主体", "roles": sorted(ALL_ROLES)},
 )
 
@@ -299,8 +300,8 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
         "can_manage_system": False,
     },
     "EXCHANGE": {
-        "can_view_own_assets": False,
-        "can_view_all_assets": True,
+        "can_view_own_assets": True,
+        "can_view_all_assets": False,
         "can_discover_cross_domain_metadata": False,
         "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
@@ -308,7 +309,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
         "can_revoke_own_authorizations": True,
         "can_create_settlement": True,
         "can_confirm_own_result": False,
-        "can_view_audit": True,
+        "can_view_audit": False,
         "can_manage_system": False,
     },
     "REGULATOR": {
@@ -396,13 +397,10 @@ def _asset_visible_in_energy_scope(
 ) -> bool:
     if user.role_code == "ADMIN":
         return False
-    if asset.owner_org_id == user.org_id or user.role_code == "REGULATOR":
-        return True
-    energy_domain = organization.energy_domain if organization else None
-    asset_domain = _asset_energy_domain(asset, sources)
-    if energy_domain and asset_domain == energy_domain:
-        return True
-    return bool(energy_domain and asset_domain == energy_domain)
+    # A domain is a classification label, not a tenancy boundary.  REGULATOR
+    # gets metadata for every subject; every other business user gets only its
+    # own subject metadata unless a future scoped evidence grant says otherwise.
+    return can_view_subject_metadata(user, asset.owner_org_id)
 
 
 def _asset_access_control(
@@ -429,10 +427,13 @@ def _asset_access_control(
 
 def _task_scope_query(db: Session, user: User):
     query = select(SettlementTask)
-    if user.role_code in ENTERPRISE_ROLES:
+    if user.role_code in BUSINESS_ROLES:
         query = query.where(
-            SettlementTask.task_id.in_(
-                select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)
+            or_(
+                SettlementTask.creator_org_id == user.org_id,
+                SettlementTask.task_id.in_(
+                    select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)
+                ),
             )
         )
     return query
@@ -440,13 +441,12 @@ def _task_scope_query(db: Session, user: User):
 
 def _request_scope_query(user: User):
     query = select(DataUsageRequest)
-    if user.role_code not in OVERSIGHT_ROLES:
-        query = query.where(
-            or_(
-                DataUsageRequest.applicant_org_id == user.org_id,
-                DataUsageRequest.provider_org_id == user.org_id,
-            )
+    query = query.where(
+        or_(
+            DataUsageRequest.applicant_org_id == user.org_id,
+            DataUsageRequest.provider_org_id == user.org_id,
         )
+    )
     return query
 
 
@@ -1422,7 +1422,7 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
             "can_request_usage": can_request,
             "can_review_inbound": can_review,
             "can_revoke_provider_authorization": can_review,
-            "can_view_audit": user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE",
+            "can_view_audit": user.role_code == "REGULATOR" and _has_permission(user, "VIEW_AUDIT"),
         },
         "access_control": _asset_access_control(
             asset,
@@ -1477,8 +1477,6 @@ def _organization_payload(db: Session, org_id: str | None) -> dict[str, Any] | N
 
 
 def _contract_visible(contract: DataContract, user: User) -> bool:
-    if user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE":
-        return True
     return contract.provider_org_id == user.org_id or contract.consumer_type == user.org_id
 
 
@@ -1880,7 +1878,7 @@ def append_contract_event(
 
 
 def _task_visible(db: Session, task: SettlementTask, user: User) -> bool:
-    if user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE":
+    if task.creator_org_id == user.org_id:
         return True
     return db.scalar(
         select(TaskParticipant.participant_id).where(
@@ -2435,7 +2433,9 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
             "duration_ms": job.duration_ms,
             "input_hashes": job.input_hashes_json,
             "output_hash": job.output_hash,
-            "result": job.result_json if user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE" else {"output_hash": job.output_hash},
+            "result": job.result_json
+            if (job.execution_attestation_json or {}).get("applicant_org_id") == user.org_id
+            else {"output_hash": job.output_hash},
             "privacy_guarantees": job.privacy_guarantees_json,
             "logs": job.logs_json,
             "attempt_id": job.attempt_id,
@@ -2530,9 +2530,13 @@ def computation_events(
 
 def result_visible(db: Session, result: SettlementResult, user: User) -> bool:
     task = db.get(SettlementTask, result.task_id)
-    if task is None or not _task_visible(db, task, user):
+    if task is None:
         return False
-    return user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE" or result.org_id in {None, user.org_id}
+    if user.role_code == "REGULATOR" and "VIEW_AUDIT" in set(user.permissions_json or []):
+        return True
+    if not _task_visible(db, task, user):
+        return False
+    return result.org_id in {None, user.org_id} or user.org_id == result.org_id
 
 
 def result_detail(db: Session, result_id: str, user: User) -> dict[str, Any] | None:
@@ -2630,7 +2634,7 @@ def result_detail(db: Session, result_id: str, user: User) -> dict[str, Any] | N
             "attempt_id": result.attempt_id,
             "org_id": result.org_id,
             "result_scope": result.result_scope,
-            "result": result.result_json if user.role_code in OVERSIGHT_ROLES or user.role_code == "EXCHANGE" or result.org_id == user.org_id else {"result_hash": result.result_hash},
+            "result": result.result_json if can_view_subject_value(user, result.org_id or "", authorized=result.org_id == user.org_id) else {"result_hash": result.result_hash},
             "result_hash": result.result_hash,
             "confirm_status": result.confirm_status,
             "created_at": _iso(result.created_at),
@@ -2712,10 +2716,24 @@ def result_list(db: Session, user: User, *, page: int = 1, page_size: int = 20) 
 
 
 def audit_list(db: Session, user: User, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
-    if user.role_code not in OVERSIGHT_ROLES and user.role_code != "EXCHANGE":
+    if user.role_code != "REGULATOR" or "VIEW_AUDIT" not in set(user.permissions_json or []):
         raise PermissionError("AUDIT_SCOPE_DENIED")
+    visible_task_ids = (
+        set(db.scalars(select(SettlementTask.task_id)).all())
+        if user.role_code == "REGULATOR"
+        else set(db.scalars(_task_scope_query(db, user).with_only_columns(SettlementTask.task_id)).all())
+    )
     logs = db.scalars(select(AuditLog).order_by(AuditLog.occurred_at.desc())).all()
     reports = db.scalars(select(AuditReport).order_by(AuditReport.created_at.desc())).all()
+    logs = [
+        item
+        for item in logs
+        if item.actor_org_id == user.org_id
+        or item.target_id in visible_task_ids
+        or item.target_type in {"DATA_USAGE_REQUEST", "TRUSTED_SPACE_QUERY_CONFIRMATION"}
+        and item.actor_org_id == user.org_id
+    ]
+    reports = [item for item in reports if item.task_id in visible_task_ids]
     total = len(logs) + len(reports)
     entries = [
         {
@@ -2769,10 +2787,12 @@ def audit_list(db: Session, user: User, *, page: int = 1, page_size: int = 50) -
 
 
 def audit_task(db: Session, task_id: str, user: User) -> dict[str, Any] | None:
-    if user.role_code not in OVERSIGHT_ROLES and user.role_code != "EXCHANGE":
+    if user.role_code != "REGULATOR" or "VIEW_AUDIT" not in set(user.permissions_json or []):
         raise PermissionError("AUDIT_SCOPE_DENIED")
     task = db.get(SettlementTask, task_id)
     if task is None:
+        return None
+    if user.role_code != "REGULATOR" and not _task_visible(db, task, user):
         return None
     audit = audit_list(db, user, page=1, page_size=500)
     logs = [item for item in audit["items"] if item.get("target_id") == task_id]

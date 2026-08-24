@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import DidIdentity, Organization, User
+from .models import AccessRule, DidIdentity, LocalSubjectNode, Organization, User
 from .security import hash_password, sha256_json
 from .seed import ORGS, USERS
 from .trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
@@ -98,7 +98,7 @@ def _seed_participants(db: Session) -> None:
             )
         )
         db.flush()
-        public_key = public_keys.get(energy_domain or "", "")
+        public_key = public_keys.get(org_id, public_keys.get(energy_domain or "", ""))
         db.add(
             DidIdentity(
                 did_id=f"did:hiddenchain:org:{org_id}",
@@ -134,6 +134,35 @@ def _seed_participants(db: Session) -> None:
             )
         )
     db.flush()
+    for org_id, org_type, _energy_domain, _org_name, _credit_code in ORGS:
+        if org_type not in {"GENERATOR", "RETAILER", "COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE", "EXCHANGE"}:
+            continue
+        db.add(
+            LocalSubjectNode(
+                org_id=org_id,
+                node_code=f"local-node-{org_id}",
+                environment="DEMO_ADAPTER",
+                status="ACTIVE",
+                metadata_json={"raw_data_location": "subject_internal_server", "synthetic_data_only": True},
+            )
+        )
+    db.add(
+        AccessRule(
+            owner_org_id="org-generator-t01",
+            rule_code="GENERATION_DAILY_STATS",
+            version_no=1,
+            energy_domain="electricity",
+            resource_id="generation",
+            function_code="average",
+            mode="AUTO_CALL",
+            scope_json={"granularity": "DAY", "output_mode": "AGGREGATE_ONLY"},
+            limits_json={"minimum_record_count": 3, "max_duration_days": 31, "granularity": "DAY", "output_mode": "AGGREGATE_ONLY"},
+            status="ACTIVE",
+            rule_hash=sha256_json({"owner_org_id": "org-generator-t01", "resource_id": "generation", "function_code": "average", "version_no": 1}),
+            approved_by_user_id="user-generator",
+        )
+    )
+    db.flush()
 
 
 def _seed_catalog(db: Session) -> None:
@@ -151,7 +180,7 @@ def _seed_catalog(db: Session) -> None:
                     owner_org_id=owner_org_id,
                     source_type="ENTERPRISE_CONNECTOR",
                     connector_type="TRUSTED_DATA_SPACE_CONNECTOR",
-                    endpoint_ref=f"connector://{domain}",
+                    endpoint_ref=f"connector://{owner_org_id}",
                     security_domain=domain,
                     capability_label="LOCAL_REAL",
                     status="ACTIVE",
@@ -193,14 +222,14 @@ def _seed_catalog(db: Session) -> None:
                     "chinese_name_complete": True,
                 },
             )
-            data_hash = sha256_json({"connector": domain, "resource": resource, "schema": schema})
+            data_hash = sha256_json({"connector": owner_org_id, "domain": domain, "resource": resource, "schema": schema})
             version = DataAssetVersion(
                 version_id=version_id,
                 asset_id=asset_id,
                 version_no=1,
                 schema_version="2026.08",
                 schema_json=schema,
-                data_ref=f"connector://{domain}/{resource}",
+                data_ref=f"connector://{owner_org_id}/{resource}",
                 data_hash=data_hash,
                 commitment=sha256_json({"data_hash": data_hash, "owner": owner_org_id}),
                 record_count=1460,

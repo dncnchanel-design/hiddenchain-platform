@@ -292,7 +292,7 @@ def test_duration_policy_is_server_sourced_and_validated(client, auth_headers):
     reference = _asset_reference()
     asset_response = client.get(
         f"/api/trust-space/assets/{reference['asset_id']}",
-        headers=auth_headers["exchange"],
+        headers=auth_headers["regulator"],
     )
     assert asset_response.status_code == 200, asset_response.text
     policy = asset_response.json()["duration_policy"]
@@ -301,10 +301,20 @@ def test_duration_policy_is_server_sourced_and_validated(client, auth_headers):
     assert policy["is_default"] is True
     assert policy["min_days"] <= policy["default_days"] <= policy["max_days"]
 
-    omitted_duration = {key: value for key, value in _payload().items() if key != "duration_days"}
+    regulatory_payload = {
+        **_payload(),
+        "purpose": "REGULATORY_CROSS_ENERGY_REVIEW",
+        "terms": {
+            "output_mode": "AGGREGATE_ONLY",
+            "raw_data_export": False,
+            "regulatory_basis": "ENERGY_REGULATION",
+            "authority_ref": "DURATION-REG-001",
+        },
+    }
+    omitted_duration = {key: value for key, value in regulatory_payload.items() if key != "duration_days"}
     created = client.post(
         "/api/data/access-requests",
-        headers={**auth_headers["exchange"], "Idempotency-Key": "duration-policy-default-001"},
+        headers={**auth_headers["regulator"], "Idempotency-Key": "duration-policy-default-001"},
         json=omitted_duration,
     )
     assert created.status_code == 201, created.text
@@ -313,8 +323,8 @@ def test_duration_policy_is_server_sourced_and_validated(client, auth_headers):
 
     invalid = client.post(
         "/api/data/access-requests",
-        headers={**auth_headers["exchange"], "Idempotency-Key": "duration-policy-invalid-001"},
-        json={**_payload(), "duration_days": policy["max_days"] + 1},
+        headers={**auth_headers["regulator"], "Idempotency-Key": "duration-policy-invalid-001"},
+        json={**regulatory_payload, "duration_days": policy["max_days"] + 1},
     )
     assert invalid.status_code == 422
     assert invalid.json()["detail"]["code"] == "DURATION_OUT_OF_POLICY"

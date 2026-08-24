@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..config import VAULT_DIR
+from ..config import VAULT_DIR, settings
 from ..security import sha256_json, sign_value
 
 
@@ -20,6 +20,8 @@ class LocalDomainVault:
 
     @classmethod
     def write(cls, org_id: str, upload_id: str, payload: dict[str, Any]) -> tuple[str, str, str]:
+        if settings.app_env == "production":
+            raise RuntimeError("CENTRAL_RAW_VAULT_WRITE_BLOCKED")
         directory = VAULT_DIR / org_id
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{upload_id}.json"
@@ -30,6 +32,8 @@ class LocalDomainVault:
 
     @classmethod
     def read(cls, data_ref: str) -> dict[str, Any]:
+        if settings.app_env == "production":
+            raise RuntimeError("CENTRAL_RAW_VAULT_READ_BLOCKED")
         if not data_ref.startswith(cls.scheme):
             raise ValueError("Unsupported data reference")
         relative = data_ref.removeprefix(cls.scheme)

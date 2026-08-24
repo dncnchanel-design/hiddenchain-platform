@@ -6,6 +6,8 @@ export interface UserProfile {
   username: string;
   display_name: string;
   role_code: RoleCode;
+  permissions?: string[];
+  is_org_owner?: boolean;
   status: string;
   last_login_at?: string | null;
 }

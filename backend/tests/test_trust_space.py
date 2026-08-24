@@ -43,7 +43,7 @@ def test_trust_space_openapi_contract_and_role_context_is_dynamic(client, auth_h
     assert exchange_body["current_subject"]["org_id"] == "org-exchange-t01"
     assert generator_body["current_subject"]["org_id"] != exchange_body["current_subject"]["org_id"]
     assert generator_body["role_capabilities"]["can_view_all_assets"] is False
-    assert exchange_body["role_capabilities"]["can_view_all_assets"] is True
+    assert exchange_body["role_capabilities"]["can_view_all_assets"] is False
     assert generator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is False
     assert generator_body["role_capabilities"]["cross_domain_usage_requires_provider_approval"] is True
     assert regulator_body["role_capabilities"]["can_discover_cross_domain_metadata"] is True
@@ -80,7 +80,7 @@ def test_workbench_respects_provider_scope_and_returns_real_empty_shape(client, 
         estimate = task["phase_progress_estimate"]
         assert estimate["source"] == "TTC_STATE_PHASE_ESTIMATE_V1"
         assert "非实时执行进度" in estimate["label"]
-    assert exchange_body["kpis"]["visible_assets"] >= generator_body["kpis"]["visible_assets"]
+    assert exchange_body["kpis"]["visible_assets"] != generator_body["kpis"]["visible_assets"]
     assert isinstance(exchange_body["empty_state"], bool)
     assert exchange_body["source_of_truth"] == "authoritative database read model"
 
@@ -114,8 +114,7 @@ def test_catalog_filters_pagination_and_provider_visibility(client, auth_headers
     assert generator.status_code == 200
     generator_items = generator.json()["items"]
     assert generator_items
-    assert all(item["domain"] == "electricity" or item["provider"]["org_id"] in {"org-generator-t01", "org-retailer-t01", "org-exchange-t01"} for item in generator_items)
-    assert any(item["provider"]["org_id"] != "org-generator-t01" for item in generator_items)
+    assert all(item["provider"]["org_id"] == "org-generator-t01" for item in generator_items)
 
     no_match = client.get(
         "/api/trust-space/catalog?q=asset-that-does-not-exist",
@@ -194,15 +193,13 @@ def test_asset_detail_uses_real_id_and_enforces_visibility(client, auth_headers)
         f"/api/trust-space/assets/{retailer_asset.asset_id}",
         headers=auth_headers["exchange"],
     )
-    assert exchange_detail.status_code == 200
-    assert exchange_detail.json()["asset"]["asset_id"] == retailer_asset.asset_id
+    assert exchange_detail.status_code == 404
 
     cross_scope = client.get(
         f"/api/trust-space/assets/{retailer_asset.asset_id}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 200
-    assert cross_scope.json()["actions"]["can_request_usage"] is True
+    assert cross_scope.status_code == 404
     unknown = client.get(
         "/api/trust-space/assets/asset-does-not-exist",
         headers=auth_headers["exchange"],

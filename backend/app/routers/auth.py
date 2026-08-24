@@ -38,7 +38,7 @@ MODULES = [
     {"code": "connector", "path": "/trusted-space/connector", "roles": [role for role in BUSINESS_ROLES if role != "REGULATOR"]},
     {"code": "authorization", "path": "/trusted-space/authorizations", "roles": BUSINESS_ROLES},
     {"code": "compute", "path": "/trusted-space/mpc", "roles": BUSINESS_ROLES},
-    {"code": "audit", "path": "/trusted-space/audit", "roles": BUSINESS_ROLES},
+    {"code": "audit", "path": "/trusted-space/audit", "roles": ["REGULATOR"]},
     {"code": "participants", "path": "/trusted-space/identity", "roles": BUSINESS_ROLES},
     {"code": "metrics", "path": "/metrics", "roles": ["ADMIN"]},
     {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},

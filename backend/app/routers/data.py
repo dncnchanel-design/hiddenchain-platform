@@ -6,21 +6,21 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Response, UploadFile, status
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
-from ..models import DataSpaceAgreement, DataUpload, DataUsageRequest, DidIdentity, Organization, Signature, User
+from ..models import AccessRule, DataSpaceAgreement, DataUpload, DataUsageRequest, DidIdentity, Organization, Signature, User, utc_now, new_id
 from ..schemas import (
     DataUploadCreate,
     DataUsageRequestCreate,
     DataUsageRequestDecision,
     DataUsageRequestReview,
 )
-from ..security import sign_value
+from ..security import sha256_json, sign_value
 from ..services.common import add_audit_log, model_dict
 from ..services.adapters import DATA_PRODUCT_CATALOG, DataSpaceConnectorAdapter
 from ..services.datapackage import FrictionlessCatalogAdapter
@@ -52,6 +52,41 @@ from ..services.data_usage_requests import (
 
 
 router = APIRouter(prefix="/data", tags=["data"])
+DATA_OWNER_ROLES = frozenset(BUSINESS_ROLES) - frozenset({"REGULATOR"})
+
+
+class AccessRuleCreate(BaseModel):
+    rule_code: str = Field(min_length=2, max_length=96)
+    energy_domain: str | None = Field(default=None, max_length=24)
+    asset_id: str | None = Field(default=None, max_length=36)
+    resource_id: str = Field(min_length=1, max_length=96)
+    function_code: str = Field(min_length=2, max_length=48)
+    mode: str = Field(default="ENTERPRISE_APPROVAL", pattern="^(AUTO_CALL|ENTERPRISE_APPROVAL|FORBIDDEN)$")
+    scope: dict[str, Any] = Field(default_factory=dict)
+    limits: dict[str, Any] = Field(default_factory=dict)
+
+
+def _rule_payload(item: AccessRule) -> dict[str, Any]:
+    return {
+        "rule_id": item.rule_id,
+        "owner_org_id": item.owner_org_id,
+        "rule_code": item.rule_code,
+        "version_no": item.version_no,
+        "version": f"v{item.version_no}",
+        "energy_domain": item.energy_domain,
+        "asset_id": item.asset_id,
+        "resource_id": item.resource_id,
+        "function_code": item.function_code,
+        "mode": item.mode,
+        "scope": item.scope_json,
+        "limits": item.limits_json,
+        "status": item.status,
+        "rule_hash": item.rule_hash,
+        "approved_by_user_id": item.approved_by_user_id,
+        "approved_at": item.approved_at.isoformat() if item.approved_at else None,
+        "revoked_at": item.revoked_at.isoformat() if item.revoked_at else None,
+        "raw_data_export": False,
+    }
 
 
 def _active_owner_identity(db: Session, org_id: str) -> DidIdentity:
@@ -565,7 +600,7 @@ def data_catalog(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in {"GENERATOR", "RETAILER"}:
+    if user.role_code in DATA_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
@@ -591,7 +626,7 @@ def data_catalog_package(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in {"GENERATOR", "RETAILER"}:
+    if user.role_code in DATA_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
@@ -613,7 +648,7 @@ def data_catalog_dataspace_protocol(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in {"GENERATOR", "RETAILER"}:
+    if user.role_code in DATA_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
@@ -622,6 +657,111 @@ def data_catalog_dataspace_protocol(
         owner_org_id=owner_org_id,
     )
     return DataspaceProtocolAdapter.build(entries)
+
+
+@router.get("/access-rules")
+def list_access_rules(
+    owner_org_id: str | None = None,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if user.role_code != "REGULATOR":
+        owner_org_id = user.org_id
+    query = select(AccessRule).where(AccessRule.status == "ACTIVE")
+    if owner_org_id:
+        query = query.where(AccessRule.owner_org_id == owner_org_id)
+    items = db.scalars(query.order_by(AccessRule.owner_org_id, AccessRule.rule_code, AccessRule.version_no.desc())).all()
+    return {
+        "items": [_rule_payload(item) for item in items],
+        "metadata_only": user.role_code == "REGULATOR",
+        "raw_data_exposed": False,
+    }
+
+
+@router.post("/access-rules", status_code=status.HTTP_201_CREATED)
+def create_access_rule(
+    payload: AccessRuleCreate,
+    user: User = Depends(require_roles(*DATA_OWNER_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if "MANAGE_RULES" not in set(user.permissions_json or []):
+        raise HTTPException(status_code=403, detail="当前账号没有管理本主体规则的权限")
+    previous = db.scalar(
+        select(AccessRule)
+        .where(AccessRule.owner_org_id == user.org_id, AccessRule.rule_code == payload.rule_code)
+        .order_by(AccessRule.version_no.desc())
+    )
+    version_no = (previous.version_no if previous else 0) + 1
+    rule_hash = sha256_json(
+        {
+            "owner_org_id": user.org_id,
+            "rule_code": payload.rule_code,
+            "version_no": version_no,
+            "resource_id": payload.resource_id,
+            "function_code": payload.function_code,
+            "mode": payload.mode,
+            "scope": payload.scope,
+            "limits": payload.limits,
+        }
+    )
+    item = AccessRule(
+        rule_id=new_id(),
+        owner_org_id=user.org_id,
+        rule_code=payload.rule_code,
+        version_no=version_no,
+        energy_domain=payload.energy_domain,
+        asset_id=payload.asset_id,
+        resource_id=payload.resource_id,
+        function_code=payload.function_code,
+        mode=payload.mode,
+        scope_json=payload.scope,
+        limits_json=payload.limits,
+        status="ACTIVE",
+        rule_hash=rule_hash,
+        approved_by_user_id=user.user_id,
+        approved_at=utc_now(),
+    )
+    db.add(item)
+    add_audit_log(
+        db,
+        action="ACCESS_RULE_VERSION_CREATED",
+        target_type="ACCESS_RULE",
+        target_id=item.rule_id,
+        result="SUCCESS",
+        user=user,
+        details={"owner_org_id": user.org_id, "rule_code": item.rule_code, "version_no": version_no},
+    )
+    db.commit()
+    db.refresh(item)
+    return _rule_payload(item)
+
+
+@router.post("/access-rules/{rule_id}/revoke")
+def revoke_access_rule(
+    rule_id: str,
+    user: User = Depends(require_roles(*DATA_OWNER_ROLES)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if "MANAGE_RULES" not in set(user.permissions_json or []):
+        raise HTTPException(status_code=403, detail="当前账号没有管理本主体规则的权限")
+    item = db.get(AccessRule, rule_id)
+    if item is None or item.owner_org_id != user.org_id:
+        raise HTTPException(status_code=404, detail="未找到本主体规则")
+    if item.status != "ACTIVE":
+        return _rule_payload(item)
+    item.status = "REVOKED"
+    item.revoked_at = utc_now()
+    add_audit_log(
+        db,
+        action="ACCESS_RULE_REVOKED",
+        target_type="ACCESS_RULE",
+        target_id=item.rule_id,
+        result="SUCCESS",
+        user=user,
+        details={"owner_org_id": user.org_id, "rule_code": item.rule_code, "version_no": item.version_no},
+    )
+    db.commit()
+    return _rule_payload(item)
 
 
 @router.get("/agreements")
@@ -634,7 +774,7 @@ def list_data_space_agreements(
     if task_id:
         query = query.where(DataSpaceAgreement.task_id == task_id)
     records = db.scalars(query).all()
-    if user.role_code in {"GENERATOR", "RETAILER"}:
+    if user.role_code in DATA_OWNER_ROLES:
         records = [
             item
             for item in records
@@ -888,7 +1028,7 @@ def list_uploads(
         query = query.where(DataUpload.task_id == task_id)
     if trade_batch_no:
         query = query.where(DataUpload.trade_batch_no == trade_batch_no)
-    if user.role_code in {"GENERATOR", "RETAILER"}:
+    if user.role_code in DATA_OWNER_ROLES:
         query = query.where(DataUpload.owner_org_id == user.org_id)
     records = db.scalars(query).all()
     org_names = {org.org_id: org.org_name for org in db.scalars(select(Organization)).all()}
