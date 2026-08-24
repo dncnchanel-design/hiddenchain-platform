@@ -370,6 +370,7 @@ def test_provider_review_approve_creates_contract_agreement_and_audit(
         contract = db.get(DataContract, request_row.contract_id)
         agreement = db.get(DataSpaceAgreement, request_row.agreement_id)
         assert contract is not None and contract.task_id is None and contract.status == "ACTIVE"
+        assert contract.policy_json["constraint"]["output_mode"] == "AGGREGATE_ONLY"
         assert agreement is not None and agreement.task_id is None and agreement.state == "ACTIVE"
         audit = db.scalar(
             select(AuditLog).where(
