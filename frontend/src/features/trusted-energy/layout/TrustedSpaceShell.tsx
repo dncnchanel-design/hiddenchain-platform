@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Cable, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, X, type LucideIcon } from "lucide-react";
+import { Cable, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { ROLE_LABELS, labelForCode } from "../../../types";
 import { isKnownTrustedPath, primaryNavItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
 import { cn } from "../utils";
-import { Badge, Button, IconButton } from "../components/ui-primitives";
+import { Badge, Button, IconButton, Sheet } from "../components/ui-primitives";
 import { RemoteState } from "../components/ui-primitives";
 import { useTrustedSpaceContext } from "../trusted-space-context";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
@@ -75,7 +75,8 @@ export function TrustedSpaceShell() {
   const trustedContext = useTrustedSpaceContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const view = getTrustedView(location.pathname);
   const title = titles[view];
   const context = trustedContext.context;
@@ -94,15 +95,22 @@ export function TrustedSpaceShell() {
   const activeGroup = view === "identity" ? "主体与权限" : view === "catalog" || view === "connector" || view === "authorizations" || view === "asset" || view === "apply" ? "可信数据空间" : view === "query" || view === "contract" || view === "ttc" || view === "mpc" ? "查询与计算" : view === "audit" || view === "results" ? "审计追溯" : "运行态势";
 
   function goTo(path: string) {
-    setMobileNavOpen(false);
+    setNavigationOpen(false);
     navigate(path);
+  }
+
+  async function handleLogout() {
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    await logout();
+    navigate("/login", { replace: true });
   }
 
   return <div className="trusted-space-shell tw-min-h-screen">
     <header className="trusted-system-bar">
       <div className="trusted-system-left">
-        <IconButton className="trusted-mobile-menu" label={mobileNavOpen ? "关闭导航" : "打开导航"} aria-expanded={mobileNavOpen} aria-controls="trusted-primary-navigation" onClick={() => setMobileNavOpen((value) => !value)}>{mobileNavOpen ? <X size={17} /> : <Menu size={17} />}</IconButton>
-        <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onClick={() => setMobileNavOpen(false)}>
+        <IconButton className="trusted-mobile-menu" label="打开左侧导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={17} /></IconButton>
+        <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onClick={() => setNavigationOpen(false)}>
           <span className="trusted-brand-mark"><ShieldCheck size={20} strokeWidth={2.1} /></span>
           <span><strong>隐链明算</strong><small>可信数据空间</small></span>
         </Link>
@@ -113,12 +121,30 @@ export function TrustedSpaceShell() {
         <Badge tone="success" dot>{context.environment.name === "DEMO" ? "公开演示环境" : context.environment.name === "TEST" ? "本地测试环境" : "受控运行环境"}</Badge>
         <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "主体状态正常" : "主体状态异常"}</span>
         <NotificationCenter />
-        <div className="trusted-user-menu"><span className="trusted-avatar"><UserRound size={15} /></span><span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span><ChevronDown size={13} /></div>
-        <Button variant="ghost" size="sm" className="trusted-logout" onClick={() => { logout(); navigate("/login"); }}>退出</Button>
+        <details className="trusted-user-menu">
+          <summary aria-label="打开账号菜单">
+            <span className="trusted-avatar"><UserRound size={15} /></span>
+            <span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span>
+            <ChevronDown size={13} aria-hidden="true" />
+          </summary>
+          <div className="trusted-user-menu-panel">
+            <div><span>账号</span><strong>{context.actor.username}</strong></div>
+            <div><span>当前组织</span><strong>{subjectName}</strong></div>
+            <div><span>当前角色</span><strong>{roleLabel}</strong></div>
+            <div><span>身份状态</span><strong>{context.identity_ref.credential_status === "VALID" ? "已核验" : "未配置"}</strong></div>
+            <Button type="button" variant="danger" size="sm" busy={logoutBusy} onClick={() => void handleLogout()}><LogOut size={14} />退出登录</Button>
+          </div>
+        </details>
       </div>
     </header>
 
-    <nav id="trusted-primary-navigation" className={cn("trusted-primary-nav", mobileNavOpen && "trusted-primary-nav-open")} aria-label="可信数据空间主导航">
+    <Sheet open={navigationOpen} onOpenChange={setNavigationOpen} title="可信数据空间导航" side="left" className="trusted-navigation-sheet">
+      <nav className="trusted-drawer-nav" aria-label="左侧可信数据空间导航">
+        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-drawer-nav-item", view === key && "trusted-drawer-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={16} strokeWidth={1.8} /><span>{label}</span></button>)}
+      </nav>
+    </Sheet>
+
+    <nav className="trusted-primary-nav" aria-label="可信数据空间主导航">
       <div className="trusted-nav-inner tw-flex tw-items-center">
         {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
         <span className="trusted-nav-spacer" />

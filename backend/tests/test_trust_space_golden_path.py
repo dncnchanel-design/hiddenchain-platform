@@ -99,11 +99,11 @@ def test_migration_upgrade_from_003_to_latest_is_idempotent(tmp_path):
                 )
 
         assert migration_status(isolated)["current"] == "20260821_003"
-        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001"]
+        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001", "20260824_001"]
         assert apply_migrations(isolated) == []
         status = migration_status(isolated)
         assert status["status"] == "READY"
-        assert status["current"] == "20260823_001"
+        assert status["current"] == "20260824_001"
         columns = {item["name"] for item in inspect(isolated).get_columns("privacy_compute_jobs")}
         assert {"state_version", "action_code", "action_idempotency_key", "action_response_json", "cancelled_at"} <= columns
         index_names = {item["name"] for item in inspect(isolated).get_indexes("privacy_compute_jobs")}
@@ -123,6 +123,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     ]
     assert len(operation_ids) == len(set(operation_ids))
     for path in (
+        "/api/auth/logout",
         "/api/trust-space/context",
         "/api/trust-space/catalog",
         "/api/trust-space/assets/{asset_id}",
@@ -153,6 +154,10 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
     for path, openapi_path in frontend_to_openapi.items():
         assert path in frontend_source
         assert openapi_path in paths
+    shell_source = (Path(__file__).resolve().parents[2] / "frontend/src/features/trusted-energy/layout/TrustedSpaceShell.tsx").read_text(encoding="utf-8")
+    assert "trusted-navigation-sheet" in shell_source
+    assert "trusted-user-menu-panel" in shell_source
+    assert "/auth/logout" in (Path(__file__).resolve().parents[2] / "frontend/src/auth.tsx").read_text(encoding="utf-8")
 
     contexts = {
         role: client.get("/api/trust-space/context", headers=auth_headers[role])

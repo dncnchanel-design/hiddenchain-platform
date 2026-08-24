@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -8,8 +9,8 @@ from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import Organization, User
-from .security import decode_access_token
+from .models import Organization, RevokedAccessToken, User
+from .security import access_token_digest, decode_access_token
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -25,6 +26,9 @@ def get_current_user(
         payload = decode_access_token(credentials.credentials)
     except InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效访问令牌") from exc
+    revoked = db.get(RevokedAccessToken, access_token_digest(credentials.credentials))
+    if revoked is not None and revoked.expires_at > datetime.now(UTC).replace(tzinfo=None):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已退出，请重新登录")
     user = db.get(User, payload.get("sub"))
     if user is None or user.status != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不可用")

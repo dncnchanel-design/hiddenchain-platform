@@ -8,7 +8,7 @@ interface AuthContextValue {
   sessionExpired: boolean;
   sessionError: string;
   login: (username: string, password: string) => Promise<SessionPayload>;
-  logout: () => void;
+  logout: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -20,13 +20,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionError, setSessionError] = useState("");
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    let serverLogoutConfirmed = false;
+    if (sessionStorage.getItem(TOKEN_KEY)) {
+      try {
+        await post<void>("/auth/logout", {});
+        serverLogoutConfirmed = true;
+      } catch {
+        // Always clear the local session so a network failure never traps the user.
+      }
+    }
     sessionStorage.removeItem(TOKEN_KEY);
     invalidateApiCache();
     setSession(null);
     setSessionExpired(false);
     setSessionError("");
     setLoading(false);
+    return serverLogoutConfirmed;
   }, []);
 
   const expireSession = useCallback(() => {

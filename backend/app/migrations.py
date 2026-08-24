@@ -100,6 +100,7 @@ ASSISTANT_TABLE_NAMES = frozenset(
     }
 )
 NOTIFICATION_TABLE_NAMES = frozenset({"user_notifications"})
+REVOKED_TOKEN_TABLE_NAMES = frozenset({"revoked_access_tokens"})
 
 COMPUTE_CONTROL_COLUMNS: dict[str, dict[str, str]] = {
     "privacy_compute_jobs": {
@@ -388,6 +389,10 @@ NOTIFICATION_INDEXES: tuple[str, ...] = (
 def _user_notifications(connection: Connection) -> None:
     _create_revision_tables(connection, NOTIFICATION_TABLE_NAMES)
     _create_indexes(connection, NOTIFICATION_INDEXES)
+
+
+def _revoked_access_tokens(connection: Connection) -> None:
+    _create_revision_tables(connection, REVOKED_TOKEN_TABLE_NAMES)
 
 
 def _privacy_compute_controls(connection: Connection) -> None:
@@ -916,6 +921,13 @@ MIGRATIONS: tuple[Migration, ...] = (
             *(f"index:{statement}" for statement in ENTERPRISE_ACCOUNT_INDEXES),
         ),
         checksum_helpers=(_add_columns, _create_indexes),
+    ),
+    Migration(
+        "20260824_001",
+        "add immediate access token revocation records",
+        _revoked_access_tokens,
+        revision_schema=tuple(f"table:{name}" for name in sorted(REVOKED_TOKEN_TABLE_NAMES)),
+        checksum_helpers=(_create_revision_tables,),
     ),
 )
 

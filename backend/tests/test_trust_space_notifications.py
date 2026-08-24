@@ -50,7 +50,7 @@ def _etag(body: dict) -> dict[str, str]:
 
 
 def test_notifications_help_and_migration_contract(client, auth_headers):
-    assert migration_status(engine)["current"] == "20260823_001"
+    assert migration_status(engine)["current"] == "20260824_001"
     schema = client.get("/api/openapi.json").json()["paths"]
     for path in (
         "/api/trust-space/help",

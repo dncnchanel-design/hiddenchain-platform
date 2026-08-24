@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..dependencies import get_current_user
-from ..models import DidIdentity, Organization, User, utc_now
+from ..dependencies import bearer, get_current_user
+from ..models import DidIdentity, Organization, RevokedAccessToken, User, utc_now
 from ..schemas import LoginRequest
-from ..security import create_access_token, verify_password
+from ..security import access_token_digest, create_access_token, decode_access_token, verify_password
 from ..services.common import add_audit_log, model_dict
 from ..services.rate_limit import limiter
 
@@ -106,3 +109,38 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
 @router.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     return _user_payload(db, user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录或登录已失效")
+    try:
+        payload = decode_access_token(credentials.credentials)
+        expires_at = datetime.fromtimestamp(float(payload["exp"]), UTC).replace(tzinfo=None)
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效访问令牌") from exc
+
+    token_hash = access_token_digest(credentials.credentials)
+    if db.get(RevokedAccessToken, token_hash) is None:
+        db.add(
+            RevokedAccessToken(
+                token_hash=token_hash,
+                user_id=user.user_id,
+                expires_at=expires_at,
+            )
+        )
+        add_audit_log(
+            db,
+            action="LOGOUT",
+            target_type="USER",
+            target_id=user.user_id,
+            result="SUCCESS",
+            user=user,
+            details={"reason": "USER_REQUEST"},
+        )
+        db.commit()

@@ -501,6 +501,31 @@
   .trusted-space-shell *, .trusted-space-shell *::before, .trusted-space-shell *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* Interactive shell controls: the drawer is the shared navigation on every viewport. */
+.trusted-mobile-menu { display: inline-flex; color: #fff; }
+.trusted-user-menu { position: relative; }
+.trusted-user-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.trusted-user-menu > summary::-webkit-details-marker { display: none; }
+.trusted-user-menu > summary > svg:last-child { transition: transform 140ms ease; }
+.trusted-user-menu[open] > summary > svg:last-child { transform: rotate(180deg); }
+.trusted-user-menu-panel { position: absolute; z-index: 120; top: calc(100% + 10px); right: 0; width: 260px; padding: 14px; border: 1px solid #dbe6ef; border-radius: 10px; color: #203956; background: #fff; box-shadow: 0 10px 28px rgba(20,56,84,.18); }
+.trusted-user-menu-panel > div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid #e8eef5; font-size: 12px; }
+.trusted-user-menu-panel > div span { color: #6b7c91; }
+.trusted-user-menu-panel > div strong { max-width: 160px; overflow: hidden; color: #203956; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.trusted-user-menu-panel > button { width: 100%; justify-content: center; margin-top: 12px; }
+.trusted-navigation-sheet { top: 0; left: 0; right: auto; width: min(340px, calc(100vw - 36px)); height: 100vh; max-height: 100vh; transform: none; border-radius: 0 12px 12px 0; padding: 20px 14px; overflow-y: auto; animation-name: trusted-navigation-sheet-in; }
+.trusted-drawer-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 18px; }
+.trusted-drawer-nav-item { min-height: 44px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; color: #42556f; background: transparent; font-size: 13px; font-weight: 600; text-align: left; }
+.trusted-drawer-nav-item:hover { color: #1768a0; border-color: #c9dceb; background: #f1f8fc; }
+.trusted-drawer-nav-item-active { color: #1768a0; border-color: #b9d8ee; background: #eaf5fc; }
+.trusted-drawer-nav-item svg { flex: none; }
+
+@keyframes trusted-navigation-sheet-in { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 760px) {
+  .trusted-primary-nav { display: none; }
+}
+
 .trusted-login-screen { background: #edf1f1; color: var(--energy-ink); }
 .trusted-login-screen .login-brandbar { background: var(--energy-system-bar); border-bottom-color: #075d52; }
 .trusted-login-screen .login-product-mark { background: #fff; color: var(--energy-brand); border-radius: 3px; }

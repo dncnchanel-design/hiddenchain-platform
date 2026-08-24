@@ -55,6 +55,12 @@ def decode_access_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
 
 
+def access_token_digest(token: str) -> str:
+    """Return a non-reversible lookup key for server-side token revocation."""
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
@@ -70,4 +76,3 @@ def sign_value(value: Any, identity: str = "platform") -> str:
 
 def verify_signature(value: Any, signature: str, identity: str = "platform") -> bool:
     return hmac.compare_digest(sign_value(value, identity), signature)
-

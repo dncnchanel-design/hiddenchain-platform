@@ -63,6 +63,15 @@ class User(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class RevokedAccessToken(Base):
+    __tablename__ = "revoked_access_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+
 class DidIdentity(Base, TimestampMixin):
     __tablename__ = "did_identities"
     did_id: Mapped[str] = mapped_column(String(160), primary_key=True)
