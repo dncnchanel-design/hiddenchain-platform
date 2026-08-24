@@ -1,5 +1,24 @@
 # Progress Ledger
 
+## Current target-site parity batch — 2026-08-25
+
+### Completed in this batch
+
+- Rebuilt the non-whitelist trusted-space views around the target site's shell and interaction model: dashboard, conversational query, connector upload, policy center and audit/evidence center.
+- Kept 数据目录、隐私计算、身份拓扑 business logic and routes intact; removed explanatory subtitle rendering globally, including the three whitelist views, per the final product rule.
+- Added backend-owned `/api/prototype/*` read/write/download endpoints for every business control in the rebuilt views, including CSV registration, policy rule changes, query arbitration, audit verification, tamper simulation and restore.
+- Fixed CSV download filenames to use an ASCII fallback plus RFC 5987 UTF-8 encoding so the real download action returns HTTP 200.
+
+### Verification evidence
+
+- Frontend: `pnpm tsc --noEmit`, ESLint, Vite build, 71 Vitest tests, production guard and brand-theme audit all pass.
+- Backend: full `python -m pytest -q` pass; Python compileall pass; prototype API smoke checks pass for header/dashboard/query/connector/policy/audit and sample CSV download.
+- Browser: local login, target shell navigation, query submission and connector registration exercised; no target shell subtitle is rendered.
+
+### Release boundary
+
+- Implementation is locally verified; final commit, GitHub push and Render auto-deploy confirmation remain to be recorded after release convergence.
+
 ## Current Trusted Space authorization closure — 2026-08-24
 
 ### Completed in this batch

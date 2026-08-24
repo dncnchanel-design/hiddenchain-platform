@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, CheckCircle2, Database, Fingerprint, LockKeyhole, Play, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { api, post, shortHash } from "../api";
 import { useAuth } from "../auth";
@@ -125,11 +125,16 @@ export function TrustedExecutionPage() {
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState("");
 
-  useEffect(() => {
+  function resetExecutionState() {
     setTranslation(null);
     setResult(null);
     setActionError("");
-  }, [question, consumerRole, purpose, periodStart, periodEnd, granularity, spatialScope, outputMode, requestedFields]);
+  }
+
+  function updateFormValue(setter: (value: string) => void, value: string) {
+    setter(value);
+    resetExecutionState();
+  }
 
   const remote = useRemote<ExecutionConsoleData>(async (signal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
@@ -192,10 +197,11 @@ export function TrustedExecutionPage() {
 
   function toggleField(value: string) {
     setRequestedFields((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+    resetExecutionState();
   }
 
   function setExample(value: string) {
-    setQuestion(value);
+    updateFormValue(setQuestion, value);
   }
 
   if (remote.loading) return <LoadingState label="正在加载策略与能力边界" variant="page" />;
@@ -236,7 +242,7 @@ export function TrustedExecutionPage() {
         <Surface title="发起受控查询" meta="请求本身不携带原始数据">
           <div className="trusted-execution-form">
             <Field label="自然语言需求" hint="例如：分析上月电煤库存变化引起的火电出力与电网负荷平衡趋势">
-              <textarea rows={5} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="描述你需要使用什么数据、用于什么分析" />
+              <textarea rows={5} value={question} onChange={(event) => updateFormValue(setQuestion, event.target.value)} placeholder="描述你需要使用什么数据、用于什么分析" />
             </Field>
             <div className="suggested-questions" aria-label="示例请求">
               <button type="button" onClick={() => setExample(DEFAULT_QUESTION)}>跨能源趋势</button>
@@ -244,13 +250,13 @@ export function TrustedExecutionPage() {
               <button type="button" onClick={() => setExample("查询某企业15分钟级原始负荷明细")}>测试高风险请求</button>
             </div>
             <div className="form-grid two">
-              <Field label="使用主体"><select value={consumerRole} onChange={(event) => setConsumerRole(event.target.value)}><option value="ENERGY_BUREAU">能源管理部门</option><option value="REGULATOR">监管分析员</option><option value="PUBLIC">公开查询方</option></select></Field>
-              <Field label="使用目的"><select value={purpose} onChange={(event) => setPurpose(event.target.value)}><option value="CROSS_ENERGY_TREND">跨能源趋势分析</option><option value="ENERGY_ANALYSIS">能源数据分析</option></select></Field>
-              <Field label="时间起点" hint="留空则采用上月"><input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} /></Field>
-              <Field label="时间终点"><input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></Field>
-              <Field label="请求粒度"><select value={granularity} onChange={(event) => setGranularity(event.target.value)}>{Object.entries(granularityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-              <Field label="空间范围"><select value={spatialScope} onChange={(event) => setSpatialScope(event.target.value)}>{Object.entries(scopeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-              <Field label="结果形式"><select value={outputMode} onChange={(event) => setOutputMode(event.target.value)}><option value="SUMMARY">汇总结果</option><option value="CHART">趋势图表</option><option value="COMPUTE_ONLY">仅返回计算结论</option></select></Field>
+              <Field label="使用主体"><select value={consumerRole} onChange={(event) => updateFormValue(setConsumerRole, event.target.value)}><option value="ENERGY_BUREAU">能源管理部门</option><option value="REGULATOR">监管分析员</option><option value="PUBLIC">公开查询方</option></select></Field>
+              <Field label="使用目的"><select value={purpose} onChange={(event) => updateFormValue(setPurpose, event.target.value)}><option value="CROSS_ENERGY_TREND">跨能源趋势分析</option><option value="ENERGY_ANALYSIS">能源数据分析</option></select></Field>
+              <Field label="时间起点" hint="留空则采用上月"><input type="date" value={periodStart} onChange={(event) => updateFormValue(setPeriodStart, event.target.value)} /></Field>
+              <Field label="时间终点"><input type="date" value={periodEnd} onChange={(event) => updateFormValue(setPeriodEnd, event.target.value)} /></Field>
+              <Field label="请求粒度"><select value={granularity} onChange={(event) => updateFormValue(setGranularity, event.target.value)}>{Object.entries(granularityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+              <Field label="空间范围"><select value={spatialScope} onChange={(event) => updateFormValue(setSpatialScope, event.target.value)}>{Object.entries(scopeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+              <Field label="结果形式"><select value={outputMode} onChange={(event) => updateFormValue(setOutputMode, event.target.value)}><option value="SUMMARY">汇总结果</option><option value="CHART">趋势图表</option><option value="COMPUTE_ONLY">仅返回计算结论</option></select></Field>
             </div>
             <fieldset className="trusted-execution-fields">
               <legend>请求字段</legend>

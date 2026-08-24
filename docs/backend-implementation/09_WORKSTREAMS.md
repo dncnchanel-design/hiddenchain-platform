@@ -1,5 +1,15 @@
 # Workstreams and File Ownership
 
+## Current target-site parity batch — 2026-08-25
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Target shell and non-whitelist views | Main agent; trusted-space shell, Workbench, Query, Connector, Strategy Center and Audit Center | Target navigation/order, visual shell, Chinese copy and loading/error/empty states implemented | IMPLEMENTED_LOCAL_FRONTEND |
+| Whitelist preservation and subtitle rule | Main agent; shared header primitives and existing whitelist routes | Data Catalog, Privacy Computing and Identity Topology routes/logic retained; explanatory subtitle rendering removed | VERIFIED_LOCAL_FRONTEND |
+| Prototype backend actions | Main agent; `backend/app/routers/prototype.py`, API adapter and main router registration | Query, upload, CSV download, policy add/delete, audit verify/tamper/restore use authenticated FastAPI endpoints | IMPLEMENTED_LOCAL_BACKEND |
+| Verification | Main agent | Frontend typecheck/lint/build/71 tests/production+brand guards; backend full pytest, compileall and API smoke checks pass | VERIFIED_LOCAL |
+| Release/deployment | Main agent retains commit, push, Render and final convergence ownership | Final release synchronization is the next step | PENDING |
+
 ## Current Trusted Space authorization closure — 2026-08-24
 
 | Workstream | Execution boundary | Evidence | Status |

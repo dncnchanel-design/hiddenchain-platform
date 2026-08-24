@@ -256,6 +256,29 @@ export function postForm<T>(path: string, form: FormData, options: ApiCommandOpt
   });
 }
 
+export async function downloadBlob(path: string, options: ApiCommandOptions = {}) {
+  const token = sessionStorage.getItem("hiddenchain_token");
+  const headers = new Headers(options.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", globalThis.crypto.randomUUID());
+  if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
+  if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
+  const { cacheTtlMs: _cacheTtlMs, retry: _retry, timeoutMs: _timeoutMs, idempotencyKey: _idempotencyKey, ifMatch: _ifMatch, onResponseMetadata: _onResponseMetadata, ...requestOptions } = options;
+  const response = await fetch(`${API_BASE}${path}`, { ...requestOptions, headers });
+  if (!response.ok) {
+    let body: Record<string, unknown> = {};
+    try { body = await response.json(); } catch { /* keep the status fallback */ }
+    const detail = body.detail;
+    const detailMessage = detail && typeof detail === "object" && !Array.isArray(detail) ? (detail as Record<string, unknown>).message : detail;
+    const message = safeErrorMessage(typeof detailMessage === "string" ? detailMessage : body.message, response.status);
+    throw new ApiError(message, response.status, response.headers.get("x-trace-id") || undefined, { code: typeof body.code === "string" ? body.code : undefined, retryable: typeof body.retryable === "boolean" ? body.retryable : undefined });
+  }
+  const disposition = response.headers.get("content-disposition") || "";
+  const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const filename = encodedFilename ? decodeURIComponent(encodedFilename) : disposition.match(/filename=([^;]+)/i)?.[1]?.replace(/["']/g, "") || "下载文件";
+  return { blob: await response.blob(), filename, contentType: response.headers.get("content-type") || "" };
+}
+
 export function shortHash(value?: string | null, length = 10): string {
   if (!value) return "—";
   if (value.length <= length * 2) return value;

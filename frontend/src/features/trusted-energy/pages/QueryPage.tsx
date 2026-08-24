@@ -1,278 +1,54 @@
-import { useEffect, useMemo, useState } from "react";
-import { Bot, Calculator, CheckCircle2, FileSignature, History, Search, Send, ShieldCheck, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { PageFrame } from "../components/PageFrame";
-import { QueryResultChart } from "../components/QueryResultChart";
-import { Badge, Button, Card, CardContent, CardHeader, FieldLabel, Input, Select, Sheet, SurfaceHeader, Textarea } from "../components/ui-primitives";
-import { confirmTrustedQuery, executeTrustedQuery, loadAccessRules, loadUsageRequests, parseTrustedQuery, type AccessRule, type ControlledQueryResult, type QueryIntent, type UsageRequest } from "../trusted-space-api";
-import { useTrustedSpaceContext } from "../trusted-space-context";
+import { useState } from "react";
+import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
+import { askPrototypeQuery, type PrototypeQueryPayload } from "../trusted-space-api";
 
-const domainOptions = [
-  { value: "", label: "请选择能源种类" },
-  { value: "electricity", label: "电力" },
-  { value: "coal", label: "煤炭" },
-  { value: "heat", label: "热能" },
-  { value: "gas", label: "天然气" },
-  { value: "oil", label: "石油" },
+const EXAMPLES = [
+  "查一下6月份各地区的电网负荷，用于运行监测",
+  "6月电力交易的成交均价和成交量，用于市场监测",
+  "各行业每天的用电量统计，用于负荷预测",
+  "6月电力交易成交明细，卖家都是谁",
+  "7月风电和光伏的出力情况，做趋势分析",
+  "寒潮期间电力负荷和电煤库存叠加分析，供应有没有缺口？",
 ];
 
-const resourceOptions: Record<string, Array<{ value: string; label: string }>> = {
-  electricity: [{ value: "generation", label: "发电量" }, { value: "supply", label: "供电量" }, { value: "load", label: "用电负荷" }, { value: "price", label: "交易价格" }],
-  coal: [{ value: "production", label: "煤炭产量" }, { value: "supply", label: "煤炭供应量" }, { value: "consumption", label: "煤炭消费量" }, { value: "inventory", label: "煤炭库存" }, { value: "transport", label: "煤炭运输量" }, { value: "price", label: "煤炭价格" }],
-  heat: [{ value: "supply", label: "供热量" }, { value: "load", label: "热负荷" }, { value: "fuel", label: "燃料消耗" }, { value: "loss", label: "管网损耗率" }, { value: "supply_temperature", label: "供水温度" }, { value: "return_temperature", label: "回水温度" }, { value: "price", label: "供热价格" }],
-  gas: [{ value: "supply", label: "天然气供应量" }, { value: "consumption", label: "天然气消费量" }, { value: "storage", label: "天然气储量" }, { value: "pipeline_flow", label: "管道流量" }, { value: "pressure", label: "管网压力" }, { value: "price", label: "天然气价格" }],
-  oil: [{ value: "production", label: "石油产量" }, { value: "refining", label: "石油炼化量" }, { value: "inventory", label: "石油库存" }, { value: "transport", label: "石油运输量" }, { value: "sales", label: "石油销售量" }, { value: "price", label: "石油价格" }],
-};
-
-const functionOptions = [
-  { value: "", label: "请选择固定函数" },
-  { value: "sum", label: "求和" },
-  { value: "average", label: "平均值" },
-  { value: "max", label: "最大值" },
-  { value: "min", label: "最小值" },
-  { value: "count", label: "计数" },
-  { value: "median", label: "中位数" },
-  { value: "growth_rate", label: "增长率" },
-  { value: "yoy", label: "同比" },
-  { value: "mom", label: "环比" },
-  { value: "group_by", label: "分组汇总" },
-  { value: "threshold", label: "阈值判断" },
-  { value: "trend", label: "趋势" },
-  { value: "psi", label: "隐私求交" },
-  { value: "mpc_aggregation", label: "安全多方聚合" },
-];
-
-const QUICK_QUERIES = [
-  "查询2026年8月煤炭库存平均值",
-  "查询6月份各地区的电网负荷",
-  "统计本月各主体发电量",
-  "比较本季度天然气供应量趋势",
-];
-
-type QueryMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
-
-function resultEntries(value: ControlledQueryResult["result"]) {
-  if (value && typeof value === "object") return Object.entries(value);
-  return [["计算结果", value]];
-}
-
-function resourceLabel(domain: string | null | undefined, resource: string | null | undefined) {
-  return resourceOptions[domain || ""]?.find((item) => item.value === resource)?.label || "待补充";
+function QueryOutput({ data }: { data: PrototypeQueryPayload }) {
+  const denied = data.decision.action === "deny";
+  return <section className="prototype-card prototype-query-output">
+    <PrototypeCardTitle>调用链路 <span className="prototype-inline-state">身份 {data.identity?.did || "未登记"} 已验证 ✓</span></PrototypeCardTitle>
+    <div className="prototype-pipeline">{data.plan.map((item, index) => <div className={`prototype-pipeline-step ${denied && index >= 2 ? "is-blocked" : "is-done"}`} key={`${item.stage}-${index}`}>{index + 1}. {item.stage}</div>)}</div>
+    <div className="prototype-decision"><span className={`prototype-action-badge is-${data.decision.action}`}>{data.decision.label}</span><div><div>资源 <code>{data.resource_name || "未识别"}</code> · 函数 <code>{data.function_name || "未识别"}</code></div><p>裁决理由：{data.decision.reason}</p></div></div>
+    {denied ? <div className="prototype-deny-message">⛔ {data.decision.reason}</div> : data.result ? <div className="prototype-query-result"><div><span>计算结果</span><strong>{data.result.value}</strong></div><div><span>样本数量</span><strong>{data.result.record_count}</strong></div><div><span>返回范围</span><strong>聚合结果</strong></div></div> : <div className="prototype-empty">暂无可交付结果</div>}
+    <div className="prototype-audit-id">审计存证 #{data.audit_id || "未写入"} · {data.identity?.name || "当前主体"}</div>
+  </section>;
 }
 
 export function QueryPage() {
-  const navigate = useNavigate();
-  const { context } = useTrustedSpaceContext();
-  const isRegulator = context?.actor.role_code === "REGULATOR";
-  const [question, setQuestion] = useState("查询2026年8月煤炭库存平均值");
-  const [intent, setIntent] = useState<QueryIntent | null>(null);
-  const [authorizations, setAuthorizations] = useState<UsageRequest[]>([]);
-  const [accessRules, setAccessRules] = useState<AccessRule[]>([]);
-  const [authorizationId, setAuthorizationId] = useState("");
-  const [providerOrgId, setProviderOrgId] = useState("");
-  const [domain, setDomain] = useState("coal");
-  const [resource, setResource] = useState("inventory");
-  const [fixedFunction, setFixedFunction] = useState("average");
-  const [startDate, setStartDate] = useState("2026-08-01");
-  const [endDate, setEndDate] = useState("2026-08-23");
-  const [region, setRegion] = useState("");
+  const [question, setQuestion] = useState("");
+  const [result, setResult] = useState<PrototypeQueryPayload | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<ControlledQueryResult | null>(null);
-  const [messages, setMessages] = useState<QueryMessage[]>([]);
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
 
-  function addMessage(role: QueryMessage["role"], content: string) {
-    setMessages((current) => [...current, { id: `${role}-${Date.now()}-${current.length}`, role, content }].slice(-16));
-  }
-
-  useEffect(() => {
-    loadUsageRequests({ status: "APPROVED", mine: true, pageSize: 100 })
-      .then((payload) => {
-        setAuthorizations(payload.items);
-        setAuthorizationId((current) => current || payload.items[0]?.request_id || "");
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "授权记录加载失败"));
-  }, []);
-
-  useEffect(() => {
-    if (!isRegulator) return;
-    loadAccessRules()
-      .then((payload) => setAccessRules(payload.items))
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "主体规则加载失败"));
-  }, [isRegulator]);
-
-  const matchingAutoRules = useMemo(
-    () => accessRules.filter((rule) => rule.mode === "AUTO_CALL" && rule.energy_domain === domain && rule.resource_id === resource && rule.function_code === fixedFunction),
-    [accessRules, domain, resource, fixedFunction],
-  );
-
-  const selectedProviderOrgId = matchingAutoRules.some((rule) => rule.owner_org_id === providerOrgId)
-    ? providerOrgId
-    : matchingAutoRules[0]?.owner_org_id || "";
-
-  const resources = useMemo(() => [
-    { value: "", label: domain ? "请选择数据资源" : "请先选择能源种类" },
-    ...(resourceOptions[domain] || []),
-  ], [domain]);
-
-  async function parseQuestion(value = question) {
-    const text = value.trim();
-    if (!text) {
-      setError("请输入数据需求。");
-      return;
-    }
-    setQuestion(text);
-    addMessage("user", text);
-    setHistory((current) => [text, ...current.filter((item) => item !== text)].slice(0, 12));
+  async function ask() {
+    const text = question.trim();
+    if (!text || busy) return;
     setBusy(true);
     setError("");
-    setConfirmed(false);
     try {
-      const parsed = await parseTrustedQuery(text);
-      setIntent(parsed);
-      if (parsed.energy_domain) {
-        setDomain(parsed.energy_domain);
-        const nextResources = resourceOptions[parsed.energy_domain] || [];
-        setResource(parsed.resource && nextResources.some((item) => item.value === parsed.resource) ? parsed.resource : "");
-      } else {
-        setDomain("");
-        setResource("");
-      }
-      setFixedFunction(parsed.function || "");
-      setStartDate(parsed.start_date || "");
-      setEndDate(parsed.end_date || "");
-      setRegion(parsed.region || "");
-      setConfirmed(false);
-      addMessage("assistant", parsed.notice || "查询条件已解析，请确认固定计算条件。");
+      setResult(await askPrototypeQuery(text));
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "查询意图解析失败";
-      setError(message);
-      addMessage("assistant", `解析失败：${message}`);
+      setError(reason instanceof Error ? reason.message : "问数请求失败");
     } finally {
       setBusy(false);
     }
   }
 
-  async function execute() {
-    const autoRule = matchingAutoRules.find((rule) => rule.owner_org_id === selectedProviderOrgId) || matchingAutoRules[0];
-    if (!authorizationId && !autoRule) {
-      setError(isRegulator ? "当前条件没有命中主体预先批准规则，请先发起企业授权申请" : "请先取得数据提供企业的批准授权");
-      return;
-    }
-    if (!confirmed) {
-      setError("请先勾选已核对查询条件，再创建计算任务");
-      return;
-    }
-    if (!domain || !resource || !fixedFunction || !startDate || !endDate) {
-      setError("能源种类、数据资源、固定函数和时间范围都必须填写");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setResult(null);
-    try {
-      const query = {
-        authorization_id: authorizationId || undefined,
-        provider_org_id: authorizationId ? undefined : autoRule?.owner_org_id,
-        energy_domain: domain,
-        resource,
-        function: fixedFunction,
-        start_date: startDate,
-        end_date: endDate,
-        region: region || undefined,
-        decimals: 2,
-      };
-      const confirmation = await confirmTrustedQuery(query);
-       const nextResult = await executeTrustedQuery({ ...query, confirmation_token: confirmation.confirmation_token });
-       setResult(nextResult);
-       addMessage("assistant", `已完成${nextResult.resource_name}计算，结果已通过签名校验。`);
-       setConfirmed(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "计算任务执行失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <PageFrame title="数据问数">
-    <div className="trusted-query-layout">
-      <div className="trusted-query-main">
-        <Card className="trusted-query-conversation-card">
-          <CardHeader><SurfaceHeader title="问数会话" action={<Button variant="secondary" size="sm" onClick={() => setHistoryOpen(true)}><History size={14} />历史会话</Button>} /></CardHeader>
-          <CardContent>
-            <div className="trusted-query-conversation" aria-live="polite">
-              {messages.length ? messages.map((item) => <div className={`trusted-query-message trusted-query-message-${item.role}`} key={item.id}>{item.role === "assistant" && <span className="trusted-query-message-avatar"><Bot size={14} /></span>}<span>{item.content}</span></div>) : <div className="trusted-query-conversation-empty"><Sparkles size={16} /><span>暂无会话记录</span></div>}
-            </div>
-            <div className="trusted-query-shortcuts" aria-label="快捷提问">{QUICK_QUERIES.map((item) => <button type="button" key={item} onClick={() => { setQuestion(item); void parseQuestion(item); }}>{item}</button>)}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="trusted-query-question">
-          <CardHeader><SurfaceHeader title="描述查询需求" /></CardHeader>
-          <CardContent>
-            <FieldLabel htmlFor="trusted-question">查询内容</FieldLabel>
-            <Textarea id="trusted-question" value={question} onChange={(event) => { setQuestion(event.target.value); setIntent(null); setConfirmed(false); }} placeholder="例如：查询2026年8月煤炭库存平均值" />
-            <div className="trusted-query-actions"><Button variant="primary" busy={busy} onClick={() => void parseQuestion()}><Search size={15} />解析查询</Button><span>后端解析</span></div>
-            {intent && <div className={`trusted-intent-summary ${intent.provider === "manual_rules" ? "is-manual" : ""}`}><CheckCircle2 size={16} /><span>{intent.notice}</span><Badge tone={intent.ready ? "success" : "warning"}>{intent.ready ? (intent.provider === "manual_rules" ? "手动预览" : "待确认") : "需要补充"}</Badge></div>}
-            {intent && <div className="trusted-query-preview" aria-label="翻译预览">
-              <div><span>能源种类</span><strong>{intent.energy_domain_name || "待补充"}</strong></div>
-              <div><span>数据资源</span><strong>{resourceLabel(intent.energy_domain, intent.resource)}</strong></div>
-              <div><span>固定函数</span><strong>{intent.function_name}</strong></div>
-              <div><span>开始日期</span><strong>{intent.start_date || "待补充"}</strong></div>
-              <div><span>结束日期</span><strong>{intent.end_date || "待补充"}</strong></div>
-              <div><span>地区</span><strong>{intent.region || "全部已授权地区"}</strong></div>
-            </div>}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><SurfaceHeader title="确认固定计算条件" /></CardHeader>
-          <CardContent className="trusted-query-form">
-            <div><FieldLabel>能源种类</FieldLabel><Select value={domain} onChange={(event) => { const next = event.target.value; setDomain(next); setResource(""); setConfirmed(false); }} options={domainOptions} /></div>
-            <div><FieldLabel>数据资源</FieldLabel><Select value={resource} onChange={(event) => { setResource(event.target.value); setConfirmed(false); }} options={resources} /></div>
-            <div><FieldLabel>固定函数</FieldLabel><Select value={fixedFunction} onChange={(event) => { setFixedFunction(event.target.value); setConfirmed(false); }} options={functionOptions} /></div>
-            <div className="trusted-query-wide"><FieldLabel>{isRegulator ? "主体规则 / 企业授权" : "企业授权"}</FieldLabel>{isRegulator && !authorizationId ? <Select value={selectedProviderOrgId} onChange={(event) => { setProviderOrgId(event.target.value); setConfirmed(false); }} options={matchingAutoRules.length ? matchingAutoRules.map((rule) => ({ value: rule.owner_org_id, label: `${rule.owner_org_id} · ${rule.version} · 可自动调用` })) : [{ value: "", label: "当前条件未命中自动规则" }]} /> : <Select value={authorizationId} onChange={(event) => { setAuthorizationId(event.target.value); setConfirmed(false); }} options={authorizations.length ? authorizations.map((item) => ({ value: item.request_id, label: `${item.asset.asset_name || "未命名数据资源"}，由${item.provider.org_name}批准` })) : [{ value: "", label: "暂无已批准授权" }]} />}</div>
-            <div><FieldLabel htmlFor="query-start">开始日期</FieldLabel><Input id="query-start" type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setConfirmed(false); }} /></div>
-            <div><FieldLabel htmlFor="query-end">结束日期</FieldLabel><Input id="query-end" type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setConfirmed(false); }} /></div>
-            <div><FieldLabel htmlFor="query-region" hint="可不填">地区</FieldLabel><Input id="query-region" value={region} onChange={(event) => { setRegion(event.target.value); setConfirmed(false); }} placeholder="全部已授权地区" /></div>
-            <div className="trusted-query-wide trusted-confirmation-row"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} disabled={busy} /><span>我已核对能源种类、数据资源、固定函数、时间范围和地区，确认按这些条件创建任务。</span></label></div>
-            <div className="trusted-query-wide trusted-execute-row"><div><ShieldCheck size={17} /><span>{isRegulator && !authorizationId && matchingAutoRules.length ? "已命中主体批准规则；只返回规则允许的聚合结果。" : "原始数据不会进入平台，平台只接收企业连接器签名后的受控结果。"}</span></div><Button variant="primary" busy={busy} disabled={!confirmed} onClick={execute}><Calculator size={15} />确认并创建任务</Button></div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <aside className="trusted-query-side">
-        <Card>
-          <CardHeader><SurfaceHeader title="授权前置条件" /></CardHeader>
-          <CardContent className="trusted-query-rule-list">
-            <div><FileSignature size={16} /><span><strong>{isRegulator ? "规则或申请" : "必须先申请"}</strong></span></div>
-            <div><ShieldCheck size={16} /><span><strong>范围不能扩大</strong></span></div>
-            <div><Calculator size={16} /><span><strong>只运行固定函数</strong></span></div>
-          </CardContent>
-        </Card>
-        {!authorizations.length && (!isRegulator || !matchingAutoRules.length) && <div className="trusted-query-empty-auth"><strong>{isRegulator ? "当前没有可直接调用的主体规则" : "当前没有已批准授权"}</strong><Button variant="secondary" onClick={() => navigate("/trusted-space/catalog")}>前往数据目录</Button></div>}
-      </aside>
-    </div>
-
-    <Sheet open={historyOpen} onOpenChange={setHistoryOpen} title="历史会话" side="right" className="trusted-query-history-sheet">
-      <div className="trusted-query-history-list">{history.length ? history.map((item) => <button type="button" key={item} onClick={() => { setQuestion(item); setHistoryOpen(false); }}>{item}<Send size={14} /></button>) : <div className="trusted-query-conversation-empty"><History size={16} /><span>暂无历史会话</span></div>}</div>
-    </Sheet>
-
-    {error && <div className="trusted-query-error" role="alert"><strong>任务未执行</strong><span>{error}</span></div>}
-    {result && <Card className="trusted-query-result">
-      <CardHeader><SurfaceHeader title={`${result.resource_name}计算结果`} action={<Badge tone="success" dot>数字签名已验证</Badge>} /></CardHeader>
-      <CardContent>
-        <div className="trusted-result-values">{resultEntries(result.result).map(([label, value]) => <div key={label}><span>{label}</span><strong>{String(value)}</strong><small>{result.unit}</small></div>)}</div>
-        <QueryResultChart result={result} />
-        <div className="trusted-result-provenance"><span>任务编号：{result.task_id}</span><span>生成时间：{new Date(result.generated_at).toLocaleString("zh-CN")}</span><span>授权范围：已核验</span><span>审计记录：已写入</span></div>
-      </CardContent>
-    </Card>}
-  </PageFrame>;
+  return <PrototypePageFrame className="prototype-query-page">
+    <section className="prototype-card prototype-query-entry">
+      <PrototypeCardTitle>对话式问数</PrototypeCardTitle>
+      <div className="prototype-chat-input"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void ask(); }} placeholder="用自然语言描述你的数据需求，例如：查一下6月份各地区的电网负荷，用于运行监测" /><button type="button" disabled={busy || !question.trim()} onClick={() => void ask()}>{busy ? "处理中…" : "发送"}</button></div>
+      <div className="prototype-query-examples" aria-label="快捷提问">{EXAMPLES.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
+    </section>
+    {error && <div className="prototype-error" role="alert">{error}</div>}
+    {result && <QueryOutput data={result} />}
+  </PrototypePageFrame>;
 }

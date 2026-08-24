@@ -29,7 +29,7 @@ const MISSING_VALUE = "—";
 
 export function PageHeader({
   title,
-  description,
+  description: _description,
   actions,
 }: {
   title: string;
@@ -40,20 +40,18 @@ export function PageHeader({
     <header className="page-header">
       <div className="page-heading">
         <h1>{title}</h1>
-        {description && <p>{description}</p>}
       </div>
       {actions && <div className="page-actions">{actions}</div>}
     </header>
   );
 }
 
-export function SectionHeader({ title, description, icon: Icon }: { title: string; description?: string; icon?: ElementType }) {
+export function SectionHeader({ title, description: _description, icon: Icon }: { title: string; description?: string; icon?: ElementType }) {
   return (
     <div className="section-title">
       {Icon && <Icon size={19} aria-hidden="true" />}
       <div>
         <h2>{title}</h2>
-        {description && <p>{description}</p>}
       </div>
     </div>
   );

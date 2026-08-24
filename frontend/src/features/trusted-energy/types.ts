@@ -21,8 +21,8 @@ export const navItems = [
   { key: "catalog" as const, menuCode: "catalog", label: "数据目录", icon: "Database" },
   { key: "connector" as const, menuCode: "connector", label: "数据接入", icon: "Cable" },
   { key: "authorizations" as const, menuCode: "authorization", label: "策略中心", icon: "FileSignature" },
-  { key: "mpc" as const, menuCode: "compute", label: "隐私计算", icon: "Network" },
   { key: "audit" as const, menuCode: "audit", label: "审计存证", icon: "ScanSearch" },
+  { key: "mpc" as const, menuCode: "compute", label: "隐私计算", icon: "Network" },
   { key: "identity" as const, menuCode: "participants", label: "身份拓扑", icon: "Fingerprint" },
 ];
 

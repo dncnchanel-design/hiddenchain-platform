@@ -1,4 +1,4 @@
-import { ApiError, api, post, type ApiCommandOptions } from "../../api";
+import { ApiError, api, downloadBlob, post, postForm, type ApiCommandOptions } from "../../api";
 
 export type CapabilityEnvelope = {
   capability_state?: string;
@@ -440,6 +440,49 @@ export type QueryIntent = {
   duration_ms?: number | null;
   notice: string;
 };
+
+export type PrototypeHeaderPayload = {
+  title: string;
+  identity: { name: string; role: string; did: string };
+  stats: Array<{ key: string; label: string; value: number | string }>;
+};
+
+export type PrototypeDashboardPayload = {
+  kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number; no_domain_export: string };
+  map: { days: string[]; series: Record<string, number[]>; coal_days: number[] };
+  gauge: { days: number; level: string; inventory: number };
+  audit: PrototypeAuditRecord[];
+  action_counts: Record<string, number>;
+  connectors: Array<{ name: string; status: string }>;
+  timeline: PrototypeAuditRecord[];
+  chain: { ok: boolean; message: string };
+  latest_usage: boolean;
+};
+
+export type PrototypeQueryPayload = {
+  question: string;
+  plan: Array<{ stage: string; status: string }>;
+  identity?: { name: string; did: string };
+  decision: { action: string; label: string; reason: string };
+  result: { value: number; record_count: number; resource: string; function: string } | null;
+  resource_name?: string;
+  function_name?: string;
+  audit_id?: string | null;
+  raw_data_returned: boolean;
+};
+
+export type PrototypeResource = { id: string; name: string; level: string; connector: string; rows: number; version?: number };
+export type PrototypeConnectorPayload = {
+  connectors: Array<{ id: string; name: string; available: boolean }>;
+  resources: PrototypeResource[];
+};
+
+export type PrototypePolicyRule = { role: string; purposes: string[]; action: string; fields: string[]; min_granularity?: string | null; delay_hours?: number | null; rule_id?: string };
+export type PrototypePolicyResource = { id: string; name: string; level: string; connector: string; default_action: string; dynamic?: boolean; asset_id?: string; owner_org_id?: string; rules: PrototypePolicyRule[] };
+export type PrototypePolicyPayload = { matrix: PrototypePolicyResource[]; applications: Array<{ ts: string; resource_id: string; resource_name: string; applicant_role: string; applicant_did: string; purpose: string; status: string }> };
+
+export type PrototypeAuditRecord = { id: string; ts: string; action: string; action_name: string; subject: string; resource: string; target_type: string; target_id: string; result: string; trace_id: string };
+export type PrototypeAuditPayload = { records: PrototypeAuditRecord[]; blocks: Array<{ id: string; height: number; hash: string; tx_hash: string; status: string; created_at: string }>; metrics: { total: number; denied: number; controlled: number; blocks: number }; chain: { ok: boolean; message: string } };
 
 export type QueryConfirmation = {
   confirmed: boolean;
@@ -1084,6 +1127,58 @@ export function revokeAccessRule(ruleId: string, options: ApiCommandOptions) {
 
 export function parseTrustedQuery(question: string) {
   return post<QueryIntent>("/trust-space/query/parse", { question });
+}
+
+export function loadPrototypeHeader(signal?: AbortSignal) {
+  return api<PrototypeHeaderPayload>("/prototype/header", { signal, cacheTtlMs: 2_000 });
+}
+
+export function loadPrototypeDashboard(signal?: AbortSignal) {
+  return api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500 });
+}
+
+export function askPrototypeQuery(text: string, options: ApiCommandOptions = {}) {
+  return post<PrototypeQueryPayload>("/prototype/query", { text }, options);
+}
+
+export function loadPrototypeConnector(signal?: AbortSignal) {
+  return api<PrototypeConnectorPayload>("/prototype/connector", { signal, cacheTtlMs: 1_500 });
+}
+
+export function uploadPrototypeResource(connector: string, form: FormData, options: ApiCommandOptions = {}) {
+  return postForm<{ resource: PrototypeResource; status: string; evidence_id: string }>(`/prototype/connector/${encodeURIComponent(connector)}/resources/upload`, form, options);
+}
+
+export function downloadPrototypeSample(options: ApiCommandOptions = {}) {
+  return downloadBlob("/prototype/connector/sample.csv", options);
+}
+
+export function loadPrototypePolicy(signal?: AbortSignal) {
+  return api<PrototypePolicyPayload>("/prototype/policy", { signal, cacheTtlMs: 1_500 });
+}
+
+export function addPrototypePolicyRule(body: { resource_id: string; role: string; purpose?: string; action: string }, options: ApiCommandOptions = {}) {
+  return post<{ rule_id: string; evidence_id: string }>("/prototype/policy/rules", body, options);
+}
+
+export function deletePrototypePolicyRule(resourceId: string, role: string, options: ApiCommandOptions = {}) {
+  return api<{ rule_id: string; evidence_id: string }>(`/prototype/policy/rules${queryString({ resource_id: resourceId, role })}`, { ...options, method: "DELETE" });
+}
+
+export function loadPrototypeAudit(limit = 20, signal?: AbortSignal) {
+  return api<PrototypeAuditPayload>(`/prototype/audit${queryString({ limit })}`, { signal, cacheTtlMs: 1_000 });
+}
+
+export function verifyPrototypeAudit(options: ApiCommandOptions = {}) {
+  return post<{ ok: boolean; message: string; checked: number }>("/prototype/audit/verify", {}, options);
+}
+
+export function tamperPrototypeAudit(options: ApiCommandOptions = {}) {
+  return post<{ ok: boolean; message: string }>("/prototype/audit/tamper", {}, options);
+}
+
+export function restorePrototypeAudit(options: ApiCommandOptions = {}) {
+  return post<{ ok: boolean; message: string }>("/prototype/audit/restore", {}, options);
 }
 
 export function confirmTrustedQuery(body: {
