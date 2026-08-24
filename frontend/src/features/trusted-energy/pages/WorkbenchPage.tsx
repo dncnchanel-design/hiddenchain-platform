@@ -1,5 +1,6 @@
 import { ArrowUpRight, BadgeCheck, ClipboardList, Database, FileCheck2, FilePlus2, Fingerprint, Network, Plus, ScanSearch, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, MetricBand, Progress, RemoteState, StatusBadge, SurfaceHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
@@ -40,11 +41,21 @@ function quickActionIcon(code: string) {
 function renderWorkbenchMetric(data: WorkbenchPayload) {
   const { kpis } = data;
   return [
-    { label: "可见数据资产", value: String(kpis.visible_assets), detail: "当前组织范围", tone: "brand" as const },
-    { label: "使用申请", value: String(kpis.usage_requests), detail: `${kpis.active_usage_requests} 条活跃`, tone: "info" as const },
-    { label: "计算任务", value: String(kpis.compute_jobs), detail: `${kpis.visible_tasks} 条可信任务`, tone: "warning" as const },
-    { label: "审计报告", value: String(kpis.audit_reports), detail: "真实数据库计数", tone: "success" as const },
+    { label: "可见数据资产", value: String(kpis.visible_assets), tone: "brand" as const },
+    { label: "使用申请", value: String(kpis.usage_requests), tone: "info" as const },
+    { label: "计算任务", value: String(kpis.compute_jobs), tone: "warning" as const },
+    { label: "审计报告", value: String(kpis.audit_reports), tone: "success" as const },
   ];
+}
+
+function workbenchTrend(data: WorkbenchPayload) {
+  const grouped = new Map<string, number>();
+  data.recent_tasks.forEach((task) => {
+    const day = task.updated_at?.slice(0, 10);
+    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    grouped.set(day, (grouped.get(day) || 0) + 1);
+  });
+  return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([day, count]) => ({ day: day.slice(5), count }));
 }
 
 export function WorkbenchPage() {
@@ -54,12 +65,14 @@ export function WorkbenchPage() {
   const data = remote.data;
   const quickActions = data?.quick_action_items ?? [];
   const canRequest = context?.role_capabilities.can_request_usage === true;
-  return <PageFrame title="运行总览" description="集中查看当前企业的数据目录、授权、计算任务和审计状态。" action={<Button variant="primary" disabled={!canRequest} title={canRequest ? undefined : "当前账号不能发起数据授权申请"} onClick={() => navigate(routeForView("catalog"))}><Plus size={15} />申请数据授权</Button>}>
+  const trend = data ? workbenchTrend(data) : [];
+  return <PageFrame title="全局看板" action={<Button variant="primary" disabled={!canRequest} title={canRequest ? undefined : "当前账号不能发起数据授权申请"} onClick={() => navigate(routeForView("catalog"))}><Plus size={15} />申请数据授权</Button>}>
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
     {data && <>
       <section className="trusted-subject-strip"><div className="trusted-subject-identity"><span className="trusted-subject-avatar"><ShieldCheck size={18} /></span><div><strong>您好，{context?.current_subject.org_name || context?.actor.display_name}</strong><span>{context?.actor.role_label}，当前操作代表所属企业</span></div></div><div className="trusted-subject-facts"><span><small>企业账户</small><b>已核验</b></span><span><small>权限范围</small><b>可发现跨能源目录</b></span><span><small>数据边界</small><Badge tone="success" dot>原始数据不进入平台</Badge></span></div></section>
-      <MetricBand items={renderWorkbenchMetric(data)} />
-      <div className="trusted-workbench-grid">
+       <MetricBand items={renderWorkbenchMetric(data)} />
+       <Card className="trusted-dashboard-trend"><CardHeader><SurfaceHeader title="任务趋势" action={<Badge tone="info">真实任务记录</Badge>} /></CardHeader><CardContent><RemoteState empty={!trend.length} emptyLabel="暂无带时间戳的任务记录" />{Boolean(trend.length) && <div className="trusted-dashboard-chart"><ResponsiveContainer width="100%" height={220}><AreaChart data={trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><defs><linearGradient id="trusted-task-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--energy-info)" stopOpacity={0.28} /><stop offset="95%" stopColor="var(--energy-info)" stopOpacity={0.02} /></linearGradient></defs><CartesianGrid stroke="var(--energy-line-soft)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="day" tick={{ fill: "var(--energy-muted)", fontSize: 11 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fill: "var(--energy-muted)", fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip cursor={{ stroke: "var(--energy-brand-border)" }} contentStyle={{ border: "1px solid var(--energy-line)", borderRadius: 10, boxShadow: "0 8px 20px rgba(15,23,42,.08)", fontSize: 12 }} labelFormatter={(value) => `日期 ${value}`} formatter={(value) => [value, "任务数"]} /><Area type="monotone" dataKey="count" name="任务数" stroke="var(--energy-info)" strokeWidth={2} fill="url(#trusted-task-gradient)" /></AreaChart></ResponsiveContainer></div>}</CardContent></Card>
+       <div className="trusted-workbench-grid">
         <Card className="trusted-table-surface"><CardHeader><SurfaceHeader title="最近数据资源" description="按最近更新时间排序，展示可发现的目录元数据" action={<Button variant="link" size="sm" onClick={() => navigate(routeForView("catalog"))}>查看全部 <ArrowUpRight size={14} /></Button>} /></CardHeader><CardContent className="trusted-table-wrap"><RemoteState empty={!data.recent_assets.length} emptyLabel="暂无可见数据资源" />{Boolean(data.recent_assets.length) && <Table><TableHeader><TableRow><TableHead>数据资源</TableHead><TableHead>能源种类</TableHead><TableHead>提供企业</TableHead><TableHead>连接状态</TableHead></TableRow></TableHeader><TableBody>{data.recent_assets.map((asset) => <TableRow key={asset.asset_id} onClick={() => navigate(routeForView("asset", asset.asset_id))}><TableCell><div className="trusted-table-primary"><strong>{asset.asset_name?.trim() || "未命名数据资源"}</strong><small>{asset.asset_name?.trim() ? "企业已发布中文名称" : "请提供企业补充中文名称"}</small></div></TableCell><TableCell>{ASSET_TYPE_LABELS[asset.asset_type] || "数据资源"}</TableCell><TableCell>{asset.owner_org_name || "未登记提供企业"}</TableCell><TableCell className="trusted-muted">{labelForCode(asset.source_capability)}</TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
         <Card className="trusted-task-surface"><CardHeader><SurfaceHeader title="近期任务动态" description="来自真实可信任务记录；进度为状态机阶段估算，不是实时执行进度" action={<Button variant="link" size="sm" onClick={() => navigate(routeForView("ttc"))}>查看全部 <ArrowUpRight size={14} /></Button>} /></CardHeader><CardContent><RemoteState empty={!data.recent_tasks.length} emptyLabel="暂无可见任务" />{Boolean(data.recent_tasks.length) && <div className="trusted-task-list">{data.recent_tasks.map((task) => { const estimate = task.phase_progress_estimate; return <button className="trusted-task-row" key={task.task_id} type="button" onClick={() => navigate(routeForView("ttc", task.task_id))}><span className="trusted-task-icon"><Network size={15} /></span><span className="trusted-task-copy"><strong>{task.task_name}</strong><small><code>{task.task_id}</code> · {statusLabel(task.status)}</small></span><span className="trusted-task-state"><StatusBadge value={statusLabel(task.status)} /><Progress value={estimate?.value ?? 0} label={estimate?.label || "阶段估算（非实时执行进度）"} /></span></button>; })}</div>}</CardContent></Card>
       </div>

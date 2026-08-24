@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, ChevronRight, ClipboardList, CornerDownLeft, Database, FileSearch, FileText, Send, ShieldCheck, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { ApiError, createIdempotencyKey, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
-import { Badge, Button, Dialog, DialogContent, DialogDescription, DialogTitle, IconButton, Input, RemoteState } from "./ui-primitives";
+import { Badge, Button, Dialog, DialogContent, DialogTitle, IconButton, Input, RemoteState } from "./ui-primitives";
 import { createAssistantSession, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, postAssistantMessage, runAssistantPlanAction, type AssistantMessage, type AssistantPlan, type AssistantSession, type AssistantTool } from "../trusted-space-api";
 import { isLatestRun, resolveOnce, retryTransient } from "../assistant-state";
 import { ACTION_LABELS, labelForCode } from "../../../types";
@@ -11,7 +11,7 @@ import { capabilityLabel } from "../trusted-space-labels";
 const SHORTCUTS = [
   { label: "检查资产完整性", icon: FileSearch },
   { label: "查询授权申请状态", icon: ShieldCheck },
-  { label: "检查TTC状态", icon: ChevronRight },
+  { label: "检查可信任务状态", icon: ChevronRight },
   { label: "核验证据摘要", icon: ShieldCheck },
   { label: "解释审计报告", icon: FileSearch },
 ] as const;
@@ -154,7 +154,7 @@ export function AgentSheet({ open, onOpenChange }: { open: boolean; onOpenChange
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="energy-agent-sheet">
-      <div className="energy-agent-heading"><div className="energy-agent-title"><span className="energy-agent-icon"><Bot size={17} /></span><div><DialogTitle>隐链智能助手</DialogTitle><DialogDescription>确定性本地规划器；写动作只进入人工复核</DialogDescription></div></div><IconButton label="关闭智能助手" onClick={() => onOpenChange(false)}><X size={16} /></IconButton></div>
+      <div className="energy-agent-heading"><div className="energy-agent-title"><span className="energy-agent-icon"><Bot size={17} /></span><div><DialogTitle>隐链智能助手</DialogTitle></div></div><IconButton label="关闭智能助手" onClick={() => onOpenChange(false)}><X size={16} /></IconButton></div>
       <div className="energy-agent-body">
         {loading && <RemoteState loading />}
         {error && <RemoteState error={error} onRetry={() => { setError(""); setSession(null); sessionRef.current = null; sessionPromiseRef.current = null; setBootNonce((value) => value + 1); }} />}

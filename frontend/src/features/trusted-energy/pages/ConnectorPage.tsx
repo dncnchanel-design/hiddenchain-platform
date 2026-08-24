@@ -8,14 +8,14 @@ import { Badge, Button, Card, CardContent, CardHeader, FieldLabel, Input, Remote
 import { useTrustedSpaceContext } from "../trusted-space-context";
 import { createAccessRule, loadAccessRules, revokeAccessRule, type AccessRule } from "../trusted-space-api";
 
-const sourceTypes = ["Excel", "CSV", "PostgreSQL", "MySQL", "SQL Server", "SQLite"];
-const fixedFunctions = ["求和", "平均值", "最大值", "最小值", "计数", "中位数", "增长率", "同比", "环比", "分组汇总", "阈值判断", "趋势", "PSI", "MPC 聚合份额"];
+const sourceTypes = ["Excel 表格", "CSV 文件", "PostgreSQL 数据库", "MySQL 数据库", "SQL Server 数据库", "SQLite 数据库"];
+const fixedFunctions = ["求和", "平均值", "最大值", "最小值", "计数", "中位数", "增长率", "同比", "环比", "分组汇总", "阈值判断", "趋势", "隐私求交", "安全多方聚合"];
 const fixedFunctionOptions = [
   { value: "sum", label: "求和" }, { value: "average", label: "平均值" }, { value: "max", label: "最大值" },
   { value: "min", label: "最小值" }, { value: "count", label: "计数" }, { value: "median", label: "中位数" },
   { value: "growth_rate", label: "增长率" }, { value: "yoy", label: "同比" }, { value: "mom", label: "环比" },
   { value: "group_by", label: "分组汇总" }, { value: "threshold", label: "阈值判断" }, { value: "trend", label: "趋势" },
-  { value: "psi", label: "PSI" }, { value: "mpc_aggregation", label: "MPC 聚合份额" },
+  { value: "psi", label: "隐私求交" }, { value: "mpc_aggregation", label: "安全多方聚合" },
 ];
 
 export function ConnectorPage() {
@@ -76,10 +76,10 @@ export function ConnectorPage() {
     }
   }
 
-  return <PageFrame title="数据连接" description="企业侧连接器读取本企业允许的数据范围，平台不接收也不保存原始数据。">
+  return <PageFrame title="数据接入">
     <div className="trusted-connector-hero">
       <div className="trusted-connector-symbol"><Cable size={27} /></div>
-      <div><h2>{domainLabel}企业连接器</h2><p>当前企业范围：{domainLabel}。连接器在企业侧执行授权核验、固定函数计算和结果签名。</p></div>
+      <div><h2>{domainLabel}企业连接器</h2></div>
       <Badge tone={configured ? "success" : "warning"} dot>{configured ? "已登记" : "待配置"}</Badge>
     </div>
 
@@ -87,10 +87,10 @@ export function ConnectorPage() {
       <Card>
         <CardHeader><SurfaceHeader title="可信数据空间边界" description="平台侧与企业侧的职责分开" /></CardHeader>
         <CardContent className="trusted-boundary-steps">
-          <div><span><Database size={17} /></span><strong>原始数据留在企业</strong><p>文件和数据库记录只存在企业内网或本演示连接器的独立数据存储中。</p></div>
-          <div><span><ShieldCheck size={17} /></span><strong>企业决定公布范围</strong><p>目录、字段、期间、粒度、用途、对象、期限和次数由企业策略控制。</p></div>
-          <div><span><ServerCog size={17} /></span><strong>计算在连接器内完成</strong><p>平台发送已签名任务，连接器验证授权后运行固定函数，只返回受控结果。</p></div>
-          <div><span><KeyRound size={17} /></span><strong>结果使用真实数字签名</strong><p>企业私钥只配置在连接器密钥存储中，平台仅登记公钥并验证 Ed25519 签名。</p></div>
+          <div><span><Database size={17} /></span><strong>原始数据留在企业</strong></div>
+          <div><span><ShieldCheck size={17} /></span><strong>企业决定公布范围</strong></div>
+          <div><span><ServerCog size={17} /></span><strong>计算在连接器内完成</strong></div>
+          <div><span><KeyRound size={17} /></span><strong>结果使用真实数字签名</strong></div>
         </CardContent>
       </Card>
 
@@ -115,6 +115,6 @@ export function ConnectorPage() {
       </CardContent>
     </Card>
 
-    <div className="trusted-connector-note"><ShieldCheck size={16} /><div><strong>公开环境是演示部署</strong><p>正式交付后，每家企业在自己的内网部署连接器与私钥，平台只负责目录协调、授权流转、任务编排和审计追溯。</p></div></div>
+    <div className="trusted-connector-note"><ShieldCheck size={16} /><div><strong>公开环境是演示部署</strong></div></div>
   </PageFrame>;
 }

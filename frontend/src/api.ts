@@ -65,12 +65,16 @@ function wait(ms: number) {
 export class ApiError extends Error {
   status: number;
   traceId?: string;
+  code?: string;
+  retryable: boolean;
 
-  constructor(message: string, status: number, traceId?: string) {
+  constructor(message: string, status: number, traceId?: string, options: { code?: string; retryable?: boolean } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.traceId = traceId;
+    this.code = options.code;
+    this.retryable = options.retryable ?? isRetryableStatus(status);
   }
 }
 
@@ -136,6 +140,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
   const headers = new Headers(requestOptions.headers);
   if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", globalThis.crypto.randomUUID());
   if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
   if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
 
@@ -173,8 +178,11 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
           }
           const errorTraceId = traceId || requestId || (typeof body.trace_id === "string" ? body.trace_id : undefined);
           const detail = body.detail;
-          const nestedDetailMessage = detail && typeof detail === "object" && !Array.isArray(detail)
-            ? (detail as Record<string, unknown>).message
+          const detailRecord = detail && typeof detail === "object" && !Array.isArray(detail)
+            ? detail as Record<string, unknown>
+            : undefined;
+          const nestedDetailMessage = detailRecord
+            ? detailRecord.message
             : undefined;
           const errorValue = typeof detail === "string"
             ? detail
@@ -182,8 +190,18 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
               ? nestedDetailMessage
               : body.message;
           const message = safeErrorMessage(errorValue, response.status);
+          const code = typeof body.code === "string"
+            ? body.code
+            : typeof detailRecord?.code === "string"
+              ? detailRecord.code
+              : undefined;
+          const retryable = typeof body.retryable === "boolean"
+            ? body.retryable
+            : typeof detailRecord?.retryable === "boolean"
+              ? detailRecord.retryable
+              : isRetryableStatus(response.status);
           if (response.status === 401) window.dispatchEvent(new Event("hiddenchain:unauthorized"));
-          throw new ApiError(message, response.status, errorTraceId);
+          throw new ApiError(message, response.status, errorTraceId, { code, retryable });
         }
         if (response.status === 204) return undefined as T;
         const value = await response.json() as T;

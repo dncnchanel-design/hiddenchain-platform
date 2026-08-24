@@ -26,7 +26,7 @@ export function TrustedHelpPanel() {
         {remote.error && !payload && <RemoteState error={remote.error} onRetry={remote.reload} />}
         {payload && <>
           <div className="trusted-utility-heading">
-            <div><span className="trusted-utility-kicker">{labelForCode(payload.view, "当前页面")} · {payload.version || "当前版本"}</span><h2>{payload.title}</h2><p>{payload.summary}</p></div>
+            <div><span className="trusted-utility-kicker">{labelForCode(payload.view, "当前页面")} · {payload.version || "当前版本"}</span><h2>{payload.title}</h2></div>
             <Badge tone={payload.capability_state === "LOCAL_REAL" ? "success" : "warning"} dot>{capabilityLabel(payload.capability_state)}</Badge>
           </div>
           <div className="trusted-help-boundary"><ShieldCheck size={15} /><span>以下内容是后端版本化帮助与能力边界；不会执行动作，也不会加载任意 HTML。</span></div>

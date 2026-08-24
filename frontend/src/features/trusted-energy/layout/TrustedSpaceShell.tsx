@@ -14,7 +14,7 @@ import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
 import { AssetPassportPage } from "../pages/AssetPassportPage";
 import { ApplyPage } from "../pages/ApplyPage";
-import { AuthorizationsPage } from "../pages/AuthorizationsPage";
+import { StrategyCenterPage } from "../pages/StrategyCenterPage";
 import { ContractPage } from "../pages/ContractPage";
 import { TtcPage } from "../pages/TtcPage";
 import { MpcPage } from "../pages/MpcPage";
@@ -36,19 +36,19 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const titles: Record<TrustedViewKey, string> = {
-  workbench: "运行总览",
-  query: "智能数据查询",
-  identity: "参与主体",
+  workbench: "全局看板",
+  query: "数据问数",
+  identity: "身份拓扑",
   catalog: "数据目录",
-  connector: "数据连接",
-  authorizations: "数据授权",
+  connector: "数据接入",
+  authorizations: "策略中心",
   asset: "数据资产护照",
   apply: "使用申请",
   contract: "合同协商",
     ttc: "可信任务详情",
   mpc: "计算任务",
   results: "计算任务结果",
-  audit: "审计追溯",
+  audit: "审计存证",
 };
 
 function renderView(view: TrustedViewKey) {
@@ -57,7 +57,7 @@ function renderView(view: TrustedViewKey) {
     case "identity": return <IdentityPage />;
     case "catalog": return <CatalogPage />;
     case "connector": return <ConnectorPage />;
-    case "authorizations": return <AuthorizationsPage />;
+    case "authorizations": return <StrategyCenterPage />;
     case "asset": return <AssetPassportPage />;
     case "apply": return <ApplyPage />;
     case "contract": return <ContractPage />;
@@ -112,7 +112,7 @@ export function TrustedSpaceShell() {
         <IconButton className="trusted-mobile-menu" label="打开左侧导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={17} /></IconButton>
         <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onClick={() => setNavigationOpen(false)}>
           <span className="trusted-brand-mark"><ShieldCheck size={20} strokeWidth={2.1} /></span>
-          <span><strong>隐链明算</strong><small>可信数据空间</small></span>
+          <span><strong>隐链明算</strong></span>
         </Link>
         <span className="trusted-divider" aria-hidden="true" />
         <span className="trusted-org-label">多能源可信数据与隐私计算平台</span>

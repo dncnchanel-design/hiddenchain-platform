@@ -60,7 +60,7 @@ export function AuditCenterPage() {
   }
 
   if (!taskId) {
-    return <PageFrame title="审计中心" description="以真实任务为主线复核审计日志、状态转移、报告与证据。" action={<div className="trusted-submit-actions"><Button variant="secondary" busy={exporting === "json"} onClick={() => exportRecords("json")}><Download size={14} />结构化数据导出</Button><Button variant="secondary" busy={exporting === "csv"} onClick={() => exportRecords("csv")}><Download size={14} />表格数据导出</Button><Button variant="secondary" onClick={listRemote.reload} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button></div>}>
+    return <PageFrame title="审计存证" action={<div className="trusted-submit-actions"><Button variant="secondary" busy={exporting === "json"} onClick={() => exportRecords("json")}><Download size={14} />结构化数据导出</Button><Button variant="secondary" busy={exporting === "csv"} onClick={() => exportRecords("csv")}><Download size={14} />表格数据导出</Button><Button variant="secondary" onClick={listRemote.reload} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button></div>}>
       {exportError && <p className="trusted-inline-status" role="alert">{exportError}</p>}
       {listRemote.loading && !list && <RemoteState loading />}
       {listRemote.error && !list && <RemoteState error={listRemote.error} onRetry={() => void listRemote.reload()} />}
@@ -69,7 +69,7 @@ export function AuditCenterPage() {
     </PageFrame>;
   }
 
-  return <PageFrame title="审计中心" description={detail ? `任务 ${detail.task.task_id} 的完整审计链、报告与证据来自真实后端。` : "读取真实任务审计详情。"} back={routeForView("audit")} action={<Button variant="secondary" onClick={detailRemote.reload} busy={detailRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
+  return <PageFrame title="审计存证" back={routeForView("audit")} action={<Button variant="secondary" onClick={detailRemote.reload} busy={detailRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
     {detailRemote.loading && !detail && <RemoteState loading />}
     {detailRemote.error && !detail && <RemoteState error={detailRemote.error} onRetry={() => void detailRemote.reload()} />}
     {detail && <>

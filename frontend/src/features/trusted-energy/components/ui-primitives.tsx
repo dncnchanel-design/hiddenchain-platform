@@ -143,8 +143,8 @@ export function Timeline({ events }: { events: Array<{ id: string; label: string
   return <ol className="energy-timeline">{events.map((event) => <li key={event.id} className={`energy-timeline-item energy-timeline-${event.state}`}><span className="energy-timeline-marker">{event.state === "done" ? <Check size={12} /> : event.state === "current" ? <LoaderCircle className="energy-spin" size={12} /> : <Circle size={8} />}</span><div className="energy-timeline-copy"><strong>{event.label}</strong><span>{event.detail}</span></div><time>{event.time}</time></li>)}</ol>;
 }
 
-export function SurfaceHeader({ title, description, action }: { title: string; description?: string; action?: React.ReactNode }) {
-  return <div className="energy-surface-header"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{action && <div className="energy-surface-header-action">{action}</div>}</div>;
+export function SurfaceHeader({ title, action }: { title: string; description?: string; action?: React.ReactNode }) {
+  return <div className="energy-surface-header"><div><h2>{title}</h2></div>{action && <div className="energy-surface-header-action">{action}</div>}</div>;
 }
 
 export function MetricBand({ items }: { items: Array<{ label: string; value: string; detail?: string; tone?: "brand" | "success" | "warning" | "info" }> }) {
