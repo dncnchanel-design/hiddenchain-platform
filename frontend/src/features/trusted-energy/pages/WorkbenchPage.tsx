@@ -15,11 +15,31 @@ const ACTION_COLORS: Record<string, string> = {
 const ACTION_NAMES: Record<string, string> = { allow: "直接提供", deny: "禁止提供", aggregate: "汇总提供", delay: "延迟提供", compute_only: "仅计算不出域" };
 const CITY_COLORS = ["var(--prototype-action-navy)", "var(--prototype-accent)", "var(--prototype-action-allow)", "var(--prototype-action-aggregate)", "var(--prototype-action-delay)"];
 const CITY_POSITIONS = [
-  { name: "济南", left: "41%", top: "42%" },
-  { name: "青岛", left: "76%", top: "51%" },
-  { name: "烟台", left: "84%", top: "25%" },
-  { name: "潍坊", left: "64%", top: "42%" },
-  { name: "临沂", left: "52%", top: "73%" },
+  { name: "济南", x: 286, y: 232 },
+  { name: "青岛", x: 560, y: 284 },
+  { name: "烟台", x: 611, y: 126 },
+  { name: "潍坊", x: 421, y: 226 },
+  { name: "临沂", x: 362, y: 404 },
+];
+const SHANDONG_OUTLINE = "M282 101 C312 82 343 78 370 91 C403 76 441 82 462 103 C493 92 530 98 550 121 C581 112 618 124 637 148 C671 157 688 181 676 205 C694 225 690 254 669 270 C684 294 675 321 650 335 C657 365 640 390 614 399 C616 429 595 451 567 452 C552 480 521 493 495 481 C472 501 442 493 427 470 C398 468 377 450 372 424 C343 418 321 396 320 370 C291 361 278 338 286 313 C260 299 251 272 264 248 C244 226 249 199 269 183 C251 156 258 126 282 115 C273 110 274 105 282 101 Z";
+const SHANDONG_BOUNDARIES = [
+  "M294 164 C337 174 365 160 398 171 C433 182 461 169 497 177 C534 185 563 171 604 186",
+  "M275 215 C313 224 340 210 373 220 C411 230 442 216 475 227 C514 239 550 222 588 237 C620 249 651 242 677 251",
+  "M284 270 C323 278 347 265 379 278 C417 293 445 276 481 288 C519 300 551 284 583 297 C612 309 642 301 669 316",
+  "M321 124 C310 157 319 181 309 211 C297 244 305 270 297 303 C289 329 303 350 321 370",
+  "M369 93 C360 126 371 153 360 183 C348 214 361 242 350 275 C340 306 350 331 346 360 C344 389 356 412 372 424",
+  "M453 101 C442 134 452 160 442 190 C430 224 442 250 431 281 C421 311 432 341 424 372 C420 408 428 438 447 472",
+  "M540 118 C524 145 535 173 524 205 C512 237 524 264 512 296 C503 328 513 354 507 385 C503 414 515 436 522 470",
+  "M621 145 C603 169 616 194 605 222 C595 250 606 276 595 306 C587 333 598 360 588 391 C583 417 592 438 602 450",
+  "M267 183 C300 191 326 186 350 195 C377 205 402 196 427 205 C454 215 480 207 505 216 C533 226 556 216 579 225 C603 235 625 228 649 239",
+  "M318 367 C344 355 365 365 389 376 C413 388 432 380 456 390 C481 401 508 389 531 400 C553 411 578 402 610 399",
+];
+const SHANDONG_ISLANDS = ["M625 90 l9 -8 12 3 5 9 -10 7 -12 -3 Z", "M653 101 l6 -6 9 3 2 7 -7 5 Z"];
+const MAP_ROUTES = [
+  { d: "M286 232 C365 164 491 106 611 126", label: "济南—烟台" },
+  { d: "M286 232 C337 216 381 214 421 226", label: "济南—潍坊" },
+  { d: "M421 226 C475 228 525 253 560 284", label: "潍坊—青岛" },
+  { d: "M421 226 C394 275 370 337 362 404", label: "潍坊—临沂" },
 ];
 
 function formatTime(value: string) {
@@ -31,34 +51,47 @@ function formatNumber(value: number, fractionDigits = 0) {
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits }).format(value);
 }
 
+function formatBeijingDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function actionData(data: PrototypeDashboardPayload) {
   return Object.entries(data.action_counts).filter(([, value]) => value > 0).map(([key, value]) => ({ name: ACTION_NAMES[key] || key, value, key }));
 }
 
 function DashboardMap({ data, index }: { data: PrototypeDashboardPayload["map"]; index: number }) {
-  const cities = CITY_POSITIONS.map((city, cityIndex) => ({
+  const cities = CITY_POSITIONS.map((city) => ({
     ...city,
     value: data.series[city.name]?.[index] || 0,
-    color: CITY_COLORS[cityIndex],
   }));
   const max = Math.max(...cities.map((city) => city.value), 1);
-  const totalLoad = cities.reduce((sum, city) => sum + city.value, 0);
-  const coalDays = data.coal_days[index] || 0;
-
   return <div className="prototype-map" aria-label="山东能源供需态势">
-    <div className="prototype-map-grid" />
-    <div className="prototype-map-summary"><span>当前区域负荷</span><strong>{formatNumber(totalLoad)} MW</strong><small>5 个能源节点已接入</small></div>
-    <div className="prototype-map-status"><i className={coalDays >= 15 ? "is-green" : coalDays >= 7 ? "is-orange" : "is-red"} /><span>库存覆盖</span><b>{coalDays ? `${formatNumber(coalDays, 1)} 天` : "暂无数据"}</b></div>
-    {cities.map((city) => <div className="prototype-map-city" key={city.name} style={{ left: city.left, top: city.top }} title={`${city.name} ${formatNumber(city.value)} MW`}>
-      <span className="prototype-map-pin" style={{ background: city.color, transform: `rotate(-45deg) scale(${0.85 + city.value / max * 0.7})` }} />
-      <b>{city.name}</b>
-      <small>{formatNumber(city.value)} MW</small>
-    </div>)}
-    <span className="prototype-map-route prototype-map-route-one" />
-    <span className="prototype-map-route prototype-map-route-two" />
-    <span className="prototype-map-route prototype-map-route-three" />
-    <span className="prototype-map-route prototype-map-route-four" />
-    <div className="prototype-map-scale"><span>供需协同路径</span><span><i />数据节点</span><span><i className="is-line" />跨主体调用</span></div>
+    <svg className="prototype-map-svg" viewBox="210 45 520 460" role="img" aria-labelledby="prototype-map-title prototype-map-description">
+      <title id="prototype-map-title">山东能源供需态势地图</title>
+      <desc id="prototype-map-description">山东省区划示意、五个能源节点及跨主体协同路径。</desc>
+      <defs>
+        <marker id="prototype-map-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0 0 L10 5 L0 10 Z" fill="var(--prototype-accent)" />
+        </marker>
+      </defs>
+      <path className="prototype-map-province" d={SHANDONG_OUTLINE} />
+      <g className="prototype-map-boundaries" aria-hidden="true">{SHANDONG_BOUNDARIES.map((path) => <path d={path} key={path} />)}</g>
+      <g className="prototype-map-islands" aria-hidden="true">{SHANDONG_ISLANDS.map((path) => <path d={path} key={path} />)}</g>
+      <g className="prototype-map-routes" aria-label="跨主体协同路径">{MAP_ROUTES.map((route) => <path d={route.d} key={route.label} aria-label={route.label} markerEnd="url(#prototype-map-arrow)" />)}</g>
+      <g className="prototype-map-nodes">{cities.map((city) => {
+        const scale = 0.9 + city.value / max * 0.35;
+        const coalDays = data.coal_days[index] || 0;
+        return <g className="prototype-map-node" key={city.name} transform={`translate(${city.x} ${city.y}) scale(${scale})`} tabIndex={0} aria-label={`${city.name}，${formatNumber(city.value)} MW，库存覆盖 ${formatNumber(coalDays, 1)} 天`}>
+          <title>{`${city.name} · ${formatNumber(city.value)} MW · 库存覆盖 ${formatNumber(coalDays, 1)} 天`}</title>
+          <circle className="prototype-map-node-halo" r="29" />
+          <path className="prototype-map-node-pin" d="M0 -23 C15 -23 24 -12 24 0 C24 13 0 36 0 36 C0 36 -24 13 -24 0 C-24 -12 -15 -23 0 -23 Z" fill="var(--prototype-map-node)" />
+          <circle className="prototype-map-node-core" cy="-4" r="10" />
+          <text className="prototype-map-node-label" y="60" textAnchor="middle">{city.name}</text>
+        </g>;
+      })}</g>
+    </svg>
     {!data.days.length && <div className="prototype-map-empty">暂无负荷与库存数据</div>}
   </div>;
 }
@@ -67,14 +100,19 @@ export function WorkbenchPage() {
   const remote = useRemote(loadPrototypeDashboard, []);
   const data = remote.data;
   const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const dayCount = data?.map.days.length || 0;
 
   useEffect(() => {
-    if (!playing || dayCount < 2) return undefined;
-    const timer = window.setInterval(() => setIndex((current) => (current + 1) % dayCount), 800);
+    if (dayCount < 2) return undefined;
+    const timer = window.setInterval(() => setIndex((current) => (current + 1) % dayCount), 2200);
     return () => window.clearInterval(timer);
-  }, [dayCount, playing]);
+  }, [dayCount]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const chartData = useMemo(() => {
     if (!data) return [];
@@ -88,11 +126,10 @@ export function WorkbenchPage() {
   const currentCoalDays = data?.map.coal_days[index] || data?.gauge.days || 0;
   const currentInventory = data?.map.coal_inventory[index] || data?.gauge.inventory || 0;
   const currentConsumption = data?.map.coal_consumption[index] || 0;
-  const currentLoad = data ? CITY_POSITIONS.reduce((sum, city) => sum + (data.map.series[city.name]?.[index] || 0), 0) : 0;
   const peakLoad = data ? Math.max(...CITY_POSITIONS.flatMap((city) => data.map.series[city.name] || []), 0) : 0;
   const gaugePercent = Math.min(100, Math.max(0, currentCoalDays / 24 * 100));
   const gaugeColor = currentCoalDays >= 15 ? "var(--prototype-action-allow)" : currentCoalDays >= 7 ? "var(--prototype-action-aggregate)" : "var(--prototype-action-deny)";
-  const latestDay = data?.map.days[index] || "暂无日期";
+  const beijingDate = formatBeijingDate(now);
   const totalActions = pieData.reduce((sum, item) => sum + item.value, 0);
   const connectorNotes = ["最近心跳 00:32", "最近心跳 00:47", "策略版本 2026.08", "追加写入正常"];
 
@@ -107,7 +144,7 @@ export function WorkbenchPage() {
         </div>
         <div className="prototype-overview-facts">
           <span><small>监测窗口</small><b>近 7 日</b></span>
-          <span><small>当前日期</small><b>{latestDay}</b></span>
+          <span><small>当前日期</small><b>{beijingDate}</b></span>
           <span><small>存证状态</small><b className={data.chain.ok ? "is-good" : "is-bad"}>{data.chain.ok ? "哈希链完整" : "待核验"}</b></span>
         </div>
       </section>
@@ -128,13 +165,12 @@ export function WorkbenchPage() {
         <section className="prototype-card prototype-dashboard-map-card">
           <div className="prototype-card-heading">
             <div>
-              <PrototypeCardTitle action={<span className="prototype-day-badge">{latestDay}</span>}>山东能源供需态势</PrototypeCardTitle>
-              <div className="prototype-dashboard-subline"><span>当前区域负荷 <b>{formatNumber(currentLoad)} MW</b></span><span>库存覆盖 <b>{formatNumber(currentCoalDays, 1)} 天</b></span><span>跨主体调用路径 <b>12 条</b></span></div>
+              <PrototypeCardTitle action={<span className="prototype-day-badge" aria-live="polite" aria-label={`北京时间 ${beijingDate}`}>{beijingDate}</span>}>山东能源供需态势</PrototypeCardTitle>
+              <div className="prototype-dashboard-subline"><span>电力负荷 · 电煤库存 · 跨主体协同 · 三位一体综合态势</span></div>
               <div className="prototype-dashboard-legend"><span><i className="is-green" />库存充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span><span><i className="is-line" />跨主体协同</span></div>
             </div>
           </div>
           <DashboardMap data={data.map} index={index} />
-          <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>
           <div className="prototype-trend-panel">
             <div className="prototype-trend-header"><div><strong>区域负荷趋势</strong><span>MW · 近 7 日</span></div><span>峰值 {formatNumber(peakLoad)} MW</span></div>
             {chartData.length > 1 ? <ResponsiveContainer width="100%" height={148}><LineChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>

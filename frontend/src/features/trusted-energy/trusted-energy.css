@@ -1240,3 +1240,42 @@
   .prototype-pie-layout { grid-template-columns: 1fr; }
   .prototype-pie-wrap { max-width: 230px; margin: 0 auto; }
 }
+
+/* Map alignment: the province silhouette is the primary visual, while data drives node scale and route motion. */
+.prototype-shell {
+  --prototype-map-fill: #e8f3fb;
+  --prototype-map-surface: #fbfdff;
+  --prototype-map-boundary: #7b8ea5;
+  --prototype-map-label: #294563;
+  --prototype-map-node: #0a9a73;
+  --prototype-map-node-halo: rgba(10,154,115,.18);
+  --prototype-map-route: #00a3e0;
+}
+.prototype-dashboard-map-card { min-height: 0; }
+.prototype-map { height: clamp(390px, 42vw, 520px); margin-top: 15px; border-color: #dbe8f2; border-radius: 10px; background: var(--prototype-map-surface); }
+.prototype-map::before { display: none; }
+.prototype-map-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.prototype-map-province { fill: var(--prototype-map-fill); stroke: var(--prototype-map-boundary); stroke-width: 1.7; vector-effect: non-scaling-stroke; filter: drop-shadow(0 7px 9px rgba(56,87,118,.14)); }
+.prototype-map-boundaries path { fill: none; stroke: var(--prototype-map-boundary); stroke-width: 1.1; opacity: .82; vector-effect: non-scaling-stroke; }
+.prototype-map-islands path { fill: var(--prototype-map-fill); stroke: var(--prototype-map-boundary); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.prototype-map-routes path { fill: none; stroke: var(--prototype-map-route); stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 10 8; animation: prototype-map-route-flow 2.8s linear infinite; filter: drop-shadow(0 2px 3px rgba(0,163,224,.2)); vector-effect: non-scaling-stroke; }
+.prototype-map-node { cursor: default; outline: none; transition: transform 320ms ease; }
+.prototype-map-node-halo { fill: var(--prototype-map-node-halo); animation: prototype-map-node-pulse 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.prototype-map-node-pin { stroke: #fff; stroke-width: 4; stroke-linejoin: round; filter: drop-shadow(0 4px 5px rgba(27,69,103,.22)); vector-effect: non-scaling-stroke; }
+.prototype-map-node-core { fill: rgba(255,255,255,.2); }
+.prototype-map-node-label { fill: var(--prototype-map-label); font-size: 17px; font-weight: 700; paint-order: stroke; stroke: rgba(255,255,255,.92); stroke-width: 5px; stroke-linejoin: round; }
+.prototype-map-node:focus-visible .prototype-map-node-pin { stroke: var(--prototype-map-route); stroke-width: 5; }
+.prototype-map-empty { background: rgba(255,255,255,.72); }
+@keyframes prototype-map-route-flow { to { stroke-dashoffset: -36; } }
+@keyframes prototype-map-node-pulse { 0%, 100% { opacity: .58; transform: scale(.86); } 50% { opacity: .18; transform: scale(1.18); } }
+@media (max-width: 760px) {
+  .prototype-map { height: clamp(240px, 65vw, 330px); }
+  .prototype-map-node-label { font-size: 15px; }
+}
+@media (max-width: 480px) {
+  .prototype-map { height: clamp(230px, 65vw, 300px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prototype-map-routes path, .prototype-map-node-halo { animation: none; }
+  .prototype-map-node { transition: none; }
+}
