@@ -141,7 +141,7 @@ export function ApplyPage() {
     }
   }
 
-  return <PageFrame title="使用申请" description={asset ? `申请访问「${asset.asset_name}」前，请按用途与处理边界完成确认。` : "读取真实资产后开始四步使用申请。"} back={asset ? routeForView("asset", asset.asset_id) : routeForView("catalog")}>
+  return <PageFrame variant="prototype" title="使用申请" description={asset ? `申请访问「${asset.asset_name}」前，请按用途与处理边界完成确认。` : "读取真实资产后开始四步使用申请。"} back={asset ? routeForView("asset", asset.asset_id) : routeForView("catalog")}>
     {remote.loading && !payload && <RemoteState loading />}
     {remote.error && !payload && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
     {payload && asset && <>

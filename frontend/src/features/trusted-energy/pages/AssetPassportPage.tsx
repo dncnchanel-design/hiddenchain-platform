@@ -42,7 +42,7 @@ export function AssetPassportPage() {
     if (asset?.asset_id) void navigator.clipboard?.writeText(asset.asset_id);
   }
 
-  return <PageFrame title="数据资产护照" description={asset ? `资产元数据、质量口径、使用规则和存证引用保持在同一份可追溯视图：${asset.asset_name}。` : "读取真实资产元数据、质量口径、使用规则和存证引用。"} back={routeForView("catalog")} action={asset && <div className="tw-flex tw-items-center tw-gap-2">{payload.actions.can_review_inbound && <Button variant="secondary" onClick={() => navigate(`${routeForView("authorizations")}?view=inbox`)}>查看入站授权</Button>}{payload.actions.can_request_usage ? <Button variant="primary" onClick={() => navigate(routeForView("apply", asset.asset_id))}>申请使用 <ArrowRight size={14} /></Button> : <Button variant="secondary" disabled title="当前角色或组织无权申请此资产">申请使用</Button>}</div>}>
+  return <PageFrame variant="prototype" title="数据资产护照" description={asset ? `资产元数据、质量口径、使用规则和存证引用保持在同一份可追溯视图：${asset.asset_name}。` : "读取真实资产元数据、质量口径、使用规则和存证引用。"} back={routeForView("catalog")} action={asset && <div className="tw-flex tw-items-center tw-gap-2">{payload.actions.can_review_inbound && <Button variant="secondary" onClick={() => navigate(`${routeForView("authorizations")}?view=inbox`)}>查看入站授权</Button>}{payload.actions.can_request_usage ? <Button variant="primary" onClick={() => navigate(routeForView("apply", asset.asset_id))}>申请使用 <ArrowRight size={14} /></Button> : <Button variant="secondary" disabled title="当前角色或组织无权申请此资产">申请使用</Button>}</div>}>
     {remote.loading && !payload && <RemoteState loading />}
     {remote.error && !payload && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
     {payload && asset && <>

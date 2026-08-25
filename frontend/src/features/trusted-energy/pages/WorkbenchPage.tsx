@@ -1,233 +1,244 @@
-import { useEffect, useMemo, useState } from "react";
-import { CartesianGrid, Cell, Line, LineChart, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useRef, useState } from "react";
+import * as echarts from "echarts";
+import { Activity, Database, FileCheck2, Link2, LockKeyhole, Map as MapIcon, Search, ShieldCheck, UsersRound } from "lucide-react";
 import { useRemote } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { RemoteState } from "../components/ui-primitives";
 import { loadPrototypeDashboard, type PrototypeDashboardPayload } from "../trusted-space-api";
-import { useTrustedSpaceContext } from "../trusted-space-context";
 
 const ACTION_COLORS: Record<string, string> = {
-  allow: "var(--prototype-action-allow)",
-  deny: "var(--prototype-action-deny)",
-  aggregate: "var(--prototype-action-aggregate)",
-  delay: "var(--prototype-action-delay)",
-  compute_only: "var(--prototype-action-compute)",
+  allow: "#059669",
+  deny: "#dc2626",
+  aggregate: "#d97706",
+  delay: "#7c3aed",
+  compute_only: "#0891b2",
 };
 const ACTION_NAMES: Record<string, string> = { allow: "直接提供", deny: "禁止提供", aggregate: "汇总提供", delay: "延迟提供", compute_only: "仅计算不出域" };
-const CITY_COLORS = ["var(--prototype-action-navy)", "var(--prototype-accent)", "var(--prototype-action-allow)", "var(--prototype-action-aggregate)", "var(--prototype-action-delay)"];
-const CITY_POSITIONS = [
-  { name: "济南", x: 286, y: 232 },
-  { name: "青岛", x: 560, y: 284 },
-  { name: "烟台", x: 611, y: 126 },
-  { name: "潍坊", x: 421, y: 226 },
-  { name: "临沂", x: 362, y: 404 },
+const CITY_XY: Record<string, [number, number]> = { 济南: [117.0, 36.65], 青岛: [120.38, 36.07], 烟台: [121.45, 37.46], 潍坊: [119.16, 36.71], 临沂: [118.35, 35.1] };
+const FLOW_ROUTES = [
+  { from: [117.0, 36.65], to: [120.38, 36.07], label: "电力 ↔ 煤炭" },
+  { from: [117.0, 36.65], to: [121.45, 37.46], label: "电力 ↔ 煤炭" },
+  { from: [118.35, 35.1], to: [119.16, 36.71], label: "电力调配" },
 ];
-const SHANDONG_OUTLINE = "M282 101 C312 82 343 78 370 91 C403 76 441 82 462 103 C493 92 530 98 550 121 C581 112 618 124 637 148 C671 157 688 181 676 205 C694 225 690 254 669 270 C684 294 675 321 650 335 C657 365 640 390 614 399 C616 429 595 451 567 452 C552 480 521 493 495 481 C472 501 442 493 427 470 C398 468 377 450 372 424 C343 418 321 396 320 370 C291 361 278 338 286 313 C260 299 251 272 264 248 C244 226 249 199 269 183 C251 156 258 126 282 115 C273 110 274 105 282 101 Z";
-const SHANDONG_BOUNDARIES = [
-  "M294 164 C337 174 365 160 398 171 C433 182 461 169 497 177 C534 185 563 171 604 186",
-  "M275 215 C313 224 340 210 373 220 C411 230 442 216 475 227 C514 239 550 222 588 237 C620 249 651 242 677 251",
-  "M284 270 C323 278 347 265 379 278 C417 293 445 276 481 288 C519 300 551 284 583 297 C612 309 642 301 669 316",
-  "M321 124 C310 157 319 181 309 211 C297 244 305 270 297 303 C289 329 303 350 321 370",
-  "M369 93 C360 126 371 153 360 183 C348 214 361 242 350 275 C340 306 350 331 346 360 C344 389 356 412 372 424",
-  "M453 101 C442 134 452 160 442 190 C430 224 442 250 431 281 C421 311 432 341 424 372 C420 408 428 438 447 472",
-  "M540 118 C524 145 535 173 524 205 C512 237 524 264 512 296 C503 328 513 354 507 385 C503 414 515 436 522 470",
-  "M621 145 C603 169 616 194 605 222 C595 250 606 276 595 306 C587 333 598 360 588 391 C583 417 592 438 602 450",
-  "M267 183 C300 191 326 186 350 195 C377 205 402 196 427 205 C454 215 480 207 505 216 C533 226 556 216 579 225 C603 235 625 228 649 239",
-  "M318 367 C344 355 365 365 389 376 C413 388 432 380 456 390 C481 401 508 389 531 400 C553 411 578 402 610 399",
-];
-const SHANDONG_ISLANDS = ["M625 90 l9 -8 12 3 5 9 -10 7 -12 -3 Z", "M653 101 l6 -6 9 3 2 7 -7 5 Z"];
-const MAP_ROUTES = [
-  { d: "M286 232 C365 164 491 106 611 126", label: "济南—烟台" },
-  { d: "M286 232 C337 216 381 214 421 226", label: "济南—潍坊" },
-  { d: "M421 226 C475 228 525 253 560 284", label: "潍坊—青岛" },
-  { d: "M421 226 C394 275 370 337 362 404", label: "潍坊—临沂" },
-];
+const KPI_ICONS = [Database, ShieldCheck, UsersRound, Link2, Search, LockKeyhole];
+const CONNECTOR_NOTES = ["电力连接器", "煤炭连接器", "策略引擎", "哈希链存证"];
+type PrototypeMap = PrototypeDashboardPayload["map"];
+
+let shandongMapPromise: Promise<void> | null = null;
+
+function ensureShandongMap() {
+  if (echarts.getMap("shandong")) return Promise.resolve();
+  if (!shandongMapPromise) {
+    shandongMapPromise = fetch("/shandong_cities.json")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`地图数据加载失败（${response.status}）`);
+        return response.json();
+      })
+      .then((geo) => {
+        echarts.registerMap("shandong", geo as any);
+      });
+  }
+  return shandongMapPromise;
+}
 
 function formatTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "未提供" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return value.includes("T") ? value.slice(11, 16) : value.slice(-5);
 }
 
-function formatNumber(value: number, fractionDigits = 0) {
-  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits }).format(value);
+function coalColor(days: number) {
+  if (days >= 15) return "#059669";
+  if (days >= 7) return "#d97706";
+  return "#dc2626";
 }
 
-function formatBeijingDate(value: Date) {
-  const parts = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
-  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: number) {
+  const coalDays = data.coal_days[index] || 0;
+  const scatterData = Object.keys(data.series).map((region) => {
+    const [x, y] = CITY_XY[region] || [117, 36];
+    return { name: region, region, value: [x, y, data.series[region][index] || 0, coalDays] };
+  });
+  const lines = FLOW_ROUTES.map((route) => ({ coords: [route.from, route.to], lineStyle: { color: "#00a3e0", width: 2.5, opacity: 0.7, curveness: 0.25 } }));
+  chart.setOption({
+    tooltip: {
+      trigger: "item",
+      backgroundColor: "rgba(255,255,255,.96)",
+      borderColor: "#e2e8f0",
+      textStyle: { color: "#0f172a", fontSize: 12 },
+      formatter: (params: any) => {
+        if (params.seriesType === "lines") return "跨主体协同 · 数据可用不可见";
+        if (!params.data) return params.name;
+        return `<div style="font-weight:600">${params.data.region}</div><div>平均负荷：<b>${params.data.value[2]}</b> MW</div><div>电煤可支撑：<b style="color:${coalColor(params.data.value[3])}">${params.data.value[3]}</b> 天</div>`;
+      },
+    },
+    geo: {
+      map: "shandong",
+      roam: true,
+      zoom: 1.05,
+      center: [119, 36.4],
+      layoutCenter: ["50%", "50%"],
+      layoutSize: "100%",
+      itemStyle: { areaColor: "#e0f2fe", borderColor: "#64748b", borderWidth: 1.2, shadowBlur: 4, shadowColor: "rgba(0,0,0,.08)" },
+      emphasis: { itemStyle: { areaColor: "#bfdbfe" }, label: { show: false } },
+    },
+    series: [
+      { type: "map", map: "shandong", geoIndex: 0, roam: false, data: [] },
+      {
+        type: "lines",
+        coordinateSystem: "geo",
+        data: lines,
+        zlevel: 2,
+        effect: { show: true, period: 5, trailLength: 0.4, symbol: "arrow", symbolSize: 7, color: "#00a3e0" },
+        lineStyle: { color: "#00a3e0", width: 2.5, opacity: 0.7, curveness: 0.25 },
+      },
+      {
+        type: "scatter",
+        coordinateSystem: "geo",
+        data: scatterData,
+        zlevel: 3,
+        symbol: "pin",
+        symbolSize: (value: any) => Math.max(50, Math.min(90, Number(value?.[2] || 0) / 55)),
+        label: { show: true, formatter: (params: any) => params.data.region, fontSize: 14, color: "#0f172a", position: "bottom", fontWeight: 700, distance: 10, textBorderColor: "#fff", textBorderWidth: 3 },
+        itemStyle: { color: (params: any) => coalColor(Number(params?.data?.value?.[3] || 0)), borderColor: "#fff", borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
+        emphasis: { scale: 1.6, label: { show: true, fontSize: 16 } },
+        animationDurationUpdate: 600,
+      },
+    ],
+  }, true);
+}
+
+function DashboardMap({ data, index }: { data: PrototypeMap; index: number }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<echarts.ECharts | null>(null);
+  const latest = useRef({ data, index });
+  latest.current = { data, index };
+
+  useEffect(() => {
+    let active = true;
+    let resize: (() => void) | undefined;
+    void ensureShandongMap().then(() => {
+      if (!active || !mapRef.current) return;
+      const chart = echarts.init(mapRef.current, undefined, { renderer: "canvas" });
+      chartRef.current = chart;
+      renderMapOption(chart, latest.current.data, latest.current.index);
+      resize = () => chart.resize();
+      window.addEventListener("resize", resize);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      if (resize) window.removeEventListener("resize", resize);
+      chartRef.current?.dispose();
+      chartRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (chartRef.current) renderMapOption(chartRef.current, data, index);
+  }, [data, index]);
+
+  return <div className="prototype-map prototype-map-echart" ref={mapRef} aria-label="山东能源供需态势地图">
+    {!data.days.length && <div className="prototype-map-empty">暂无负荷与库存数据</div>}
+  </div>;
+}
+
+function GaugeChart({ days, level }: { days: number; level: string }) {
+  const gaugeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!gaugeRef.current) return undefined;
+    const color = coalColor(days);
+    const chart = echarts.init(gaugeRef.current);
+    chart.setOption({
+      series: [{
+        type: "gauge",
+        min: 0,
+        max: 60,
+        splitNumber: 6,
+        radius: "92%",
+        progress: { show: true, width: 12, itemStyle: { color } },
+        axisLine: { lineStyle: { width: 12, color: [[1, "#e2e8f0"]] } },
+        axisLabel: { fontSize: 10, color: "#94a3b8" },
+        pointer: { width: 4, itemStyle: { color: "#475569" } },
+        detail: { fontSize: 26, color: "#0f172a", offsetCenter: [0, "55%"], formatter: "{value} 天", fontWeight: 700 },
+        title: { fontSize: 12, offsetCenter: [0, "82%"], color: "#64748b" },
+        data: [{ value: days, name: level }],
+      }],
+    });
+    const resize = () => chart.resize();
+    window.addEventListener("resize", resize);
+    return () => { window.removeEventListener("resize", resize); chart.dispose(); };
+  }, [days, level]);
+  return <div className="prototype-echart-gauge" ref={gaugeRef} aria-label={`电煤库存可支撑 ${days} 天`} />;
+}
+
+function ActionPieChart({ values }: { values: Array<{ name: string; value: number; key: string }> }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!chartRef.current || !values.length) return undefined;
+    const chart = echarts.init(chartRef.current);
+    chart.setOption({
+      tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+      legend: { bottom: 0, textStyle: { fontSize: 11, color: "#64748b" }, itemWidth: 10, itemHeight: 10 },
+      color: values.map((item) => ACTION_COLORS[item.key] || "#0b3d91"),
+      series: [{ type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"], data: values, label: { fontSize: 11, color: "#64748b" }, emphasis: { itemStyle: { shadowBlur: 12, shadowOffsetX: 0, shadowColor: "rgba(0,0,0,.15)" } } }],
+    });
+    const resize = () => chart.resize();
+    window.addEventListener("resize", resize);
+    return () => { window.removeEventListener("resize", resize); chart.dispose(); };
+  }, [values]);
+  return <div className="prototype-echart-pie" ref={chartRef} aria-label="策略命中分布图" />;
 }
 
 function actionData(data: PrototypeDashboardPayload) {
   return Object.entries(data.action_counts).filter(([, value]) => value > 0).map(([key, value]) => ({ name: ACTION_NAMES[key] || key, value, key }));
 }
 
-function DashboardMap({ data, index, domain }: { data: PrototypeDashboardPayload["map"]; index: number; domain: string }) {
-  const cities = CITY_POSITIONS.map((city) => ({
-    ...city,
-    value: data.series[city.name]?.[index] || 0,
-  }));
-  const max = Math.max(...cities.map((city) => city.value), 1);
-  return <div className="prototype-map" aria-label="山东能源供需态势">
-    <svg className="prototype-map-svg" viewBox="210 45 520 460" role="img" aria-labelledby="prototype-map-title prototype-map-description">
-      <title id="prototype-map-title">山东能源供需态势地图</title>
-      <desc id="prototype-map-description">山东省区划示意、五个能源节点及跨主体协同路径。</desc>
-      <defs>
-        <marker id="prototype-map-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M0 0 L10 5 L0 10 Z" fill="var(--prototype-accent)" />
-        </marker>
-      </defs>
-      <path className="prototype-map-province" d={SHANDONG_OUTLINE} />
-      <g className="prototype-map-boundaries" aria-hidden="true">{SHANDONG_BOUNDARIES.map((path) => <path d={path} key={path} />)}</g>
-      <g className="prototype-map-islands" aria-hidden="true">{SHANDONG_ISLANDS.map((path) => <path d={path} key={path} />)}</g>
-      <g className="prototype-map-routes" aria-label="跨主体协同路径">{MAP_ROUTES.map((route) => <path d={route.d} key={route.label} aria-label={route.label} markerEnd="url(#prototype-map-arrow)" />)}</g>
-      <g className="prototype-map-nodes">{cities.map((city) => {
-        const scale = 0.9 + city.value / max * 0.35;
-        const coalDays = data.coal_days[index] || 0;
-        const nodeLabel = domain === "coal" ? `${city.name}，库存覆盖 ${formatNumber(coalDays, 1)} 天` : `${city.name}，受控负荷 ${formatNumber(city.value)} MW`;
-        return <g className="prototype-map-node" key={city.name} transform={`translate(${city.x} ${city.y}) scale(${scale})`} tabIndex={0} aria-label={nodeLabel}>
-          <title>{nodeLabel}</title>
-          <circle className="prototype-map-node-halo" r="29" />
-          <path className="prototype-map-node-pin" d="M0 -23 C15 -23 24 -12 24 0 C24 13 0 36 0 36 C0 36 -24 13 -24 0 C-24 -12 -15 -23 0 -23 Z" fill="var(--prototype-map-node)" />
-          <circle className="prototype-map-node-core" cy="-4" r="10" />
-          <text className="prototype-map-node-label" y="60" textAnchor="middle">{city.name}</text>
-        </g>;
-      })}</g>
-    </svg>
-    {!data.days.length && <div className="prototype-map-empty">暂无负荷与库存数据</div>}
-  </div>;
-}
-
 export function WorkbenchPage() {
   const remote = useRemote(loadPrototypeDashboard, []);
-  const trustedSpace = useTrustedSpaceContext();
   const data = remote.data;
-  const domain = trustedSpace.context?.current_subject.energy_domain || "cross";
-  const domainName = ({ electricity: "电力", coal: "煤炭", heat: "热能", gas: "天然气", oil: "石油", cross: "跨能源" } as Record<string, string>)[domain] || "跨能源";
   const [index, setIndex] = useState(0);
-  const [now, setNow] = useState(() => new Date());
+  const [playing, setPlaying] = useState(false);
   const dayCount = data?.map.days.length || 0;
 
   useEffect(() => {
-    if (dayCount < 2) return undefined;
-    const timer = window.setInterval(() => setIndex((current) => (current + 1) % dayCount), 2200);
+    if (!playing || dayCount < 2) return undefined;
+    const timer = window.setInterval(() => setIndex((current) => (current + 1) % dayCount), 800);
     return () => window.clearInterval(timer);
-  }, [dayCount]);
+  }, [dayCount, playing]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    if (dayCount && index >= dayCount) setIndex(0);
+  }, [dayCount, index]);
 
-  const chartData = useMemo(() => {
-    if (!data) return [];
-    return data.map.days.map((day, dayIndex) => ({
-      day: day.slice(5),
-      coal_days: data.map.coal_days[dayIndex] || 0,
-      ...Object.fromEntries(Object.entries(data.map.series).map(([name, values]) => [name, values[dayIndex] || 0])),
-    }));
-  }, [data]);
   const pieData = data ? actionData(data) : [];
-  const currentCoalDays = data?.map.coal_days[index] || data?.gauge.days || 0;
-  const currentInventory = data?.map.coal_inventory[index] || data?.gauge.inventory || 0;
-  const currentConsumption = data?.map.coal_consumption[index] || 0;
-  const peakLoad = data ? Math.max(...CITY_POSITIONS.flatMap((city) => data.map.series[city.name] || []), 0) : 0;
-  const gaugePercent = Math.min(100, Math.max(0, currentCoalDays / 24 * 100));
-  const gaugeColor = currentCoalDays >= 15 ? "var(--prototype-action-allow)" : currentCoalDays >= 7 ? "var(--prototype-action-aggregate)" : "var(--prototype-action-deny)";
-  const beijingDate = formatBeijingDate(now);
   const totalActions = pieData.reduce((sum, item) => sum + item.value, 0);
-  const connectorNotes = ["最近心跳 00:32", "最近心跳 00:47", "策略版本 2026.08", "追加写入正常"];
 
   return <PrototypePageFrame>
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
     {data && <>
-      <section className="prototype-dashboard-overview">
-        <div>
-          <div className="prototype-overview-label"><span>运行总览</span><span className={`prototype-data-badge is-${data.data_mode}`}>{data.data_notice}</span></div>
-          <h2>山东能源供需态势</h2>
-          <p>用受控汇总观察{domainName}业务指标与跨主体协同，原始明细始终留在企业侧。</p>
-        </div>
-        <div className="prototype-overview-facts">
-          <span><small>监测窗口</small><b>近 7 日</b></span>
-          <span><small>当前日期</small><b>{beijingDate}</b></span>
-          <span><small>存证状态</small><b className={data.chain.ok ? "is-good" : "is-bad"}>{data.chain.ok ? "哈希链完整" : "待核验"}</b></span>
-        </div>
-      </section>
-
       <div className="prototype-kpi-grid">{[
-        { label: "数据资源", value: data.kpis.resources, detail: "已发布目录", tone: "" },
-        { label: "策略规则", value: data.kpis.rules, detail: "当前适用策略", tone: "" },
-        { label: "注册主体", value: data.kpis.identities, detail: "可协同参与方", tone: "" },
-        { label: "存证区块", value: data.kpis.blocks, detail: data.chain.ok ? "哈希链完整" : "待核验", tone: "" },
-        { label: "今日受控查询", value: data.kpis.today_queries, detail: "过去 24 小时", tone: "is-success" },
-        { label: "数据不出域保障", value: data.kpis.no_domain_export, detail: "原始明细不返回", tone: "is-success" },
-      ].map((item) => <div className={`prototype-kpi-card ${item.tone}`} key={item.label}>
-        <div className="prototype-kpi-label"><span>{item.label}</span><small>{item.detail}</small></div>
-        <strong>{item.value}</strong>
-      </div>)}</div>
+        ["数据资源", data.kpis.resources], ["策略规则", data.kpis.rules], ["注册主体", data.kpis.identities], ["存证区块", data.kpis.blocks], ["今日受控查询", data.kpis.today_queries], ["数据不出域保障", data.kpis.no_domain_export],
+      ].map(([label, value], itemIndex) => { const Icon = KPI_ICONS[itemIndex]; return <div className={`prototype-kpi-card${itemIndex > 3 ? " is-success" : ""}`} key={String(label)}><div className="prototype-kpi-icon"><Icon size={17} strokeWidth={1.8} /></div><span>{label}</span><strong>{value}</strong></div>; })}</div>
 
       <div className="prototype-dashboard-layout">
         <section className="prototype-card prototype-dashboard-map-card">
-          <div className="prototype-card-heading">
-            <div>
-              <PrototypeCardTitle action={<span className="prototype-day-badge" aria-live="polite" aria-label={`北京时间 ${beijingDate}`}>{beijingDate}</span>}>山东能源供需态势</PrototypeCardTitle>
-              <div className="prototype-dashboard-subline"><span>{domain === "coal" ? "煤炭库存 · 供耗平衡 · 跨主体协同" : `${domainName}业务指标 · 受控查询 · 跨主体协同`}</span></div>
-              <div className="prototype-dashboard-legend">{domain === "coal" ? <><span><i className="is-green" />库存充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span></> : <span><i className="is-line" />受控负荷趋势</span>}<span><i className="is-line" />跨主体协同</span></div>
-            </div>
-          </div>
-          <DashboardMap data={data.map} index={index} domain={domain} />
-          <div className="prototype-trend-panel">
-            {domain === "electricity" ? <><div className="prototype-trend-header"><div><strong>区域负荷趋势</strong><span>MW · 近 7 日</span></div><span>峰值 {formatNumber(peakLoad)} MW</span></div>
-            {chartData.length > 1 ? <ResponsiveContainer width="100%" height={148}><LineChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke="var(--prototype-chart-grid)" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="day" tick={{ fill: "var(--prototype-muted)", fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fill: "var(--prototype-muted)", fontSize: 10 }} tickLine={false} axisLine={false} width={38} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
-              <Tooltip />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
-              {CITY_POSITIONS.map((city, cityIndex) => <Line key={city.name} type="monotone" dataKey={city.name} name={city.name} stroke={CITY_COLORS[cityIndex]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />)}
-            </LineChart></ResponsiveContainer> : <div className="prototype-empty">暂无负荷趋势数据</div>}</> : <div className="prototype-domain-reference">当前为{domainName}主体，页面不套用电力或煤炭演示趋势；请从数据目录发起受控查询。</div>}
-          </div>
+          <div className="prototype-card-heading"><div><PrototypeCardTitle><MapIcon className="prototype-card-icon" size={18} strokeWidth={1.8} />山东能源供需态势</PrototypeCardTitle><div className="prototype-dashboard-subline">电力负荷 · 电煤库存 · 跨主体协同，三位一体综合态势</div><div className="prototype-dashboard-legend"><span><i className="is-green" />库存充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span><span><i className="is-line" />跨主体协同</span></div></div><span className="prototype-day-badge">{data.map.days[index] || "—"}</span></div>
+          <DashboardMap data={data.map} index={index} />
+          <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>
         </section>
-
         <aside className="prototype-dashboard-side">
-          {domain === "coal" ? <section className="prototype-card prototype-gauge-card">
-            <PrototypeCardTitle action={<span className={`prototype-mode-tag is-${data.data_mode}`}>{data.data_mode === "demo" ? "演示口径" : "实时"}</span>}>煤炭库存可支撑天数</PrototypeCardTitle>
-            <div className="prototype-gauge" style={{ background: `conic-gradient(${gaugeColor} ${gaugePercent}%, var(--prototype-gauge-track) 0)` }}><div><strong>{currentCoalDays ? formatNumber(currentCoalDays, 1) : "暂无"}</strong><span>天</span></div></div>
-            <div className="prototype-gauge-text" style={{ color: gaugeColor }}>{currentCoalDays >= 15 ? "库存充足" : currentCoalDays >= 7 ? "库存警戒" : "缺口风险"} · 当前覆盖 {formatNumber(currentCoalDays, 1)} 天</div>
-            <div className="prototype-gauge-facts"><span><small>当前库存</small><b>{formatNumber(currentInventory, 1)}<em>万吨</em></b></span><span><small>日均消耗</small><b>{formatNumber(currentConsumption, 1)}<em>万吨</em></b></span><span><small>安全线</small><b>15<em>天</em></b></span></div>
-            <div className="prototype-gauge-footnote">库存统计来自煤炭企业侧受控汇总，不展示原始明细。</div>
-          </section> : <section className="prototype-card prototype-gauge-card prototype-domain-summary">
-            <PrototypeCardTitle action={<span className={`prototype-mode-tag is-${data.data_mode}`}>{data.data_mode === "demo" ? "演示口径" : "实时"}</span>}>{domainName}业务概览</PrototypeCardTitle>
-            <div className="prototype-domain-summary-main"><strong>{domain === "electricity" ? formatNumber(peakLoad) : data.kpis.resources}</strong><span>{domain === "electricity" ? "MW · 区域受控负荷峰值" : "项 · 当前可见目录资源"}</span></div>
-            <div className="prototype-gauge-facts"><span><small>当前域</small><b>{domainName}</b></span><span><small>可见规则</small><b>{data.kpis.rules}<em> 条</em></b></span><span><small>连接状态</small><b>受控</b></span></div>
-            <div className="prototype-gauge-footnote">当前主体不属于煤炭域，不展示煤炭库存指标；非电力演示数据需由对应企业连接器提供。</div>
-          </section>}
-          <section className="prototype-card prototype-feed-card">
-            <PrototypeCardTitle action={<span className="prototype-card-caption">最近 24 小时</span>}>实时审计流</PrototypeCardTitle>
-            <div className="prototype-feed-list">{data.audit.length ? data.audit.map((item) => <div className="prototype-feed-item" key={item.id}><i className={`is-${item.action}`} /><span><b>{item.action_name}</b><small>{item.subject} · {item.resource}</small></span><time>{formatTime(item.ts)}</time></div>) : <div className="prototype-empty">暂无审计记录</div>}</div>
-            <div className="prototype-feed-footer"><span><i className="is-live" />实时写入</span><b>{data.audit.length} 条事件</b></div>
-          </section>
+          <section className="prototype-card prototype-gauge-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />电煤库存可支撑天数</PrototypeCardTitle><GaugeChart days={data.gauge.days} level={data.gauge.level} /><div className="prototype-gauge-text" style={{ color: coalColor(data.gauge.days) }}>{data.gauge.level} · 库存 {data.gauge.inventory} 万吨</div></section>
+          <section className="prototype-card prototype-feed-card"><PrototypeCardTitle><FileCheck2 className="prototype-card-icon" size={18} strokeWidth={1.8} />实时审计流</PrototypeCardTitle><div className="prototype-feed-list">{data.audit.length ? data.audit.map((item) => <div className="prototype-feed-item" key={item.id}><i className={`is-${item.action}`} /><span><b>{item.action_name}</b> · {item.subject} · {item.resource}</span><time>{formatTime(item.ts)}</time></div>) : <div className="prototype-empty">暂无审计记录</div>}</div></section>
         </aside>
       </div>
 
       <div className="prototype-dashboard-bottom">
-        <section className="prototype-card prototype-chart-card">
-          <PrototypeCardTitle action={<span className="prototype-card-caption">{totalActions} 次裁决</span>}>策略命中分布</PrototypeCardTitle>
-          <div className="prototype-pie-layout">{pieData.length ? <>
-            <div className="prototype-pie-wrap"><ResponsiveContainer width="100%" height={160}><PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="48%" innerRadius={42} outerRadius={66} paddingAngle={2}>{pieData.map((item) => <Cell key={item.key} fill={ACTION_COLORS[item.key] || "var(--prototype-action-navy)"} />)}</Pie><Tooltip formatter={(value, name) => [value, name]} /><text x="50%" y="45%" textAnchor="middle" dominantBaseline="middle" fill="var(--prototype-ink)" fontSize="18" fontWeight="700">{totalActions}</text><text x="50%" y="56%" textAnchor="middle" fill="var(--prototype-muted)" fontSize="10">次裁决</text></PieChart></ResponsiveContainer></div>
-            <div className="prototype-action-list">{pieData.map((item) => <div key={item.key}><span><i style={{ background: ACTION_COLORS[item.key] }} />{item.name}</span><b>{item.value}<small>{Math.round(item.value / totalActions * 100)}%</small></b></div>)}</div>
-          </> : <div className="prototype-empty">暂无策略命中记录</div>}</div>
-        </section>
-        <section className="prototype-card prototype-chart-card">
-          <PrototypeCardTitle action={<span className="prototype-card-caption">4 个服务</span>}>连接器健康状态</PrototypeCardTitle>
-          <div className="prototype-status-list">{data.connectors.map((item, itemIndex) => <div className="prototype-status-row" key={item.name}><span><i className={`prototype-connector-icon is-${itemIndex}`} /><span><b>{item.name}</b><small>{connectorNotes[itemIndex]}</small></span></span><strong className={item.status.includes("异常") ? "is-danger" : ""}><i />{item.status}</strong></div>)}</div>
-          <div className="prototype-card-footnote"><i className="is-live" />状态来自连接器心跳与审计哈希链</div>
-        </section>
-        <section className="prototype-card prototype-chart-card">
-          <PrototypeCardTitle action={<span className="prototype-card-caption">跨主体协同</span>}>协同轨迹</PrototypeCardTitle>
-          <div className="prototype-timeline">{data.timeline.length ? data.timeline.map((item) => <div key={item.id}><i className="prototype-timeline-marker" /><time>{formatTime(item.ts)}</time><span><b>{item.resource}</b><small>{item.action_name} · {item.subject}</small></span></div>) : <div className="prototype-empty">暂无跨主体协同记录</div>}</div>
-        </section>
+        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />策略命中分布</PrototypeCardTitle>{pieData.length ? <ActionPieChart values={pieData} /> : <div className="prototype-empty">暂无策略命中记录</div>}<div className="prototype-card-caption prototype-chart-caption">共 {totalActions} 次裁决</div></section>
+        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><MonitorIcon /><span>连接器健康状态</span></PrototypeCardTitle><div className="prototype-status-list">{CONNECTOR_NOTES.map((name, itemIndex) => <div key={name}><span>{name}</span><b className={itemIndex === 3 && !data.chain.ok ? "is-danger" : ""}>{itemIndex === 3 ? (data.chain.ok ? "完整" : "异常") : "正常"}</b></div>)}</div></section>
+        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><UsersRound className="prototype-card-icon" size={18} strokeWidth={1.8} />跨主体协同轨迹</PrototypeCardTitle><div className="prototype-timeline">{data.timeline.length ? data.timeline.map((item) => <div key={item.id}><time>{formatTime(item.ts)}</time><span><b>{item.resource}</b> · {item.subject}</span></div>) : <div className="prototype-empty">暂无跨主体协同记录</div>}</div></section>
       </div>
     </>}
   </PrototypePageFrame>;
+}
+
+function MonitorIcon() {
+  return <ShieldCheck className="prototype-card-icon" size={18} strokeWidth={1.8} />;
 }

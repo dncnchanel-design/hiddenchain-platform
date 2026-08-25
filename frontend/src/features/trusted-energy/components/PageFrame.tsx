@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { IconButton } from "./ui-primitives";
 import { TrustedHelpPanel } from "./TrustedHelpPanel";
 
-export function PageFrame({ title, description, back, action, children, className = "" }: { title: string; description?: string; eyebrow?: string; back?: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function PageFrame({ title, description, back, action, children, className = "", variant = "trusted" }: { title: string; description?: string; eyebrow?: string; back?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; variant?: "trusted" | "prototype" }) {
   const navigate = useNavigate();
-  return <div className={`trusted-page tw-w-full ${className}`.trim()}>
+  const rootClass = variant === "prototype" ? `prototype-page prototype-detail-page tw-w-full ${className}` : `trusted-page tw-w-full ${className}`;
+  return <div className={rootClass.trim()}>
     <div className="trusted-page-heading">
       <div className="trusted-heading-copy">
         {back && <button className="trusted-back-link" type="button" onClick={() => navigate(back)}><ArrowLeft size={14} />返回</button>}

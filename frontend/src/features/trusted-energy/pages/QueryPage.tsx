@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { PrototypeCardTitle } from "../components/PrototypePageFrame";
-import { PageFrame } from "../components/PageFrame";
+import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { askPrototypeQuery, type PrototypeQueryPayload } from "../trusted-space-api";
 
 const EXAMPLES = [
@@ -45,14 +44,29 @@ export function QueryPage() {
     }
   }
 
-  return <PageFrame title="智能数据查询" description="先解析能源域、资源和固定函数，再按授权输出受控结果。" className="prototype-query-page">
-    <section className="prototype-card prototype-query-entry">
-      <PrototypeCardTitle>智能数据查询</PrototypeCardTitle>
-      <p className="prototype-query-intro">输入业务问题后，系统会先识别能源域、数据资源和固定函数，再按当前授权决定“汇总返回、仅计算不出域或阻断”。</p>
-      <div className="prototype-chat-input"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void ask(); }} placeholder="用自然语言描述你的数据需求，例如：查一下6月份各地区的电网负荷，用于运行监测" /><button type="button" disabled={busy || !question.trim()} onClick={() => void ask()}>{busy ? "处理中…" : "发送"}</button></div>
-      <div className="prototype-query-examples" aria-label="快捷提问">{EXAMPLES.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
-    </section>
-    {error && <div className="prototype-error" role="alert">{error}</div>}
-    {result && <QueryOutput data={result} />}
-  </PageFrame>;
+  return <PrototypePageFrame className="prototype-query-page">
+    <div className="prototype-query-layout">
+      <main className="prototype-query-main">
+        <section className="prototype-card prototype-query-entry">
+          <PrototypeCardTitle>对话式问数</PrototypeCardTitle>
+          <div className="prototype-chat-input"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void ask(); }} placeholder="用自然语言描述你的数据需求，例如：查一下6月份各地区的电网负荷，用于运行监测" /><button type="button" disabled={busy || !question.trim()} onClick={() => void ask()}>{busy ? "处理中…" : "发送"}</button></div>
+          <div className="prototype-query-examples" aria-label="快捷提问">{EXAMPLES.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
+        </section>
+        {error && <div className="prototype-error" role="alert">{error}</div>}
+        {result && <QueryOutput data={result} />}
+      </main>
+      <aside className="prototype-query-side">
+        <section className="prototype-card">
+          <PrototypeCardTitle>问数说明</PrototypeCardTitle>
+          <div className="prototype-query-info">
+            <p><b>1.</b> Agent 仅负责解析需求，不访问数据</p>
+            <p><b>2.</b> 策略引擎按身份、用途、字段做确定性裁决</p>
+            <p><b>3.</b> 受控执行在数据持有方域内完成</p>
+            <p><b>4.</b> 结果审查（k-匿名、字段脱敏）后交付</p>
+            <p><b>5.</b> 全程审计并写入哈希链</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </PrototypePageFrame>;
 }

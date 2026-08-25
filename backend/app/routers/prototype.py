@@ -5,9 +5,10 @@ import hashlib
 import io
 import re
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -275,7 +276,7 @@ def _chain_state(db: Session) -> tuple[bool, str]:
 
 def _demo_dashboard_projection() -> dict[str, Any]:
     """Return aggregate-only demo data for the prototype dashboard in non-production."""
-    today = utc_now().date()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     days = [(today - timedelta(days=6 - index)).isoformat() for index in range(7)]
     series = {
         "济南": [7420, 7680, 7810, 7540, 8060, 8240, 7980],

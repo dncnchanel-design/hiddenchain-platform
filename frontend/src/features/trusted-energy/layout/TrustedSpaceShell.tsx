@@ -9,6 +9,8 @@ import { cn } from "../utils";
 import { Badge, Button, IconButton, Sheet } from "../components/ui-primitives";
 import { RemoteState } from "../components/ui-primitives";
 import { useTrustedSpaceContext } from "../trusted-space-context";
+import { loadPrototypeHeader } from "../trusted-space-api";
+import { useRemote } from "../../../hooks";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
@@ -36,20 +38,49 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const titles: Record<TrustedViewKey, string> = {
-  workbench: "运行总览",
-  query: "智能数据查询",
-  identity: "参与主体",
+  workbench: "全局看板",
+  query: "数据问数",
+  identity: "身份拓扑",
   catalog: "数据目录",
-  connector: "数据连接",
-  authorizations: "数据授权",
+  connector: "数据接入",
+  authorizations: "策略中心",
   asset: "数据资产护照",
   apply: "使用申请",
   contract: "合同协商",
-    ttc: "可信任务详情",
+  ttc: "可信任务详情",
   mpc: "计算任务",
   results: "计算任务结果",
-  audit: "审计追溯",
+  audit: "审计存证",
 };
+
+const prototypeLabels: Record<TrustedViewKey, string> = {
+  workbench: "全局看板",
+  query: "数据问数",
+  identity: "身份拓扑",
+  catalog: "数据目录",
+  connector: "数据接入",
+  authorizations: "策略中心",
+  asset: "数据资产护照",
+  apply: "使用申请",
+  contract: "合同协商",
+  ttc: "可信任务详情",
+  mpc: "隐私计算",
+  results: "计算任务结果",
+  audit: "审计存证",
+};
+
+const prototypeChromeViews = new Set<TrustedViewKey>([
+  "workbench",
+  "query",
+  "connector",
+  "authorizations",
+  "asset",
+  "apply",
+  "contract",
+  "ttc",
+  "results",
+  "audit",
+]);
 
 function renderView(view: TrustedViewKey) {
   switch (view) {
@@ -80,6 +111,8 @@ export function TrustedSpaceShell() {
   const view = getTrustedView(location.pathname);
   const title = titles[view];
   const context = trustedContext.context;
+  const targetChrome = prototypeChromeViews.has(view);
+  const targetHeader = useRemote(loadPrototypeHeader, [targetChrome]);
   const quickLinks = useMemo(() => {
     const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
     return primaryNavItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
@@ -92,7 +125,6 @@ export function TrustedSpaceShell() {
   if (!visibleMenuCodes.has(trustedMenuCodeForView(view))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
   const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
   const roleLabel = context.actor.role_label || ROLE_LABELS[context.actor.role_code as keyof typeof ROLE_LABELS] || labelForCode(context.actor.role_code, "未登记角色");
-  const activeGroup = view === "identity" ? "主体与权限" : view === "catalog" || view === "connector" || view === "authorizations" || view === "asset" || view === "apply" ? "可信数据空间" : view === "query" || view === "contract" || view === "ttc" || view === "mpc" ? "查询与计算" : view === "audit" || view === "results" ? "审计追溯" : "运行态势";
 
   function goTo(path: string) {
     setNavigationOpen(false);
@@ -106,7 +138,38 @@ export function TrustedSpaceShell() {
     navigate("/login", { replace: true });
   }
 
-  return <div className="trusted-space-shell prototype-shell tw-min-h-screen">
+  if (targetChrome) {
+    const header = targetHeader.data;
+    const targetIdentity = header?.identity || { name: subjectName, role: roleLabel, did: context.identity_ref.did || "did:eds:当前主体" };
+    const targetStats = [
+      ...(header?.stats || [
+        { key: "resources", label: "数据资源", value: 0 },
+        { key: "rules", label: "策略规则", value: 0 },
+        { key: "identities", label: "注册主体", value: 0 },
+        { key: "blocks", label: "存证区块", value: 0 },
+      ]),
+      { key: "identity", label: "当前身份", value: targetIdentity.role },
+    ];
+    const subtitle = view === "workbench" ? "数据不出域 · 跨主体可信协同 · 隐私计算 · 全程审计" : "智能理解 · 确定性裁决 · 受控执行 · 可信留痕";
+    return <div className="trusted-space-shell prototype-shell tw-min-h-screen">
+      <header className="prototype-header">
+        <div className="prototype-header-top">
+          <div>
+            <h1>{header?.title || "能源可信数据空间 · 原型演示"}</h1>
+            <div className="prototype-header-sub">{subtitle}</div>
+          </div>
+          <div className="prototype-identity"><span>{targetIdentity.name}（{targetIdentity.role}）</span><span className="prototype-did">✓ {targetIdentity.did}</span><button type="button" onClick={() => void handleLogout()}>退出登录</button></div>
+        </div>
+        <div className="prototype-stats-bar">{targetStats.map((item) => <span key={item.key}>{item.label} <b>{item.value}</b>{item.key === "identity" && "（已认证）"}</span>)}</div>
+      </header>
+      <nav className="prototype-nav" aria-label="主导航">
+        {quickLinks.map(({ key }) => <Link key={key} className={cn("prototype-nav-tab", view === key && "is-active")} to={routeForView(key)}>{prototypeLabels[key]}</Link>)}
+      </nav>
+      <main className="prototype-container" key={location.pathname}>{renderView(view)}</main>
+    </div>;
+  }
+
+  return <div className="trusted-space-shell tw-min-h-screen">
     <header className="trusted-system-bar">
       <div className="trusted-system-left">
         <IconButton className="trusted-mobile-menu" label="打开左侧导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={17} /></IconButton>
@@ -151,9 +214,6 @@ export function TrustedSpaceShell() {
       </div>
     </nav>
 
-    <div className="trusted-context-bar"><div><span>可信数据空间</span><b>/</b><span>{activeGroup}</span><b>/</b><strong>{title}</strong></div><div className="trusted-context-right"><span>当前企业：{subjectName}</span><span>·</span><span>权限已核验</span><button type="button" onClick={() => goTo(`${routeForView("catalog")}?focus=search`)}><Search size={13} />查找数据</button></div></div>
-
     <main className="trusted-main" key={location.pathname}>{renderView(view)}</main>
-
   </div>;
 }

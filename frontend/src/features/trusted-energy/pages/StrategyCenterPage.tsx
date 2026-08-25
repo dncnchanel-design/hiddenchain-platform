@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useRemote } from "../../../hooks";
 import { createIdempotencyKey } from "../../../api";
-import { PrototypeCardTitle } from "../components/PrototypePageFrame";
-import { PageFrame } from "../components/PageFrame";
+import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { RemoteState } from "../components/ui-primitives";
 import { addPrototypePolicyRule, deletePrototypePolicyRule, loadPrototypePolicy, type PrototypePolicyResource } from "../trusted-space-api";
 import { useTrustedSpaceContext } from "../trusted-space-context";
@@ -54,11 +53,11 @@ export function StrategyCenterPage() {
     try { await deletePrototypePolicyRule(resource.id, role, { idempotencyKey: createIdempotencyKey("prototype-policy-delete") }); await remote.reload(); } catch (reason) { setError(reason instanceof Error ? reason.message : "规则删除失败"); } finally { setBusy(false); }
   }
 
-  return <PageFrame title="数据授权" description="每条申请按角色、用途、字段和粒度命中规则；没有有效授权就不启动计算。" className="prototype-policy-page">
+  return <PrototypePageFrame className="prototype-policy-page">
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
-    <section className="prototype-card prototype-policy-intro"><PrototypeCardTitle>数据授权规则 <span className="prototype-inline-state">先匹配角色、用途和字段，再决定返回方式</span></PrototypeCardTitle></section>
+    <section className="prototype-card prototype-policy-intro"><PrototypeCardTitle>策略管理中心（敏感边界可配置 · 声明式策略）</PrototypeCardTitle><p className="prototype-policy-intro-copy">所有访问动作由确定性策略引擎裁决：首个规则命中生效，未命中按默认拒绝（失败关闭）。动态接入资源可在下方追加规则。</p></section>
     {error && <div className="prototype-error" role="alert">{error}</div>}
     {remote.data && <div className="prototype-policy-list">{resources.map((resource) => <PolicyBlock key={resource.id} resource={resource} form={formFor(resource.id)} onFormChange={(next) => setForms((current) => ({ ...current, [resource.id]: next }))} onAdd={() => void addRule(resource)} onDelete={(role) => void deleteRule(resource, role)} canManage={canManage} allowDirect={allowDirect} busy={busy} />)}</div>}
     <section className="prototype-card prototype-applications"><PrototypeCardTitle>授权申请记录</PrototypeCardTitle>{remote.data?.applications.length ? <div className="prototype-table-scroll"><table className="prototype-table"><thead><tr><th>申请时间</th><th>申请资产</th><th>申请方</th><th>用途</th><th>状态</th></tr></thead><tbody>{remote.data.applications.map((item) => <tr key={`${item.ts}-${item.applicant_did}`}><td>{item.ts}</td><td><b>{item.resource_name}</b><br /><code>{item.resource_id}</code></td><td>{item.applicant_role}<br /><code>{item.applicant_did}</code></td><td>{item.purpose}</td><td><span className={`prototype-status-tag is-${item.status}`}>{item.status === "pending" ? "待审批" : item.status === "approved" ? "已通过" : "已拒绝"}</span></td></tr>)}</tbody></table></div> : <div className="prototype-empty">暂无授权申请记录</div>}</section>
-  </PageFrame>;
+  </PrototypePageFrame>;
 }
