@@ -397,10 +397,28 @@ def _asset_visible_in_energy_scope(
 ) -> bool:
     if user.role_code == "ADMIN":
         return False
-    # A domain is a classification label, not a tenancy boundary.  REGULATOR
+    # A domain is a classification label, not a tenancy boundary. REGULATOR
     # gets metadata for every subject; every other business user gets only its
     # own subject metadata unless a future scoped evidence grant says otherwise.
     return can_view_subject_metadata(user, asset.owner_org_id)
+
+
+def _asset_visible_in_energy_aggregate(
+    asset: DataAsset,
+    user: User,
+    organization: Organization | None,
+    sources: dict[str, DataSource],
+) -> bool:
+    """Allow role-scoped aggregate counts without widening asset-detail access."""
+
+    if _asset_visible_in_energy_scope(asset, user, organization, sources):
+        return True
+    return bool(
+        user.role_code == "EXCHANGE"
+        and organization
+        and organization.energy_domain
+        and _asset_energy_domain(asset, sources) == organization.energy_domain
+    )
 
 
 def _asset_access_control(
@@ -787,18 +805,25 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
     organizations = _organization_map(db)
     source_map = _source_map(db)
     current_organization = organizations.get(user.org_id)
+    all_asset_rows = db.scalars(
+        _visible_asset_query(user).order_by(DataAsset.created_at.desc())
+    ).all()
     visible_asset_rows = [
         item
-        for item in db.scalars(
-            _visible_asset_query(user).order_by(DataAsset.created_at.desc())
-        ).all()
+        for item in all_asset_rows
         if _asset_visible_in_energy_scope(item, user, current_organization, source_map)
+        and (user.role_code not in ENTERPRISE_ROLES or item.owner_org_id == user.org_id)
+    ]
+    aggregate_asset_rows = [
+        item
+        for item in all_asset_rows
+        if _asset_visible_in_energy_aggregate(item, user, current_organization, source_map)
         and (user.role_code not in ENTERPRISE_ROLES or item.owner_org_id == user.org_id)
     ]
     assets = visible_asset_rows[:8]
     tasks = db.scalars(_task_scope_query(db, user).order_by(SettlementTask.updated_at.desc()).limit(8)).all()
     task_ids = [item.task_id for item in tasks]
-    asset_count = len(visible_asset_rows)
+    asset_count = len(aggregate_asset_rows)
     task_count = int(
         db.scalar(select(func.count()).select_from(_task_scope_query(db, user).subquery())) or 0
     )

@@ -295,6 +295,43 @@ def test_dashboard_exposes_four_scenario_and_four_chain_operating_state(client, 
     }
 
 
+def test_prototype_dashboard_is_role_and_energy_domain_specific(client, auth_headers):
+    generator = client.get("/api/prototype/dashboard", headers=auth_headers["generator"])
+    retailer = client.get("/api/prototype/dashboard", headers=auth_headers["retailer"])
+    exchange = client.get("/api/prototype/dashboard", headers=auth_headers["exchange"])
+    regulator = client.get("/api/prototype/dashboard", headers=auth_headers["regulator"])
+    for response in (generator, retailer, exchange, regulator):
+        assert response.status_code == 200, response.text
+
+    generator_view = generator.json()["view"]
+    retailer_view = retailer.json()["view"]
+    exchange_view = exchange.json()["view"]
+    regulator_view = regulator.json()["view"]
+    assert generator_view["kind"] == retailer_view["kind"] == "enterprise"
+    assert generator_view["role_code"] != retailer_view["role_code"]
+    assert generator_view["title"] != retailer_view["title"]
+    assert exchange_view["kind"] == "exchange"
+    assert exchange_view["primary_action"]["path"] == "/settlements/new"
+    assert regulator_view["kind"] == "regulator"
+    assert regulator_view["energy_domain"] == "all"
+    assert regulator_view["primary_action"]["path"] == "/trusted-space/audit"
+
+    exchange_coal_login = client.post(
+        "/api/auth/login",
+        json={"username": "exchange_coal", "password": "exchange123"},
+    )
+    assert exchange_coal_login.status_code == 200, exchange_coal_login.text
+    exchange_coal = client.get(
+        "/api/prototype/dashboard",
+        headers={"Authorization": f"Bearer {exchange_coal_login.json()['access_token']}"},
+    )
+    assert exchange_coal.status_code == 200, exchange_coal.text
+    exchange_coal_view = exchange_coal.json()["view"]
+    assert exchange_coal_view["energy_domain"] == "coal"
+    assert exchange_coal_view["energy_label"] == "煤炭"
+    assert exchange_coal_view["map_title"] != exchange_view["map_title"]
+
+
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     catalog = client.get(
         "/api/data/catalog?trade_batch_no=TB-2026-07-T01",

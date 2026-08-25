@@ -22,6 +22,7 @@ from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest,
 from ..security import sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
+from ..services.trust_space import workbench as trusted_workbench
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _manual_parse
 
@@ -29,14 +30,39 @@ from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _manual_parse
 router = APIRouter(prefix="/prototype", tags=["target-prototype"])
 
 ROLE_LABELS = {
-    "GENERATOR": "电力企业",
-    "RETAILER": "电力企业",
+    "GENERATOR": "发电企业",
+    "RETAILER": "售电企业",
     "COAL_ENTERPRISE": "煤炭企业",
     "HEAT_ENTERPRISE": "热力企业",
     "GAS_ENTERPRISE": "燃气企业",
     "OIL_ENTERPRISE": "石油企业",
     "EXCHANGE": "交易中心",
     "REGULATOR": "能源局-监管",
+}
+
+ENERGY_DOMAIN_UNITS = {
+    "electricity": ("平均负荷", "MW"),
+    "coal": ("供耗存监测值", "吨"),
+    "heat": ("热能供需监测值", "GJ"),
+    "gas": ("天然气供需监测值", "万立方米"),
+    "oil": ("石油供需监测值", "吨"),
+}
+
+ENERGY_GAUGE_UNITS = {
+    "electricity": "万MWh",
+    "coal": "万吨",
+    "heat": "万GJ",
+    "gas": "万立方米",
+    "oil": "万吨",
+}
+
+ENTERPRISE_VIEW_COPY = {
+    "GENERATOR": ("发电企业运行总览", "发电侧资产、授权处理与结算结果确认", "本方发电侧态势", "发电出力 · 新能源预测 · 结算协同"),
+    "RETAILER": ("售电企业运营总览", "用户负荷、虚拟电厂与结算结果确认", "本方售电侧态势", "用户负荷 · 可调资源 · 结算协同"),
+    "COAL_ENTERPRISE": ("煤炭企业运营总览", "煤炭供耗存资产、授权处理与协同任务", "本方煤炭供耗存态势", "煤炭供应 · 消费 · 库存协同"),
+    "HEAT_ENTERPRISE": ("热能企业运营总览", "热能供给、授权处理与协同任务", "本方热能供需态势", "供热量 · 热负荷 · 管网协同"),
+    "GAS_ENTERPRISE": ("天然气企业运营总览", "天然气供储运资产、授权处理与协同任务", "本方天然气供储运态势", "供应量 · 储量 · 管道协同"),
+    "OIL_ENTERPRISE": ("石油企业运营总览", "石油产运销资产、授权处理与协同任务", "本方石油产运销态势", "产量 · 炼化 · 库存协同"),
 }
 
 ACTION_LABELS = {
@@ -333,6 +359,157 @@ def _demo_dashboard_projection() -> dict[str, Any]:
     }
 
 
+DOMAIN_PROJECTION_FACTORS = {
+    "electricity": 1.0,
+    "coal": 0.18,
+    "heat": 0.12,
+    "gas": 0.08,
+    "oil": 0.16,
+}
+
+
+def _domain_demo_projection(projection: dict[str, Any] | None, domain: str) -> dict[str, Any] | None:
+    """Keep the prototype aggregate shape while making each energy domain legible."""
+
+    if projection is None or domain in {"electricity", "all"}:
+        return projection
+    factor = DOMAIN_PROJECTION_FACTORS.get(domain, 1.0)
+    map_data = projection["map"]
+    series = {
+        region: [round(float(value) * factor) for value in values]
+        for region, values in map_data["series"].items()
+    }
+    resource_days = [round(float(value) * (0.72 + factor), 1) for value in map_data["coal_days"]]
+    inventory = [round(float(value) * factor, 1) for value in map_data["coal_inventory"]]
+    consumption = [round(float(value) * factor, 1) for value in map_data["coal_consumption"]]
+    return {
+        **projection,
+        "map": {
+            **map_data,
+            "series": series,
+            "coal_days": resource_days,
+            "coal_inventory": inventory,
+            "coal_consumption": consumption,
+            "resource_days": resource_days,
+            "resource_inventory": inventory,
+            "resource_consumption": consumption,
+        },
+        "gauge": {
+            **projection["gauge"],
+            "days": resource_days[-1],
+            "inventory": inventory[-1],
+        },
+    }
+
+
+def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) -> dict[str, Any]:
+    organization = db.get(Organization, user.org_id)
+    domain = str(organization.energy_domain or "electricity") if organization else "electricity"
+    trusted = trusted_workbench(db, user)
+    trusted_kpis = trusted["kpis"]
+
+    if user.role_code == "REGULATOR":
+        kind = "regulator"
+        domain = "all"
+        energy_label = "全域能源"
+        title = "全域能源监管总览"
+        subtitle = "跨能源域态势监测、审计复核与风险处置"
+        map_title = "全域能源监管态势"
+        map_subtitle = "电力负荷 · 电煤库存 · 跨主体协同，监管汇总视图"
+        focus_title = "监管重点"
+        focus_items = [
+            {"label": "全域数据资源", "value": trusted_kpis["visible_assets"], "meta": "仅展示目录元数据", "tone": "blue"},
+            {"label": "审计任务", "value": trusted_kpis["audit_reports"], "meta": "待复核与已生成报告", "tone": "amber"},
+            {"label": "授权观察", "value": trusted_kpis["usage_requests"], "meta": "跨主体申请记录", "tone": "green"},
+        ]
+        kpi_items = [
+            {"label": "全域数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
+            {"label": "审计任务", "value": trusted_kpis["audit_reports"], "meta": "报告与复核"},
+            {"label": "授权记录", "value": trusted_kpis["usage_requests"], "meta": "跨主体申请"},
+            {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "全域任务"},
+            {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
+            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
+        ]
+        primary_action = {"label": "进入审计追溯", "path": "/trusted-space/audit"}
+        scope_label = "监管全域视角"
+    elif user.role_code == "EXCHANGE":
+        kind = "exchange"
+        energy_label = DOMAIN_LABELS.get(domain, domain)
+        title = f"区域{energy_label}交易中心总览"
+        subtitle = f"{energy_label}供需协调、结算发起与审计协同"
+        map_title = f"区域{energy_label}供需协同态势"
+        map_subtitle = f"{energy_label}资源 · 交易批次 · 跨主体协同，交易中心视图"
+        focus_title = "交易中心重点"
+        focus_items = [
+            {"label": f"{energy_label}数据资产", "value": trusted_kpis["visible_assets"], "meta": "当前能源域目录", "tone": "blue"},
+            {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "发起、执行与归档", "tone": "amber"},
+            {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "待复核证据", "tone": "green"},
+        ]
+        kpi_items = [
+            {"label": f"{energy_label}数据资产", "value": trusted_kpis["visible_assets"], "meta": "当前能源域目录"},
+            {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "发起、执行与归档"},
+            {"label": "授权申请", "value": trusted_kpis["usage_requests"], "meta": "跨主体协同"},
+            {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
+            {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "证据复核"},
+            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
+        ]
+        primary_action = {"label": "发起结算任务", "path": "/settlements/new"}
+        scope_label = f"{energy_label}交易协同视角"
+    else:
+        kind = "enterprise"
+        default_copy = (
+            f"{ROLE_LABELS.get(user.role_code, '能源主体')}运行总览",
+            f"{DOMAIN_LABELS.get(domain, '能源')}资产、授权处理与协同任务",
+            f"本方{DOMAIN_LABELS.get(domain, '能源')}态势",
+            f"{DOMAIN_LABELS.get(domain, '能源')}供给 · 使用 · 协同",
+        )
+        title, subtitle, map_title, map_subtitle = ENTERPRISE_VIEW_COPY.get(user.role_code, default_copy)
+        energy_label = DOMAIN_LABELS.get(domain, domain)
+        focus_title = "本方业务重点"
+        focus_items = [
+            {"label": "本方数据资源", "value": trusted_kpis["visible_assets"], "meta": "只展示本方目录元数据", "tone": "blue"},
+            {"label": "待处理授权", "value": trusted_kpis["inbound_usage_requests"], "meta": "入站使用申请", "tone": "amber"},
+            {"label": "受控计算任务", "value": trusted_kpis["compute_jobs"], "meta": "不出域计算记录", "tone": "green"},
+        ]
+        kpi_items = [
+            {"label": "本方数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
+            {"label": "待处理授权", "value": trusted_kpis["inbound_usage_requests"], "meta": "入站申请"},
+            {"label": "本方任务", "value": trusted_kpis["visible_tasks"], "meta": "参与结算"},
+            {"label": "受控计算任务", "value": trusted_kpis["compute_jobs"], "meta": "不出域执行"},
+            {"label": "授权记录", "value": trusted_kpis["usage_requests"], "meta": "本方范围"},
+            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
+        ]
+        primary_action = {"label": "查看本方数据目录", "path": "/trusted-space/catalog"}
+        scope_label = f"{ROLE_LABELS.get(user.role_code, '主体')}视角"
+
+    value_label, value_unit = ENERGY_DOMAIN_UNITS.get(domain, ("综合监测值", "指数"))
+    if kind == "regulator":
+        value_label, value_unit = "跨域供需监测值", "综合单位"
+    gauge_title = f"{energy_label}资源可支撑天数"
+    gauge_unit = "综合单位" if kind == "regulator" else ENERGY_GAUGE_UNITS.get(domain, "资源量")
+    return {
+        "kind": kind,
+        "role_code": user.role_code,
+        "energy_domain": domain,
+        "energy_label": energy_label,
+        "scope_label": scope_label,
+        "title": title,
+        "subtitle": subtitle,
+        "map_title": map_title,
+        "map_subtitle": map_subtitle,
+        "map_value_label": value_label,
+        "map_value_unit": value_unit,
+        "gauge_title": gauge_title,
+        "gauge_unit": gauge_unit,
+        "focus_title": focus_title,
+        "focus_items": focus_items,
+        "kpis": kpi_items,
+        "primary_action": primary_action,
+        "data_scope": "role_scoped_aggregate_only",
+        "projection": "demo_aggregate" if projection is not None else "live_scoped_data",
+    }
+
+
 def _parse_period(text: str) -> tuple[date, date]:
     match = re.search(r"(?:(20\d{2})年?)?(\d{1,2})月", text)
     today = utc_now().date()
@@ -408,6 +585,8 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     ok, chain_message = _chain_state(db)
     uploads = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(1)).all()
     demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} else None
+    view = _dashboard_view(db, user, demo_projection)
+    projection = _domain_demo_projection(demo_projection, view["energy_domain"])
     is_demo = demo_projection is not None
     real_activity = bool(
         db.scalar(select(func.count(PrivacyAnalysisJob.analysis_id)))
@@ -423,9 +602,9 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     timeline = [item for item in records if "隐私" in item["resource"] or "协同" in item["resource"]][:6]
     if use_demo_activity:
         timeline = demo_projection["timeline"]
-    map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}, "coal_days": [], "coal_inventory": [], "coal_consumption": []}
-    gauge = demo_projection["gauge"] if demo_projection else {"days": 0, "level": "暂无数据", "inventory": 0}
-    connectors = demo_projection["connectors"] if demo_projection else [
+    map_data = projection["map"] if projection else {"days": [], "series": {}, "coal_days": [], "coal_inventory": [], "coal_consumption": []}
+    gauge = projection["gauge"] if projection else {"days": 0, "level": "暂无数据", "inventory": 0}
+    connectors = projection["connectors"] if projection else [
         {"name": "电力连接器", "status": "正常"},
         {"name": "煤炭连接器", "status": "正常"},
         {"name": "策略引擎", "status": "正常"},
@@ -449,6 +628,7 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
         "chain": {"ok": ok, "message": chain_message},
         "latest_usage": bool(uploads),
         "data_mode": "demo" if is_demo else "live",
+        "view": view,
         "data_notice": (
             "演示态势图 · 真实任务已写入审计与计算记录"
             if use_demo_activity is False and is_demo

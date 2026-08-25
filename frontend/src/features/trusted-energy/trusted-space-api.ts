@@ -458,6 +458,27 @@ export type PrototypeDashboardPayload = {
   chain: { ok: boolean; message: string };
   latest_usage: boolean;
   data_mode: "demo" | "live";
+  view: {
+    kind: "enterprise" | "exchange" | "regulator";
+    role_code: string;
+    energy_domain: string;
+    energy_label: string;
+    scope_label: string;
+    title: string;
+    subtitle: string;
+    map_title: string;
+    map_subtitle: string;
+    map_value_label: string;
+    map_value_unit: string;
+    gauge_title: string;
+    gauge_unit: string;
+    focus_title: string;
+    focus_items: Array<{ label: string; value: number | string; meta: string; tone: string }>;
+    kpis: Array<{ label: string; value: number | string; meta: string }>;
+    primary_action: { label: string; path: string };
+    data_scope: string;
+    projection: string;
+  };
   data_notice: string;
 };
 
