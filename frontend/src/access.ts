@@ -96,7 +96,10 @@ export function getRoutePolicy(pathname: string): RoutePolicy | undefined {
 export function canAccessRoute(session: SessionPayload, pathname: string): boolean {
   const policy = getRoutePolicy(pathname);
   if (!policy || !policy.roles.includes(session.user.role_code)) return false;
-  return session.menus.some((menu) => menu.code === policy.code && menu.path === policy.path);
+  return session.menus.some((menu) => (
+    menu.code === policy.code
+    && (menu.path === policy.path || (policy.code === "compute" && menu.path === "/trusted-space/mpc"))
+  ));
 }
 
 export function canAccessRouteView(session: SessionPayload, pathname: string, search = ""): boolean {

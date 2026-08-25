@@ -265,6 +265,9 @@ export const ALGORITHM_LABELS: Record<string, string> = {
   DIFFERENTIAL_PRIVACY_OUTPUT: "差分隐私输出",
   DETERMINISTIC_RULE_ENGINE: "确定性规则引擎",
   SECRET_SHARING_HE: "秘密共享与同态加密",
+  ADDITIVE_SECRET_SHARING_SUM_V1: "加法秘密分享聚合",
+  PAILLIER_ADDITIVE_HOMOMORPHIC_V1: "Paillier 加法同态聚合",
+  PAILLIER_ADDITIVE_HOMOMORPHIC: "Paillier 加法同态",
   POLICY_SANDBOX: "策略沙箱",
 };
 
@@ -513,6 +516,7 @@ export function labelForCode(value: unknown, fallback = "未登记") {
     || SOURCE_OF_TRUTH_LABELS[normalized]
     || DOMAIN_LABELS[normalized]
     || DATA_STATUS_LABELS[normalized]
+    || ALGORITHM_LABELS[normalized]
     || TECHNICAL_TERM_LABELS[normalized]
     || (/^[A-Z][A-Z0-9_]*$/.test(normalized) ? fallback : normalized);
 }

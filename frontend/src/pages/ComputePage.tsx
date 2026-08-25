@@ -105,7 +105,7 @@ export function ComputePage() {
           ] : [
             { key: "analysis_name", label: "分析任务", minWidth: 180, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.analysis_name}</button> },
             { key: "analysis_type", label: "分析类型", render: (row) => ({ PEAK_VALLEY: "峰谷特征", LOAD_CLUSTER: "负荷聚类", DR_POTENTIAL: "响应潜力" } as Record<string, string>)[row.analysis_type] || labelForCode(row.analysis_type, "已登记分析类型") },
-            { key: "strategy", label: "自适应策略", render: (row) => strategyName(row.result_json?.compute_strategy?.primary) },
+            { key: "strategy", label: "自适应策略", render: (row) => strategyName(row.result_json?.recommended_strategy?.primary || row.result_json?.compute_strategy?.primary) },
             { key: "privacy_level", label: "隐私级别", render: (row) => ({ AGGREGATED: "聚合输出", K_ANONYMIZED: "匿名化输出", DIFFERENTIAL_PRIVACY: "差分隐私输出" } as Record<string, string>)[row.privacy_level] || labelForCode(row.privacy_level, "已登记隐私级别") },
             { key: "privacy_budget", label: "隐私预算" },
             { key: "dataset_ids_json", label: "参与数据域", render: (row) => `${row.dataset_ids_json?.length || 0} 个` },
@@ -169,7 +169,14 @@ function ComputeDetail({ job, onClose }: { job: JsonRecord; onClose: () => void 
 
 function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void }) {
   const result = job.result_json || job.output_json || {};
-  const strategy = result.compute_strategy || {};
+  const strategy = result.recommended_strategy || result.compute_strategy || {};
+  const executedProtocols = Array.isArray(result.protocols_executed)
+    ? result.protocols_executed.map((code: unknown) => labelForCode(code, "未登记协议"))
+    : result.actual_protocol
+      ? [labelForCode(result.actual_protocol, "未登记协议")]
+      : [];
+  const secretSharing = result.privacy_controls?.secret_sharing || {};
+  const differentialPrivacy = result.privacy_controls?.differential_privacy || {};
   const points = (result.aggregate_curve || []).map((value: number, hour: number) => ({ hour: `${hour}:00`, value }));
   return (
     <DetailDrawer title={job.analysis_name} onClose={onClose} footer={<Button onClick={onClose}>关闭</Button>}>
@@ -183,9 +190,12 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
       {points.length > 0 && <div className="chart-block"><ResponsiveContainer width="100%" height={250}><LineChart data={points}><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="hour" interval={3} tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><YAxis tick={{ fontSize: 11, fill: "var(--chart-axis)" }} /><Tooltip /><Line type="monotone" dataKey="value" stroke="var(--chart-series-brand)" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>}
       {result.privacy_controls && <div className="detail-grid privacy-receipt-grid">
          <div><span>隐私引擎</span><strong>{labelForCode(result.privacy_controls.engine, "—")}</strong></div>
-         <div><span>噪声机制</span><strong>{labelForCode(result.privacy_controls.mechanism, "—")}</strong></div>
-        <div><span>每小时预算</span><strong>{result.privacy_controls.epsilon_per_hour_release ?? "—"}</strong></div>
-        <div><span>边界约束</span><strong>{result.privacy_controls.bound_mw ? `${result.privacy_controls.bound_mw} MW` : "—"}</strong></div>
+         <div><span>实际协议</span><strong>{executedProtocols.length ? executedProtocols.join("、") : "—"}</strong></div>
+         <div><span>秘密共享回执</span><strong>{secretSharing.aggregate_consistency_verified ? "两方聚合一致性已验证" : secretSharing.reason || "未执行"}</strong></div>
+         <div><span>执行边界</span><strong>{result.privacy_boundary || "—"}</strong></div>
+         <div><span>噪声机制</span><strong>{labelForCode(differentialPrivacy.mechanism || result.privacy_controls.mechanism, "—")}</strong></div>
+        <div><span>每小时预算</span><strong>{differentialPrivacy.epsilon_per_hour_release ?? result.privacy_controls.epsilon_per_hour_release ?? "—"}</strong></div>
+        <div><span>边界约束</span><strong>{differentialPrivacy.bound_mw || result.privacy_controls.bound_mw ? `${differentialPrivacy.bound_mw || result.privacy_controls.bound_mw} MW` : "—"}</strong></div>
       </div>}
     </DetailDrawer>
   );
