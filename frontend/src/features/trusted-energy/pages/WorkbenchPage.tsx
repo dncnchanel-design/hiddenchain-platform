@@ -6,13 +6,6 @@ import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypeP
 import { RemoteState } from "../components/ui-primitives";
 import { loadPrototypeDashboard, type PrototypeDashboardPayload } from "../trusted-space-api";
 
-const ACTION_COLORS: Record<string, string> = {
-  allow: "#059669",
-  deny: "#dc2626",
-  aggregate: "#d97706",
-  delay: "#7c3aed",
-  compute_only: "#0891b2",
-};
 const ACTION_NAMES: Record<string, string> = { allow: "直接提供", deny: "禁止提供", aggregate: "汇总提供", delay: "延迟提供", compute_only: "仅计算不出域" };
 const CITY_XY: Record<string, [number, number]> = { 济南: [117.0, 36.65], 青岛: [120.38, 36.07], 烟台: [121.45, 37.46], 潍坊: [119.16, 36.71], 临沂: [118.35, 35.1] };
 const FLOW_ROUTES = [
@@ -25,6 +18,33 @@ const CONNECTOR_NOTES = ["电力连接器", "煤炭连接器", "策略引擎", "
 type PrototypeMap = PrototypeDashboardPayload["map"];
 
 let shandongMapPromise: Promise<void> | null = null;
+
+function getPrototypeColors(host: Element) {
+  const styles = getComputedStyle(host);
+  const read = (token: string, fallback = "currentColor") => styles.getPropertyValue(token).trim() || fallback;
+  return {
+    actions: {
+      allow: read("--prototype-action-allow"),
+      deny: read("--prototype-action-deny"),
+      aggregate: read("--prototype-action-aggregate"),
+      delay: read("--prototype-action-delay"),
+      compute_only: read("--prototype-action-compute"),
+    },
+    gaugeTrack: read("--prototype-gauge-track"),
+    ink: read("--prototype-ink"),
+    muted: read("--prototype-muted"),
+    navy: read("--prototype-action-navy"),
+    line: read("--prototype-chart-grid"),
+    secondary: read("--prototype-ink"),
+    surface: read("--prototype-map-surface"),
+    mapFill: read("--prototype-map-fill"),
+    mapBoundary: read("--prototype-map-boundary"),
+    mapLabel: read("--prototype-map-label"),
+    mapRoute: read("--prototype-map-route"),
+  };
+}
+
+type PrototypeColors = ReturnType<typeof getPrototypeColors>;
 
 function ensureShandongMap() {
   if (echarts.getMap("shandong")) return Promise.resolve();
@@ -45,29 +65,35 @@ function formatTime(value: string) {
   return value.includes("T") ? value.slice(11, 16) : value.slice(-5);
 }
 
-function coalColor(days: number) {
-  if (days >= 15) return "#059669";
-  if (days >= 7) return "#d97706";
-  return "#dc2626";
+function coalColor(days: number, colors: PrototypeColors) {
+  if (days >= 15) return colors.actions.allow;
+  if (days >= 7) return colors.actions.aggregate;
+  return colors.actions.deny;
 }
 
-function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: number) {
+function coalColorToken(days: number) {
+  if (days >= 15) return "var(--prototype-action-allow)";
+  if (days >= 7) return "var(--prototype-action-aggregate)";
+  return "var(--prototype-action-deny)";
+}
+
+function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: number, colors: PrototypeColors) {
   const coalDays = data.coal_days[index] || 0;
   const scatterData = Object.keys(data.series).map((region) => {
     const [x, y] = CITY_XY[region] || [117, 36];
     return { name: region, region, value: [x, y, data.series[region][index] || 0, coalDays] };
   });
-  const lines = FLOW_ROUTES.map((route) => ({ coords: [route.from, route.to], lineStyle: { color: "#00a3e0", width: 2.5, opacity: 0.7, curveness: 0.25 } }));
+  const lines = FLOW_ROUTES.map((route) => ({ coords: [route.from, route.to], lineStyle: { color: colors.mapRoute, width: 2.5, opacity: 0.7, curveness: 0.25 } }));
   chart.setOption({
     tooltip: {
       trigger: "item",
-      backgroundColor: "rgba(255,255,255,.96)",
-      borderColor: "#e2e8f0",
-      textStyle: { color: "#0f172a", fontSize: 12 },
+      backgroundColor: colors.surface,
+      borderColor: colors.line,
+      textStyle: { color: colors.ink, fontSize: 12 },
       formatter: (params: any) => {
         if (params.seriesType === "lines") return "跨主体协同 · 数据可用不可见";
         if (!params.data) return params.name;
-        return `<div style="font-weight:600">${params.data.region}</div><div>平均负荷：<b>${params.data.value[2]}</b> MW</div><div>电煤可支撑：<b style="color:${coalColor(params.data.value[3])}">${params.data.value[3]}</b> 天</div>`;
+        return `<div style="font-weight:600">${params.data.region}</div><div>平均负荷：<b>${params.data.value[2]}</b> MW</div><div>电煤可支撑：<b style="color:${coalColor(params.data.value[3], colors)}">${params.data.value[3]}</b> 天</div>`;
       },
     },
     geo: {
@@ -77,8 +103,8 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
       center: [119, 36.4],
       layoutCenter: ["50%", "50%"],
       layoutSize: "100%",
-      itemStyle: { areaColor: "#e0f2fe", borderColor: "#64748b", borderWidth: 1.2, shadowBlur: 4, shadowColor: "rgba(0,0,0,.08)" },
-      emphasis: { itemStyle: { areaColor: "#bfdbfe" }, label: { show: false } },
+      itemStyle: { areaColor: colors.mapFill, borderColor: colors.mapBoundary, borderWidth: 1.2, shadowBlur: 4, shadowColor: "rgba(0,0,0,.08)" },
+      emphasis: { itemStyle: { areaColor: colors.mapFill }, label: { show: false } },
     },
     series: [
       { type: "map", map: "shandong", geoIndex: 0, roam: false, data: [] },
@@ -87,8 +113,8 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
         coordinateSystem: "geo",
         data: lines,
         zlevel: 2,
-        effect: { show: true, period: 5, trailLength: 0.4, symbol: "arrow", symbolSize: 7, color: "#00a3e0" },
-        lineStyle: { color: "#00a3e0", width: 2.5, opacity: 0.7, curveness: 0.25 },
+        effect: { show: true, period: 5, trailLength: 0.4, symbol: "arrow", symbolSize: 7, color: colors.mapRoute },
+        lineStyle: { color: colors.mapRoute, width: 2.5, opacity: 0.7, curveness: 0.25 },
       },
       {
         type: "scatter",
@@ -97,8 +123,8 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
         zlevel: 3,
         symbol: "pin",
         symbolSize: (value: any) => Math.max(50, Math.min(90, Number(value?.[2] || 0) / 55)),
-        label: { show: true, formatter: (params: any) => params.data.region, fontSize: 14, color: "#0f172a", position: "bottom", fontWeight: 700, distance: 10, textBorderColor: "#fff", textBorderWidth: 3 },
-        itemStyle: { color: (params: any) => coalColor(Number(params?.data?.value?.[3] || 0)), borderColor: "#fff", borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
+        label: { show: true, formatter: (params: any) => params.data.region, fontSize: 14, color: colors.mapLabel, position: "bottom", fontWeight: 700, distance: 10, textBorderColor: colors.surface, textBorderWidth: 3 },
+        itemStyle: { color: (params: any) => coalColor(Number(params?.data?.value?.[3] || 0), colors), borderColor: colors.surface, borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
         emphasis: { scale: 1.6, label: { show: true, fontSize: 16 } },
         animationDurationUpdate: 600,
       },
@@ -119,7 +145,7 @@ function DashboardMap({ data, index }: { data: PrototypeMap; index: number }) {
       if (!active || !mapRef.current) return;
       const chart = echarts.init(mapRef.current, undefined, { renderer: "canvas" });
       chartRef.current = chart;
-      renderMapOption(chart, latest.current.data, latest.current.index);
+      renderMapOption(chart, latest.current.data, latest.current.index, getPrototypeColors(mapRef.current));
       resize = () => chart.resize();
       window.addEventListener("resize", resize);
     }).catch(() => undefined);
@@ -132,7 +158,7 @@ function DashboardMap({ data, index }: { data: PrototypeMap; index: number }) {
   }, []);
 
   useEffect(() => {
-    if (chartRef.current) renderMapOption(chartRef.current, data, index);
+    if (chartRef.current && mapRef.current) renderMapOption(chartRef.current, data, index, getPrototypeColors(mapRef.current));
   }, [data, index]);
 
   return <div className="prototype-map prototype-map-echart" ref={mapRef} aria-label="山东能源供需态势地图">
@@ -144,7 +170,8 @@ function GaugeChart({ days, level }: { days: number; level: string }) {
   const gaugeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!gaugeRef.current) return undefined;
-    const color = coalColor(days);
+    const colors = getPrototypeColors(gaugeRef.current);
+    const color = coalColor(days, colors);
     const chart = echarts.init(gaugeRef.current);
     chart.setOption({
       series: [{
@@ -154,11 +181,11 @@ function GaugeChart({ days, level }: { days: number; level: string }) {
         splitNumber: 6,
         radius: "92%",
         progress: { show: true, width: 12, itemStyle: { color } },
-        axisLine: { lineStyle: { width: 12, color: [[1, "#e2e8f0"]] } },
-        axisLabel: { fontSize: 10, color: "#94a3b8" },
-        pointer: { width: 4, itemStyle: { color: "#475569" } },
-        detail: { fontSize: 26, color: "#0f172a", offsetCenter: [0, "55%"], formatter: "{value} 天", fontWeight: 700 },
-        title: { fontSize: 12, offsetCenter: [0, "82%"], color: "#64748b" },
+        axisLine: { lineStyle: { width: 12, color: [[1, colors.gaugeTrack]] } },
+        axisLabel: { fontSize: 10, color: colors.muted },
+        pointer: { width: 4, itemStyle: { color: colors.secondary } },
+        detail: { fontSize: 26, color: colors.ink, offsetCenter: [0, "55%"], formatter: "{value} 天", fontWeight: 700 },
+        title: { fontSize: 12, offsetCenter: [0, "82%"], color: colors.muted },
         data: [{ value: days, name: level }],
       }],
     });
@@ -173,12 +200,13 @@ function ActionPieChart({ values }: { values: Array<{ name: string; value: numbe
   const chartRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!chartRef.current || !values.length) return undefined;
+    const colors = getPrototypeColors(chartRef.current);
     const chart = echarts.init(chartRef.current);
     chart.setOption({
       tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-      legend: { bottom: 0, textStyle: { fontSize: 11, color: "#64748b" }, itemWidth: 10, itemHeight: 10 },
-      color: values.map((item) => ACTION_COLORS[item.key] || "#0b3d91"),
-      series: [{ type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"], data: values, label: { fontSize: 11, color: "#64748b" }, emphasis: { itemStyle: { shadowBlur: 12, shadowOffsetX: 0, shadowColor: "rgba(0,0,0,.15)" } } }],
+      legend: { bottom: 0, textStyle: { fontSize: 11, color: colors.muted }, itemWidth: 10, itemHeight: 10 },
+      color: values.map((item) => colors.actions[item.key as keyof typeof colors.actions] || colors.navy),
+      series: [{ type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"], data: values, label: { fontSize: 11, color: colors.muted }, emphasis: { itemStyle: { shadowBlur: 12, shadowOffsetX: 0, shadowColor: "rgba(0,0,0,.15)" } } }],
     });
     const resize = () => chart.resize();
     window.addEventListener("resize", resize);
@@ -225,7 +253,7 @@ export function WorkbenchPage() {
           <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>
         </section>
         <aside className="prototype-dashboard-side">
-          <section className="prototype-card prototype-gauge-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />电煤库存可支撑天数</PrototypeCardTitle><GaugeChart days={data.gauge.days} level={data.gauge.level} /><div className="prototype-gauge-text" style={{ color: coalColor(data.gauge.days) }}>{data.gauge.level} · 库存 {data.gauge.inventory} 万吨</div></section>
+          <section className="prototype-card prototype-gauge-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />电煤库存可支撑天数</PrototypeCardTitle><GaugeChart days={data.gauge.days} level={data.gauge.level} /><div className="prototype-gauge-text" style={{ color: coalColorToken(data.gauge.days) }}>{data.gauge.level} · 库存 {data.gauge.inventory} 万吨</div></section>
           <section className="prototype-card prototype-feed-card"><PrototypeCardTitle><FileCheck2 className="prototype-card-icon" size={18} strokeWidth={1.8} />实时审计流</PrototypeCardTitle><div className="prototype-feed-list">{data.audit.length ? data.audit.map((item) => <div className="prototype-feed-item" key={item.id}><i className={`is-${item.action}`} /><span><b>{item.action_name}</b> · {item.subject} · {item.resource}</span><time>{formatTime(item.ts)}</time></div>) : <div className="prototype-empty">暂无审计记录</div>}</div></section>
         </aside>
       </div>
