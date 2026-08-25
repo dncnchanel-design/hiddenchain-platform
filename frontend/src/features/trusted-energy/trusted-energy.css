@@ -1359,3 +1359,9 @@
   .prototype-map-routes path, .prototype-map-node-halo { animation: none; }
   .prototype-map-node { transition: none; }
 }
+
+/* Prototype content keeps its own density while sharing the trusted-space shell. */
+.trusted-main.prototype-container { width: min(1600px, calc(100% - 32px)); max-width: none; margin: 0 auto; padding: 20px 0 36px; }
+@media (max-width: 760px) {
+  .trusted-main.prototype-container { width: calc(100% - 20px); padding: 12px 0 28px; }
+}
