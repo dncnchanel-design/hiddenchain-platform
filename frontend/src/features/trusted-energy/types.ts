@@ -16,14 +16,14 @@ export type TrustedViewKey =
 export const TRUSTED_BASE = "/trusted-space";
 
 export const navItems = [
-  { key: "workbench" as const, menuCode: "overview", label: "全局看板", icon: "LayoutDashboard" },
-  { key: "query" as const, menuCode: "query", label: "数据问数", icon: "Search" },
+  { key: "workbench" as const, menuCode: "overview", label: "运行总览", icon: "LayoutDashboard" },
+  { key: "query" as const, menuCode: "query", label: "智能数据查询", icon: "Search" },
   { key: "catalog" as const, menuCode: "catalog", label: "数据目录", icon: "Database" },
-  { key: "connector" as const, menuCode: "connector", label: "数据接入", icon: "Cable" },
-  { key: "authorizations" as const, menuCode: "authorization", label: "策略中心", icon: "FileSignature" },
-  { key: "audit" as const, menuCode: "audit", label: "审计存证", icon: "ScanSearch" },
+  { key: "connector" as const, menuCode: "connector", label: "数据连接", icon: "Cable" },
+  { key: "authorizations" as const, menuCode: "authorization", label: "数据授权", icon: "FileSignature" },
+  { key: "audit" as const, menuCode: "audit", label: "审计追溯", icon: "ScanSearch" },
   { key: "mpc" as const, menuCode: "compute", label: "隐私计算", icon: "Network" },
-  { key: "identity" as const, menuCode: "participants", label: "身份拓扑", icon: "Fingerprint" },
+  { key: "identity" as const, menuCode: "participants", label: "参与主体", icon: "Fingerprint" },
 ];
 
 export const primaryNavItems = navItems;

@@ -353,22 +353,38 @@ def _result_for_asset(db: Session, asset: DataAsset, resource: str, function: st
         .limit(20)
     ).all()
     values: list[float] = []
+    trend: list[dict[str, Any]] = []
+    curves: list[list[float]] = []
     for upload in uploads:
         payload = upload.summary_json if isinstance(upload.summary_json, dict) else {}
+        period = str(payload.get("period") or getattr(upload, "label", "") or f"样本 {len(trend) + 1}")
         for key in (resource, "energy_mwh", "record_count", "load_curve"):
             value = payload.get(key)
             if isinstance(value, list):
                 values.extend(float(item) for item in value if isinstance(item, (int, float)))
+                if key == "load_curve" and resource == "load":
+                    curves.append([float(item) for item in value if isinstance(item, (int, float))])
             elif isinstance(value, (int, float)) and key == resource:
-                values.append(float(value))
+                numeric_value = float(value)
+                values.append(numeric_value)
+                trend.append({"label": period, "value": numeric_value})
     if not values:
         values = [float(max(asset.metadata_json.get("record_count", 0), 0))]
+    if curves:
+        width = max(len(curve) for curve in curves)
+        trend = [
+            {"label": f"{index:02d}:00", "value": round(sum(curve[index] for curve in curves if index < len(curve)) / len([curve for curve in curves if index < len(curve)]), 2)}
+            for index in range(width)
+            if any(index < len(curve) for curve in curves)
+        ]
+    if not trend:
+        trend = [{"label": f"样本 {index + 1}", "value": round(value, 2)} for index, value in enumerate(values[:12])]
     if function == "max": value = max(values)
     elif function == "min": value = min(values)
     elif function == "count": value = len(values)
     elif function == "sum": value = sum(values)
     else: value = sum(values) / len(values)
-    return {"value": round(value, 2), "record_count": len(values), "resource": resource, "function": FUNCTION_LABELS.get(function, function)}
+    return {"value": round(value, 2), "record_count": len(values), "resource": resource, "function": FUNCTION_LABELS.get(function, function), "trend": trend[:24]}
 
 
 @router.get("/header")

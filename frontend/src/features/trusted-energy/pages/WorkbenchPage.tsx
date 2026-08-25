@@ -4,6 +4,7 @@ import { useRemote } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { RemoteState } from "../components/ui-primitives";
 import { loadPrototypeDashboard, type PrototypeDashboardPayload } from "../trusted-space-api";
+import { useTrustedSpaceContext } from "../trusted-space-context";
 
 const ACTION_COLORS: Record<string, string> = {
   allow: "var(--prototype-action-allow)",
@@ -61,7 +62,7 @@ function actionData(data: PrototypeDashboardPayload) {
   return Object.entries(data.action_counts).filter(([, value]) => value > 0).map(([key, value]) => ({ name: ACTION_NAMES[key] || key, value, key }));
 }
 
-function DashboardMap({ data, index }: { data: PrototypeDashboardPayload["map"]; index: number }) {
+function DashboardMap({ data, index, domain }: { data: PrototypeDashboardPayload["map"]; index: number; domain: string }) {
   const cities = CITY_POSITIONS.map((city) => ({
     ...city,
     value: data.series[city.name]?.[index] || 0,
@@ -83,8 +84,9 @@ function DashboardMap({ data, index }: { data: PrototypeDashboardPayload["map"];
       <g className="prototype-map-nodes">{cities.map((city) => {
         const scale = 0.9 + city.value / max * 0.35;
         const coalDays = data.coal_days[index] || 0;
-        return <g className="prototype-map-node" key={city.name} transform={`translate(${city.x} ${city.y}) scale(${scale})`} tabIndex={0} aria-label={`${city.name}，${formatNumber(city.value)} MW，库存覆盖 ${formatNumber(coalDays, 1)} 天`}>
-          <title>{`${city.name} · ${formatNumber(city.value)} MW · 库存覆盖 ${formatNumber(coalDays, 1)} 天`}</title>
+        const nodeLabel = domain === "coal" ? `${city.name}，库存覆盖 ${formatNumber(coalDays, 1)} 天` : `${city.name}，受控负荷 ${formatNumber(city.value)} MW`;
+        return <g className="prototype-map-node" key={city.name} transform={`translate(${city.x} ${city.y}) scale(${scale})`} tabIndex={0} aria-label={nodeLabel}>
+          <title>{nodeLabel}</title>
           <circle className="prototype-map-node-halo" r="29" />
           <path className="prototype-map-node-pin" d="M0 -23 C15 -23 24 -12 24 0 C24 13 0 36 0 36 C0 36 -24 13 -24 0 C-24 -12 -15 -23 0 -23 Z" fill="var(--prototype-map-node)" />
           <circle className="prototype-map-node-core" cy="-4" r="10" />
@@ -98,7 +100,10 @@ function DashboardMap({ data, index }: { data: PrototypeDashboardPayload["map"];
 
 export function WorkbenchPage() {
   const remote = useRemote(loadPrototypeDashboard, []);
+  const trustedSpace = useTrustedSpaceContext();
   const data = remote.data;
+  const domain = trustedSpace.context?.current_subject.energy_domain || "cross";
+  const domainName = ({ electricity: "电力", coal: "煤炭", heat: "热能", gas: "天然气", oil: "石油", cross: "跨能源" } as Record<string, string>)[domain] || "跨能源";
   const [index, setIndex] = useState(0);
   const [now, setNow] = useState(() => new Date());
   const dayCount = data?.map.days.length || 0;
@@ -140,7 +145,7 @@ export function WorkbenchPage() {
         <div>
           <div className="prototype-overview-label"><span>运行总览</span><span className={`prototype-data-badge is-${data.data_mode}`}>{data.data_notice}</span></div>
           <h2>山东能源供需态势</h2>
-          <p>用受控汇总观察电力负荷、煤炭库存与跨主体协同，原始明细始终留在企业侧。</p>
+          <p>用受控汇总观察{domainName}业务指标与跨主体协同，原始明细始终留在企业侧。</p>
         </div>
         <div className="prototype-overview-facts">
           <span><small>监测窗口</small><b>近 7 日</b></span>
@@ -166,13 +171,13 @@ export function WorkbenchPage() {
           <div className="prototype-card-heading">
             <div>
               <PrototypeCardTitle action={<span className="prototype-day-badge" aria-live="polite" aria-label={`北京时间 ${beijingDate}`}>{beijingDate}</span>}>山东能源供需态势</PrototypeCardTitle>
-              <div className="prototype-dashboard-subline"><span>电力负荷 · 电煤库存 · 跨主体协同 · 三位一体综合态势</span></div>
-              <div className="prototype-dashboard-legend"><span><i className="is-green" />库存充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span><span><i className="is-line" />跨主体协同</span></div>
+              <div className="prototype-dashboard-subline"><span>{domain === "coal" ? "煤炭库存 · 供耗平衡 · 跨主体协同" : `${domainName}业务指标 · 受控查询 · 跨主体协同`}</span></div>
+              <div className="prototype-dashboard-legend">{domain === "coal" ? <><span><i className="is-green" />库存充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span></> : <span><i className="is-line" />受控负荷趋势</span>}<span><i className="is-line" />跨主体协同</span></div>
             </div>
           </div>
-          <DashboardMap data={data.map} index={index} />
+          <DashboardMap data={data.map} index={index} domain={domain} />
           <div className="prototype-trend-panel">
-            <div className="prototype-trend-header"><div><strong>区域负荷趋势</strong><span>MW · 近 7 日</span></div><span>峰值 {formatNumber(peakLoad)} MW</span></div>
+            {domain === "electricity" ? <><div className="prototype-trend-header"><div><strong>区域负荷趋势</strong><span>MW · 近 7 日</span></div><span>峰值 {formatNumber(peakLoad)} MW</span></div>
             {chartData.length > 1 ? <ResponsiveContainer width="100%" height={148}><LineChart data={chartData} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
               <CartesianGrid stroke="var(--prototype-chart-grid)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="day" tick={{ fill: "var(--prototype-muted)", fontSize: 10 }} tickLine={false} axisLine={false} />
@@ -180,18 +185,23 @@ export function WorkbenchPage() {
               <Tooltip />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
               {CITY_POSITIONS.map((city, cityIndex) => <Line key={city.name} type="monotone" dataKey={city.name} name={city.name} stroke={CITY_COLORS[cityIndex]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />)}
-            </LineChart></ResponsiveContainer> : <div className="prototype-empty">暂无负荷趋势数据</div>}
+            </LineChart></ResponsiveContainer> : <div className="prototype-empty">暂无负荷趋势数据</div>}</> : <div className="prototype-domain-reference">当前为{domainName}主体，页面不套用电力或煤炭演示趋势；请从数据目录发起受控查询。</div>}
           </div>
         </section>
 
         <aside className="prototype-dashboard-side">
-          <section className="prototype-card prototype-gauge-card">
-            <PrototypeCardTitle action={<span className={`prototype-mode-tag is-${data.data_mode}`}>{data.data_mode === "demo" ? "演示口径" : "实时"}</span>}>电煤库存可支撑天数</PrototypeCardTitle>
+          {domain === "coal" ? <section className="prototype-card prototype-gauge-card">
+            <PrototypeCardTitle action={<span className={`prototype-mode-tag is-${data.data_mode}`}>{data.data_mode === "demo" ? "演示口径" : "实时"}</span>}>煤炭库存可支撑天数</PrototypeCardTitle>
             <div className="prototype-gauge" style={{ background: `conic-gradient(${gaugeColor} ${gaugePercent}%, var(--prototype-gauge-track) 0)` }}><div><strong>{currentCoalDays ? formatNumber(currentCoalDays, 1) : "暂无"}</strong><span>天</span></div></div>
             <div className="prototype-gauge-text" style={{ color: gaugeColor }}>{currentCoalDays >= 15 ? "库存充足" : currentCoalDays >= 7 ? "库存警戒" : "缺口风险"} · 当前覆盖 {formatNumber(currentCoalDays, 1)} 天</div>
             <div className="prototype-gauge-facts"><span><small>当前库存</small><b>{formatNumber(currentInventory, 1)}<em>万吨</em></b></span><span><small>日均消耗</small><b>{formatNumber(currentConsumption, 1)}<em>万吨</em></b></span><span><small>安全线</small><b>15<em>天</em></b></span></div>
-            <div className="prototype-gauge-footnote">库存统计来自企业侧受控汇总，不展示原始明细。</div>
-          </section>
+            <div className="prototype-gauge-footnote">库存统计来自煤炭企业侧受控汇总，不展示原始明细。</div>
+          </section> : <section className="prototype-card prototype-gauge-card prototype-domain-summary">
+            <PrototypeCardTitle action={<span className={`prototype-mode-tag is-${data.data_mode}`}>{data.data_mode === "demo" ? "演示口径" : "实时"}</span>}>{domainName}业务概览</PrototypeCardTitle>
+            <div className="prototype-domain-summary-main"><strong>{domain === "electricity" ? formatNumber(peakLoad) : data.kpis.resources}</strong><span>{domain === "electricity" ? "MW · 区域受控负荷峰值" : "项 · 当前可见目录资源"}</span></div>
+            <div className="prototype-gauge-facts"><span><small>当前域</small><b>{domainName}</b></span><span><small>可见规则</small><b>{data.kpis.rules}<em> 条</em></b></span><span><small>连接状态</small><b>受控</b></span></div>
+            <div className="prototype-gauge-footnote">当前主体不属于煤炭域，不展示煤炭库存指标；非电力演示数据需由对应企业连接器提供。</div>
+          </section>}
           <section className="prototype-card prototype-feed-card">
             <PrototypeCardTitle action={<span className="prototype-card-caption">最近 24 小时</span>}>实时审计流</PrototypeCardTitle>
             <div className="prototype-feed-list">{data.audit.length ? data.audit.map((item) => <div className="prototype-feed-item" key={item.id}><i className={`is-${item.action}`} /><span><b>{item.action_name}</b><small>{item.subject} · {item.resource}</small></span><time>{formatTime(item.ts)}</time></div>) : <div className="prototype-empty">暂无审计记录</div>}</div>

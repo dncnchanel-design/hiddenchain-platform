@@ -9,8 +9,6 @@ import { cn } from "../utils";
 import { Badge, Button, IconButton, Sheet } from "../components/ui-primitives";
 import { RemoteState } from "../components/ui-primitives";
 import { useTrustedSpaceContext } from "../trusted-space-context";
-import { loadPrototypeHeader } from "../trusted-space-api";
-import { useRemote } from "../../../hooks";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
@@ -38,22 +36,20 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 const titles: Record<TrustedViewKey, string> = {
-  workbench: "全局看板",
-  query: "数据问数",
-  identity: "身份拓扑",
+  workbench: "运行总览",
+  query: "智能数据查询",
+  identity: "参与主体",
   catalog: "数据目录",
-  connector: "数据接入",
-  authorizations: "策略中心",
+  connector: "数据连接",
+  authorizations: "数据授权",
   asset: "数据资产护照",
   apply: "使用申请",
   contract: "合同协商",
     ttc: "可信任务详情",
   mpc: "计算任务",
   results: "计算任务结果",
-  audit: "审计存证",
+  audit: "审计追溯",
 };
-
-const TARGET_VIEWS = new Set<TrustedViewKey>(["workbench", "query", "connector", "authorizations", "audit"]);
 
 function renderView(view: TrustedViewKey) {
   switch (view) {
@@ -84,8 +80,6 @@ export function TrustedSpaceShell() {
   const view = getTrustedView(location.pathname);
   const title = titles[view];
   const context = trustedContext.context;
-  const targetChrome = TARGET_VIEWS.has(view);
-  const targetHeader = useRemote(loadPrototypeHeader, [targetChrome]);
   const quickLinks = useMemo(() => {
     const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
     return primaryNavItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
@@ -112,31 +106,7 @@ export function TrustedSpaceShell() {
     navigate("/login", { replace: true });
   }
 
-  if (targetChrome) {
-    const header = targetHeader.data;
-    const targetIdentity = header?.identity || { name: subjectName, role: roleLabel, did: context.identity_ref.did || "did:eds:当前主体" };
-    const targetStats = [...(header?.stats || [
-      { key: "resources", label: "数据资源", value: 0 },
-      { key: "rules", label: "策略规则", value: 0 },
-      { key: "identities", label: "注册主体", value: 0 },
-      { key: "blocks", label: "存证区块", value: 0 },
-    ]), { key: "identity", label: "当前身份", value: targetIdentity.role }];
-    return <div className="trusted-space-shell prototype-shell tw-min-h-screen">
-      <header className="prototype-header">
-        <div className="prototype-header-top">
-          <div><h1>{header?.title || "能源可信数据空间 · 原型演示"}</h1></div>
-          <div className="prototype-identity"><span>{targetIdentity.name}（{targetIdentity.role}）</span><span className="prototype-did">✓ {targetIdentity.did}</span><button type="button" onClick={() => void handleLogout()}>退出登录</button></div>
-        </div>
-        <div className="prototype-stats-bar">{targetStats.map((item) => <span key={item.key}>{item.label} <b>{item.value}</b>{item.key === "identity" && "（已认证）"}</span>)}</div>
-      </header>
-      <nav className="prototype-nav" aria-label="主导航">
-        {quickLinks.map(({ key, label }) => <Link key={key} className={cn("prototype-nav-tab", view === key && "is-active")} to={routeForView(key)}>{label}</Link>)}
-      </nav>
-      <main className="prototype-container" key={location.pathname}>{renderView(view)}</main>
-    </div>;
-  }
-
-  return <div className="trusted-space-shell tw-min-h-screen">
+  return <div className="trusted-space-shell prototype-shell tw-min-h-screen">
     <header className="trusted-system-bar">
       <div className="trusted-system-left">
         <IconButton className="trusted-mobile-menu" label="打开左侧导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={17} /></IconButton>

@@ -466,7 +466,7 @@ export type PrototypeQueryPayload = {
   plan: Array<{ stage: string; status: string }>;
   identity?: { name: string; did: string };
   decision: { action: string; label: string; reason: string };
-  result: { value: number; record_count: number; resource: string; function: string } | null;
+  result: { value: number; record_count: number; resource: string; function: string; trend?: Array<{ label: string; value: number }> } | null;
   resource_name?: string;
   function_name?: string;
   audit_id?: string | null;
