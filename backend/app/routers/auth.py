@@ -30,6 +30,8 @@ BUSINESS_ROLES = [
     "EXCHANGE",
     "REGULATOR",
 ]
+APP_ROLES = [*BUSINESS_ROLES, "ADMIN"]
+REVIEW_ROLES = ["EXCHANGE", "REGULATOR", "ADMIN"]
 
 MODULES = [
     {"code": "overview", "path": "/trusted-space/workbench", "roles": BUSINESS_ROLES},
@@ -40,6 +42,20 @@ MODULES = [
     {"code": "compute", "path": "/trusted-space/mpc", "roles": BUSINESS_ROLES},
     {"code": "audit", "path": "/trusted-space/audit", "roles": ["REGULATOR"]},
     {"code": "participants", "path": "/trusted-space/identity", "roles": BUSINESS_ROLES},
+    {"code": "workbench", "path": "/workbench", "roles": APP_ROLES},
+    {"code": "data-space", "path": "/data-space", "roles": APP_ROLES},
+    {"code": "rules", "path": "/rules", "roles": REVIEW_ROLES},
+    {"code": "compute", "path": "/compute", "roles": APP_ROLES},
+    {"code": "settlements", "path": "/settlements", "roles": APP_ROLES},
+    {"code": "results", "path": "/results", "roles": APP_ROLES},
+    {"code": "evidence", "path": "/evidence", "roles": APP_ROLES},
+    {"code": "audit", "path": "/audit", "roles": REVIEW_ROLES},
+    {"code": "reports", "path": "/reports", "roles": REVIEW_ROLES},
+    {"code": "anomalies", "path": "/anomalies", "roles": REVIEW_ROLES},
+    {"code": "trusted-execution", "path": "/trusted-execution", "roles": REVIEW_ROLES},
+    {"code": "overview", "path": "/overview", "roles": ["ADMIN"]},
+    {"code": "system", "path": "/system", "roles": ["ADMIN"]},
+    {"code": "agents", "path": "/agents", "roles": ["ADMIN"]},
     {"code": "metrics", "path": "/metrics", "roles": ["ADMIN"]},
     {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},
 ]

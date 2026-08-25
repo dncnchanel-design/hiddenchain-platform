@@ -31,6 +31,40 @@ def test_login_response_never_exposes_password_hash(client):
     assert "password" not in str(payload["user"]).lower()
 
 
+def test_login_menu_contract_covers_the_settlement_workflow(client, auth_headers):
+    def login_menus(role: str) -> set[tuple[str, str]]:
+        response = client.get("/api/auth/me", headers=auth_headers[role])
+        assert response.status_code == 200, response.text
+        return {(item["code"], item["path"]) for item in response.json()["menus"]}
+
+    exchange_menus = login_menus("exchange")
+    assert {
+        ("workbench", "/workbench"),
+        ("data-space", "/data-space"),
+        ("compute", "/compute"),
+        ("settlements", "/settlements"),
+        ("results", "/results"),
+        ("evidence", "/evidence"),
+        ("rules", "/rules"),
+        ("audit", "/audit"),
+        ("reports", "/reports"),
+        ("anomalies", "/anomalies"),
+        ("trusted-execution", "/trusted-execution"),
+    } <= exchange_menus
+
+    generator_menus = login_menus("generator")
+    retailer_menus = login_menus("retailer")
+    for menus in (generator_menus, retailer_menus):
+        assert {("settlements", "/settlements"), ("results", "/results"), ("evidence", "/evidence")} <= menus
+        assert not {("rules", "/rules"), ("audit", "/audit"), ("reports", "/reports")} & menus
+
+    regulator_menus = login_menus("regulator")
+    assert {("audit", "/audit"), ("reports", "/reports"), ("evidence", "/evidence")} <= regulator_menus
+
+    admin_menus = login_menus("admin")
+    assert {("overview", "/overview"), ("system", "/system"), ("agents", "/agents"), ("metrics", "/metrics"), ("logs", "/logs")} <= admin_menus
+
+
 def test_role_and_data_domain_boundaries(client, auth_headers):
     forbidden = client.get("/api/system/users", headers=auth_headers["generator"])
     assert forbidden.status_code == 403
@@ -281,6 +315,17 @@ def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     }
     assert all(item["data_product_id"].startswith("DP-") for item in payload["entries"])
     assert all(item["semantic_ref"].startswith("energy:") for item in payload["entries"])
+
+    exchange_catalog = client.get(
+        "/api/data/catalog?trade_batch_no=TB-2026-07-T01",
+        headers=auth_headers["exchange"],
+    )
+    assert exchange_catalog.status_code == 200
+    assert {item["asset_type"] for item in exchange_catalog.json()["entries"]} >= {
+        "GENERATION_DATA",
+        "RETAIL_DATA",
+    }
+    assert exchange_catalog.json()["raw_data_exposed"] is False
 
     protocol = client.get("/api/data-space/protocol", headers=auth_headers["regulator"])
     assert protocol.status_code == 200

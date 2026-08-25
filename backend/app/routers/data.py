@@ -53,6 +53,7 @@ from ..services.data_usage_requests import (
 
 router = APIRouter(prefix="/data", tags=["data"])
 DATA_OWNER_ROLES = frozenset(BUSINESS_ROLES) - frozenset({"REGULATOR"})
+CATALOG_OWNER_ROLES = DATA_OWNER_ROLES - frozenset({"EXCHANGE"})
 
 
 class AccessRuleCreate(BaseModel):
@@ -600,7 +601,7 @@ def data_catalog(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in DATA_OWNER_ROLES:
+    if user.role_code in CATALOG_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
@@ -626,7 +627,7 @@ def data_catalog_package(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in DATA_OWNER_ROLES:
+    if user.role_code in CATALOG_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
@@ -648,7 +649,7 @@ def data_catalog_dataspace_protocol(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
-    if user.role_code in DATA_OWNER_ROLES:
+    if user.role_code in CATALOG_OWNER_ROLES:
         owner_org_id = user.org_id
     entries = DataSpaceConnectorAdapter.catalog(
         db,
