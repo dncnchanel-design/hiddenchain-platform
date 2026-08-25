@@ -7,9 +7,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import AccessRule, DidIdentity, LocalSubjectNode, Organization, User
-from .security import hash_password, sha256_json
-from .seed import ORGS, USERS
+from .models import (
+    AccessRule,
+    DidIdentity,
+    LocalSubjectNode,
+    Organization,
+    PrivacyAnalysisJob,
+    SettlementRule,
+    SettlementTask,
+    TaskParticipant,
+    User,
+)
+from .security import hash_password, sha256_json, sign_value
+from .seed import ORGS, USERS, _seed_upload
+from .services.adapters import AdaptivePrivacyRouter
+from .services.workflow import run_privacy_analysis, run_settlement_workflow
 from .trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 
 
@@ -61,6 +73,240 @@ OWNER_BY_DOMAIN = {
     "gas": "org-gas-t01",
     "oil": "org-oil-t01",
 }
+
+DEMO_BUSINESS_TASK_ID = "task-demo-business-e2e"
+DEMO_BUSINESS_BATCH = "DEMO-2026-08-E2E"
+
+
+def seed_demo_business(db: Session) -> None:
+    """Seed one explicit synthetic scenario and execute the real demo workflow."""
+
+    task = db.get(SettlementTask, DEMO_BUSINESS_TASK_ID)
+    if task is None:
+        rule_parameters = {
+            "contract_price": 420.0,
+            "deviation_threshold_mwh": 100.0,
+            "deviation_penalty_rate": 150.0,
+            "service_fee_rate": 3.2,
+            "rounding": 2,
+        }
+        formula = (
+            "PAYABLE = MIN(GENERATION, RETAIL) * PRICE - "
+            "MAX(ABS(GENERATION-RETAIL)-THRESHOLD,0) * PENALTY_RATE - "
+            "SETTLEMENT_ENERGY * SERVICE_FEE_RATE"
+        )
+        rule_payload = {
+            "formula": formula,
+            "parameters": rule_parameters,
+            "version": "DEMO-SETTLE-2026-08-001",
+        }
+        rule = db.get(SettlementRule, "rule-demo-business-v1")
+        if rule is None:
+            rule = SettlementRule(
+                rule_id="rule-demo-business-v1",
+                rule_name="演示场景可信结算规则",
+                rule_version="DEMO-SETTLE-2026-08-001",
+                description="仅用于公开演示的合成数据结算规则，不代表生产业务数据。",
+                source_refs_json=["DEMO_SYNTHETIC_SETTLEMENT_RULE"],
+                formula_dsl=formula,
+                parameters_json=rule_parameters,
+                policy_refs_json=["policy:settlement-purpose", "policy:no-raw-data-export"],
+                approver_signatures_json=[
+                    {
+                        "did": "did:hiddenchain:org:org-exchange-t01",
+                        "signature": sign_value(
+                            rule_payload,
+                            "did:hiddenchain:org:org-exchange-t01",
+                        ),
+                    }
+                ],
+                rule_hash=sha256_json(rule_payload),
+                status="ACTIVE",
+            )
+            db.add(rule)
+            db.flush()
+
+        uploads = [
+            _seed_upload(
+                db,
+                upload_id="upload-demo-generation-e2e",
+                asset_type="GENERATION_DATA",
+                owner_org_id="org-generator-t01",
+                label="演示合成发电承诺（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08",
+                    "record_count": 31,
+                    "energy_mwh": 12500.0,
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-retail-e2e",
+                asset_type="RETAIL_DATA",
+                owner_org_id="org-retailer-t01",
+                label="演示合成售电承诺（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08",
+                    "record_count": 31,
+                    "energy_mwh": 12320.0,
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-forecast-e2e",
+                asset_type="RENEWABLE_FORECAST",
+                owner_org_id="org-generator-t01",
+                label="演示合成新能源预测（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08",
+                    "record_count": 31,
+                    "forecast_energy_mwh": 12840.0,
+                    "forecast_accuracy_pct": 92.6,
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-vpp-e2e",
+                asset_type="VPP_RESOURCE",
+                owner_org_id="org-retailer-t01",
+                label="演示合成虚拟电厂资源（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08",
+                    "record_count": 31,
+                    "adjustable_capacity_mw": 18.6,
+                    "storage_energy_mwh": 42.0,
+                    "response_minutes": 5,
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-grid-e2e",
+                asset_type="GRID_CONSTRAINT",
+                owner_org_id="org-exchange-t01",
+                label="演示合成调度安全边界（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08",
+                    "record_count": 24,
+                    "n_minus_one_passed": True,
+                    "max_residual_imbalance_mwh": 90.0,
+                    "congestion_margin_pct": 14.2,
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-load-a-e2e",
+                asset_type="USER_LOAD_CURVE",
+                owner_org_id="org-retailer-t01",
+                label="演示合成用户负荷曲线 A（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08-18",
+                    "record_count": 240,
+                    "load_curve": [32, 30, 28, 27, 29, 35, 45, 58, 66, 72, 76, 79, 77, 74, 72, 75, 83, 91, 96, 90, 78, 62, 48, 38],
+                    "synthetic_data_only": True,
+                },
+            ),
+            _seed_upload(
+                db,
+                upload_id="upload-demo-load-b-e2e",
+                asset_type="USER_LOAD_CURVE",
+                owner_org_id="org-retailer-t01",
+                label="演示合成用户负荷曲线 B（不含外部企业原始数据）",
+                trade_batch_no=DEMO_BUSINESS_BATCH,
+                payload={
+                    "period": "2026-08-18",
+                    "record_count": 180,
+                    "load_curve": [22, 21, 20, 20, 22, 28, 38, 47, 54, 61, 65, 68, 67, 65, 64, 68, 75, 82, 88, 84, 72, 55, 40, 29],
+                    "synthetic_data_only": True,
+                },
+            ),
+        ]
+        task = SettlementTask(
+            task_id=DEMO_BUSINESS_TASK_ID,
+            capsule_id="HC-CAPSULE-DEMO-202608-E2E",
+            task_name="公开演示：2026年8月可信结算闭环",
+            trade_batch_no=DEMO_BUSINESS_BATCH,
+            period_start=date(2026, 8, 1),
+            period_end=date(2026, 8, 31),
+            rule_id=rule.rule_id,
+            creator_org_id="org-exchange-t01",
+            status="DRAFT",
+            current_stage="任务创建",
+            verification_profile_json={
+                "scenario_code": "MARKET_SETTLEMENT",
+                "business_description": "合成数据闭环演示；不代表外部企业生产数据已接入。",
+                "compute_mode": "LOCAL_CONTROLLED",
+                "algorithm_code": "CONTROLLED_SETTLEMENT_V1",
+                "output_mode": "AGGREGATE_ONLY",
+                "is_simulated": True,
+            },
+        )
+        db.add(task)
+        db.flush()
+        db.add_all(
+            [
+                TaskParticipant(
+                    task_id=task.task_id,
+                    org_id="org-generator-t01",
+                    role_in_task="GENERATOR",
+                    data_status="READY",
+                    confirm_status="PENDING",
+                ),
+                TaskParticipant(
+                    task_id=task.task_id,
+                    org_id="org-retailer-t01",
+                    role_in_task="RETAILER",
+                    data_status="READY",
+                    confirm_status="PENDING",
+                ),
+            ]
+        )
+        for upload in uploads:
+            upload.task_id = task.task_id
+        db.commit()
+
+    if task.status not in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED", "AUDITED"}:
+        run_settlement_workflow(db, task_id=task.task_id, actor=None)
+
+    if not db.scalar(
+        select(PrivacyAnalysisJob.analysis_id).where(
+            PrivacyAnalysisJob.analysis_name == "公开演示：两方负荷隐私分析"
+        )
+    ):
+        dataset_ids = [
+            "upload-demo-load-a-e2e",
+            "upload-demo-load-b-e2e",
+        ]
+        analysis = PrivacyAnalysisJob(
+            analysis_name="公开演示：两方负荷隐私分析",
+            analysis_type="PEAK_VALLEY",
+            dataset_ids_json=dataset_ids,
+            privacy_level="DIFFERENTIAL_PRIVACY",
+            privacy_budget=1.0,
+            purpose="VPP_AGGREGATION",
+            output_json={
+                "recommended_strategy": AdaptivePrivacyRouter.recommend(
+                    "VPP_AGGREGATION",
+                    sensitivity_level="L4",
+                    latency_requirement="MINUTE",
+                    participant_count=2,
+                )
+            },
+            status="RUNNING",
+        )
+        db.add(analysis)
+        db.flush()
+        run_privacy_analysis(db, analysis)
 
 
 def _connector_public_keys() -> dict[str, str]:

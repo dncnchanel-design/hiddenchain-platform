@@ -59,6 +59,10 @@ async def lifespan(app: FastAPI):
 
         ensure_agent_identities(db)
         ensure_agent_tool_catalog(db)
+        if settings.demo_business_seed:
+            from .demo_seed import seed_demo_business
+
+            seed_demo_business(db)
         db.commit()
     yield
 

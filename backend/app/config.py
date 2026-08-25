@@ -122,6 +122,7 @@ class Settings:
         "TEST_FIXTURE_SEED", _app_env() in {"development", "test"}
     )
     demo_catalog_seed: bool = _bool_env("DEMO_CATALOG_SEED", _app_env() == "demo")
+    demo_business_seed: bool = _bool_env("DEMO_BUSINESS_SEED", False)
     test_compute_delay_ms: int = _int_env("TEST_COMPUTE_DELAY_MS", 0)
     opa_url: str = os.getenv("OPA_URL", "").rstrip("/")
     opa_policy_path: str = os.getenv("OPA_POLICY_PATH", "/v1/data/hiddenchain/decision")
