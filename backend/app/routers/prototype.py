@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest, DidIdentity, Organization, User, new_id, utc_now
@@ -272,6 +273,65 @@ def _chain_state(db: Session) -> tuple[bool, str]:
     return verified, "哈希链完整" if verified else "哈希链存在异常"
 
 
+def _demo_dashboard_projection() -> dict[str, Any]:
+    """Return aggregate-only demo data for the prototype dashboard in non-production."""
+    today = utc_now().date()
+    days = [(today - timedelta(days=6 - index)).isoformat() for index in range(7)]
+    series = {
+        "济南": [7420, 7680, 7810, 7540, 8060, 8240, 7980],
+        "青岛": [5480, 5610, 5790, 5660, 5840, 5980, 5920],
+        "烟台": [3640, 3710, 3820, 3900, 3990, 4050, 3980],
+        "潍坊": [4310, 4420, 4510, 4470, 4630, 4700, 4650],
+        "临沂": [3290, 3380, 3460, 3520, 3590, 3660, 3610],
+    }
+    coal_days = [15.4, 15.8, 16.2, 16.0, 16.7, 17.2, 17.8]
+    coal_inventory = [468.2, 476.5, 484.1, 480.6, 497.8, 511.4, 522.6]
+    coal_consumption = [30.4, 30.1, 29.8, 30.7, 29.6, 29.2, 29.4]
+    audit_specs = [
+        ("compute_only", "仅计算不出域", "山东电力交易中心", "电煤供耗存日报", "SUCCESS"),
+        ("aggregate", "汇总提供", "能源局-监管", "电网负荷曲线", "SUCCESS"),
+        ("allow", "直接提供", "华北电力燃料公司", "发电出力数据", "SUCCESS"),
+        ("deny", "禁止提供", "研究机构", "电力交易成交明细", "DENIED"),
+        ("aggregate", "汇总提供", "能源局-监管", "跨主体供需趋势", "SUCCESS"),
+        ("compute_only", "仅计算不出域", "山东电网调度中心", "营销用户用电数据", "SUCCESS"),
+    ]
+    now = utc_now()
+    audit = [
+        {
+            "id": f"demo-audit-{index + 1:02d}",
+            "ts": (now - timedelta(minutes=7 * index + 3)).isoformat(),
+            "action": action,
+            "action_name": action_name,
+            "subject": subject,
+            "resource": resource,
+            "target_type": "PROTOTYPE_QUERY",
+            "target_id": f"demo-query-{index + 1:02d}",
+            "result": result,
+            "trace_id": f"trace-demo-{index + 1:02d}",
+        }
+        for index, (action, action_name, subject, resource, result) in enumerate(audit_specs)
+    ]
+    return {
+        "map": {
+            "days": days,
+            "series": series,
+            "coal_days": coal_days,
+            "coal_inventory": coal_inventory,
+            "coal_consumption": coal_consumption,
+        },
+        "gauge": {"days": coal_days[-1], "level": "库存充足", "inventory": coal_inventory[-1]},
+        "audit": audit,
+        "action_counts": {"allow": 8, "deny": 2, "aggregate": 11, "delay": 1, "compute_only": 10},
+        "connectors": [
+            {"name": "电力连接器", "status": "正常"},
+            {"name": "煤炭连接器", "status": "正常"},
+            {"name": "策略引擎", "status": "正常"},
+            {"name": "哈希链存证", "status": "完整"},
+        ],
+        "timeline": audit[:5],
+    }
+
+
 def _parse_period(text: str) -> tuple[date, date]:
     match = re.search(r"(?:(20\d{2})年?)?(\d{1,2})月", text)
     today = utc_now().date()
@@ -330,23 +390,44 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     records = _audit_records(db, 200)
     ok, chain_message = _chain_state(db)
     uploads = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(1)).all()
+    demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} else None
+    is_demo = demo_projection is not None
+    audit_records = demo_projection["audit"] if is_demo else records[:8]
+    action_counts = (
+        demo_projection["action_counts"]
+        if is_demo
+        else {action: sum(1 for item in records if item["action"] == action) for action in ACTION_LABELS}
+    )
+    timeline = [item for item in records if "隐私" in item["resource"] or "协同" in item["resource"]][:6]
+    if is_demo:
+        timeline = demo_projection["timeline"]
+    map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}, "coal_days": [], "coal_inventory": [], "coal_consumption": []}
+    gauge = demo_projection["gauge"] if demo_projection else {"days": 0, "level": "暂无数据", "inventory": 0}
+    connectors = demo_projection["connectors"] if demo_projection else [
+        {"name": "电力连接器", "status": "正常"},
+        {"name": "煤炭连接器", "status": "正常"},
+        {"name": "策略引擎", "status": "正常"},
+        {"name": "哈希链存证", "status": "完整" if ok else "异常"},
+    ]
     return {
         "kpis": {
             "resources": db.scalar(select(func.count(DataAsset.asset_id)).where(DataAsset.status == "ACTIVE")) or 0,
             "rules": db.scalar(select(func.count(AccessRule.rule_id)).where(AccessRule.status == "ACTIVE")) or 0,
             "identities": db.scalar(select(func.count(Organization.org_id)).where(Organization.status == "ACTIVE")) or 0,
             "blocks": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0,
-            "today_queries": len(records),
+            "today_queries": len(records) if records else (sum(action_counts.values()) if is_demo else 0),
             "no_domain_export": "100%",
         },
-        "map": {"days": [], "series": {}, "coal_days": []},
-        "gauge": {"days": 0, "level": "暂无数据", "inventory": 0},
-        "audit": records[:8],
-        "action_counts": {action: sum(1 for item in records if item["action"] == action) for action in ACTION_LABELS},
-        "connectors": [{"name": "电力连接器", "status": "正常"}, {"name": "煤炭连接器", "status": "正常"}, {"name": "策略引擎", "status": "正常"}, {"name": "哈希链存证", "status": "完整" if ok else "异常"}],
-        "timeline": [item for item in records if "隐私" in item["resource"] or "协同" in item["resource"]][:6],
+        "map": map_data,
+        "gauge": gauge,
+        "audit": audit_records,
+        "action_counts": action_counts,
+        "connectors": connectors,
+        "timeline": timeline,
         "chain": {"ok": ok, "message": chain_message},
         "latest_usage": bool(uploads),
+        "data_mode": "demo" if is_demo else "live",
+        "data_notice": "演示数据 · 仅用于原型展示" if is_demo else "实时数据 · 当前环境",
     }
 
 
