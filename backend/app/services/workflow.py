@@ -2035,6 +2035,17 @@ def run_privacy_analysis(
             "purpose": job.purpose,
             "minimum_group_size_passed": len(eligible) >= 1,
             "recommended_strategy": recommended_strategy,
+            "actual_protocol": (result.get("privacy_controls") or {}).get(
+                "adapter_code", LocalControlledComputeAdapter.code
+            ),
+            "protocols_executed": (result.get("privacy_controls") or {}).get(
+                "protocols_executed", []
+            ),
+            "execution_capability": (
+                str((result.get("privacy_controls") or {}).get("capability_status", ""))
+                in {"LOCAL_REAL", "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST"}
+            ),
+            "privacy_boundary": "single application process; raw records are not returned",
         }
     )
     job.output_json = result

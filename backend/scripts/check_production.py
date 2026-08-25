@@ -63,7 +63,12 @@ def main() -> int:
 
     forbid(schemas, r'MPC_MOCK|SECRET_FLOW|SIMULATED_TEE', "production request schemas expose a simulated compute mode", findings)
     require(adapters, r'code = "LOCAL_CONTROLLED_SETTLEMENT_V1"', "controlled compute adapter is missing", findings)
-    require(adapters, r'"implementation_status": "NOT_CONFIGURED"', "external privacy candidates must be marked not configured", findings)
+    require(
+        adapters,
+        r'"GRID_SECURITY_CHECK":\s*\{[\s\S]*?"implementation_status":\s*"BLOCKED"[\s\S]*?"execution_capability":\s*False[\s\S]*?"requires_external_runtime":\s*True',
+        "external privacy/TEE candidate must remain blocked",
+        findings,
+    )
     require(adapters, r'"cross_domain_non_export_verified": False', "cross-domain non-export must remain unverified", findings)
     require(adapters, r'"attestation_status": "NOT_PROVIDED"', "execution attestation must remain not provided", findings)
     workflow = read("backend/app/services/workflow.py")

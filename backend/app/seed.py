@@ -72,6 +72,34 @@ USERS = [
 ]
 
 
+def ensure_agent_identities(db: Session) -> None:
+    """Create missing Agent DIDs without inventing external chain evidence."""
+
+    for definition in AGENT_DEFINITIONS:
+        identity = db.get(DidIdentity, definition["did"])
+        if identity is None:
+            db.add(
+                DidIdentity(
+                    did_id=definition["did"],
+                    owner_type="AGENT",
+                    owner_id=definition["code"],
+                    org_id="org-exchange-t01",
+                    public_key_fingerprint=sha256_json(
+                        {"agent": definition["code"], "tools": definition["tools"]}
+                    ),
+                    chain_address=None,
+                    credential_status="VALID",
+                    credential_json={
+                        "type": ["VerifiableCredential", "AgentCapabilityCredential"],
+                        "capabilities": definition["tools"],
+                        "toolAllowlist": definition["tools"],
+                        "external_chain_anchor": "NOT_CONFIGURED",
+                    },
+                )
+            )
+    db.flush()
+
+
 def _seed_upload(
     db: Session,
     *,
@@ -181,24 +209,7 @@ def seed_test_fixtures(db: Session) -> None:
             )
         )
 
-    for definition in AGENT_DEFINITIONS:
-        db.add(
-            DidIdentity(
-                did_id=definition["did"],
-                owner_type="AGENT",
-                owner_id=definition["code"],
-                org_id="org-exchange-t01",
-                public_key_fingerprint=sha256_json({"agent": definition["code"], "tools": definition["tools"]}),
-                chain_address=f"0x{sha256_json(definition['did'])[:40]}",
-                credential_status="VALID",
-                credential_json={
-                    "type": ["VerifiableCredential", "AgentCapabilityCredential"],
-                    "capabilities": definition["tools"],
-                    "toolAllowlist": definition["tools"],
-                },
-            )
-        )
-
+    ensure_agent_identities(db)
     db.flush()
     ensure_agent_tool_catalog(db)
 

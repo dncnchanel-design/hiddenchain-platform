@@ -675,6 +675,7 @@ def parse_question(
             "provider": response["provider"],
             "model": response["model"],
             "request_id": response["request_id"],
+            "duration_ms": response["duration_ms"],
             "raw_data_accessed": False,
         },
     )

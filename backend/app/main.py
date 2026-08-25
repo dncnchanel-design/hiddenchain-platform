@@ -28,6 +28,7 @@ from .services.duckdb_connector import DuckDBMetadataAdapter
 from .services.lineage import lineage_status
 from .services.odcs_connector import OpenDataContractAdapter
 from .services.observability import observability_status, setup_observability
+from .services.paillier import status as paillier_status
 from .services.privacy import OpenDPAdapter
 from .services.prometheus import observe_http_request, prometheus_status
 from .services.rate_limit import limiter, rate_limit_status
@@ -54,6 +55,9 @@ async def lifespan(app: FastAPI):
             from .demo_seed import seed_demo_catalog
 
             seed_demo_catalog(db)
+        from .seed import ensure_agent_identities
+
+        ensure_agent_identities(db)
         ensure_agent_tool_catalog(db)
         db.commit()
     yield
@@ -341,6 +345,7 @@ def health() -> dict:
             "differential_privacy": OpenDPAdapter.status(),
             "solar_resource": PvlibSolarAdapter.status(),
             "mpc_aggregate": AdditiveSecretSharingMPC.status(),
+            "paillier": paillier_status(),
         },
         "integrations": {
             "observability": observability_status(),

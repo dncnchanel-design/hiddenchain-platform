@@ -98,3 +98,61 @@ class OpenDPAdapter:
             "raw_data_exposed": False,
         }
         return noisy_curve, controls
+
+    @classmethod
+    def release_aggregate_curve(
+        cls,
+        aggregate: list[float],
+        *,
+        participant_count: int,
+        epsilon: float,
+    ) -> tuple[list[float], dict[str, Any]]:
+        """Add DP noise after a privacy-preserving aggregate is formed.
+
+        The sensitivity of one participant's contribution is bounded by
+        ``DP_MAX_LOAD_MW``. Raw provider curves are therefore not passed into
+        this method; the preceding protocol is responsible for aggregation.
+        """
+
+        if not aggregate or participant_count < 1 or epsilon <= 0:
+            raise ValueError("aggregate, participant_count and epsilon must be positive")
+        bound = float(settings.dp_max_load_mw)
+        if bound <= 0:
+            raise ValueError("DP_MAX_LOAD_MW must be positive")
+        try:
+            import opendp.prelude as dp
+
+            dp.enable_features("contrib")
+        except (ImportError, ModuleNotFoundError) as exc:
+            raise DifferentialPrivacyUnavailable("OPENDP_NOT_INSTALLED") from exc
+
+        noisy_curve: list[float] = []
+        scale = bound / float(epsilon)
+        input_space = (
+            dp.vector_domain(
+                dp.atom_domain(
+                    bounds=(0.0, bound * participant_count), nan=False, T=float
+                ),
+                size=1,
+            ),
+            dp.symmetric_distance(),
+        )
+        measurement = input_space >> dp.t.then_sum() >> dp.m.then_laplace(scale=scale)
+        if not measurement.check(1, float(epsilon)):
+            raise DifferentialPrivacyUnavailable("OPENDP_MEASUREMENT_CHECK_FAILED")
+        for value in aggregate:
+            bounded_value = min(max(float(value), 0.0), bound * participant_count)
+            released = float(measurement([bounded_value]))
+            noisy_curve.append(round(min(max(released, 0.0), bound * participant_count), 3))
+        return noisy_curve, {
+            "engine": "OpenDP",
+            "adapter_code": cls.code,
+            "mechanism": "bounded_aggregate_then_laplace",
+            "epsilon_per_hour_release": float(epsilon),
+            "composition_count": len(noisy_curve),
+            "bound_mw": bound,
+            "participant_count": participant_count,
+            "input_clamped": True,
+            "raw_records_returned": False,
+            "raw_data_exposed": False,
+        }

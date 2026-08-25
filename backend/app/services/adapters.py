@@ -24,7 +24,9 @@ from ..models import (
 )
 from ..security import sha256_json, sign_value, verify_signature
 from .credentials import JsonLdCredentialAdapter
+from .paillier import encrypted_vector_sum
 from .privacy import OpenDPAdapter
+from .privacy_protocols import secure_federated_average
 from .vault import LocalDomainVault
 
 
@@ -760,25 +762,37 @@ class AdaptivePrivacyRouter:
             "name": "新能源与负荷联合预测",
             "primary": "FEDERATED_LEARNING",
             "supporting": ["DIFFERENTIAL_PRIVACY_OUTPUT"],
-            "reason": "多方联合训练但不交换原始气象、出力与负荷样本。",
+            "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
+            "execution_capability": True,
+            "requires_external_runtime": False,
+            "reason": "使用安全聚合只交换模型更新；当前编排仍在单主机实验运行时内。",
         },
         "MARKET_SETTLEMENT": {
             "name": "电力市场联合结算",
             "primary": "PSI_MPC",
             "supporting": ["DETERMINISTIC_RULE_ENGINE"],
-            "reason": "候选方案需接入并验证外部PSI/MPC运行时；当前系统不会执行该方案。",
+            "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
+            "execution_capability": True,
+            "requires_external_runtime": False,
+            "reason": "使用交换群幂协议完成集合交集；生产仍需独立主体节点和认证传输。",
         },
         "VPP_AGGREGATION": {
             "name": "虚拟电厂资源聚合",
             "primary": "SECRET_SHARING_HE",
-            "supporting": ["DIFFERENTIAL_PRIVACY_OUTPUT"],
-            "reason": "隐藏单户负荷和设备能力，仅释放资源池聚合值与响应潜力。",
+            "supporting": ["PAILLIER_HE", "DIFFERENTIAL_PRIVACY_OUTPUT"],
+            "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
+            "execution_capability": True,
+            "requires_external_runtime": False,
+            "reason": "通过秘密分享和加法同态聚合负荷曲线，只释放聚合结果。",
         },
         "GRID_SECURITY_CHECK": {
             "name": "实时调度安全校核",
             "primary": "TEE_CONFIDENTIAL_COMPUTE",
             "supporting": ["POLICY_SANDBOX"],
-            "reason": "候选方案需接入TEE并完成远程证明；当前系统不会执行该方案。",
+            "implementation_status": "BLOCKED",
+            "execution_capability": False,
+            "requires_external_runtime": True,
+            "reason": "缺少带远程证明和密钥释放的TEE运行时，保持阻断。",
         },
     }
 
@@ -802,6 +816,13 @@ class AdaptivePrivacyRouter:
         if sensitivity_level == "L4" and "DIFFERENTIAL_PRIVACY_OUTPUT" not in supporting:
             supporting.append("DIFFERENTIAL_PRIVACY_OUTPUT")
             reasons.append("L4数据的对外结果增加差分隐私披露约束。")
+        implementation_status = selected["implementation_status"]
+        execution_capability = selected["execution_capability"]
+        requires_external_runtime = selected["requires_external_runtime"]
+        if primary == "TEE_CONFIDENTIAL_COMPUTE":
+            implementation_status = "BLOCKED"
+            execution_capability = False
+            requires_external_runtime = True
         plan = {
             "scenario_code": scenario_code,
             "scenario_name": selected["name"],
@@ -812,9 +833,9 @@ class AdaptivePrivacyRouter:
             "participant_count": participant_count,
             "release_policy": "AGGREGATE_ONLY",
             "raw_data_export": False,
-            "implementation_status": "NOT_CONFIGURED",
-            "execution_capability": False,
-            "requires_external_runtime": True,
+            "implementation_status": implementation_status,
+            "execution_capability": execution_capability,
+            "requires_external_runtime": requires_external_runtime,
             "reason": " ".join(reasons),
         }
         plan["plan_hash"] = sha256_json(plan)
@@ -1195,17 +1216,60 @@ class LocalControlledComputeAdapter:
                 curves.append([float(item) for item in curve])
         if not curves:
             raise ValueError("No eligible 24-hour load curves")
-        aggregate = [round(sum(values), 3) for values in zip(*curves)]
+        participant_ids = [upload.upload_id for upload in uploads[: len(curves)]]
+        if len(curves) >= 2:
+            secret_sharing = secure_federated_average(curves, participant_ids)
+            secret_sharing_controls: dict[str, Any] = {
+                "engine": "ADDITIVE_SECRET_SHARING",
+                "adapter_code": "ADDITIVE_SECRET_SHARING_SUM_V1",
+                "capability_status": secret_sharing["capability_status"],
+                "participant_count": secret_sharing["contribution_count"],
+                "coordinate_transcript_hashes": secret_sharing["coordinate_transcript_hashes"],
+                "raw_updates_exposed": secret_sharing["raw_updates_exposed"],
+                "single_host_boundary": True,
+            }
+        else:
+            secret_sharing_controls = {
+                "engine": "ADDITIVE_SECRET_SHARING",
+                "adapter_code": "ADDITIVE_SECRET_SHARING_SUM_V1",
+                "capability_status": "BLOCKED_INSUFFICIENT_PARTICIPANTS",
+                "participant_count": len(curves),
+                "raw_updates_exposed": False,
+                "single_host_boundary": True,
+                "reason": "秘密共享聚合至少需要两个唯一参与方；本次仅提供一个负荷曲线。",
+            }
+        encrypted_receipt = encrypted_vector_sum(curves, participant_ids)
+        aggregate = [round(float(value), 3) for value in encrypted_receipt["values"]]
         privacy_controls: dict[str, Any] = {
-            "engine": "DETERMINISTIC_AGGREGATE",
+            "engine": "PAILLIER_ADDITIVE_HOMOMORPHIC",
+            "adapter_code": encrypted_receipt["algorithm_code"],
+            "capability_status": encrypted_receipt["capability_status"],
+            "key_bits": encrypted_receipt["key_bits"],
+            "public_key_fingerprint": encrypted_receipt["public_key_fingerprint"],
+            "ciphertext_count": encrypted_receipt["ciphertext_count"],
+            "ciphertext_hash": encrypted_receipt["ciphertext_hash"],
             "raw_records_returned": False,
             "raw_data_exposed": False,
+            "raw_values_sent_to_aggregator": False,
+            "protocols_executed": [encrypted_receipt["algorithm_code"]],
+            "secret_sharing": secret_sharing_controls,
         }
+        if len(curves) >= 2:
+            average_from_shares = secret_sharing["aggregated_update"]
+            expected_average = [round(value / len(curves), 6) for value in aggregate]
+            if average_from_shares != expected_average:
+                raise ValueError("secret-sharing and homomorphic aggregates disagree")
+            privacy_controls["protocols_executed"].insert(
+                0, secret_sharing_controls["adapter_code"]
+            )
+            privacy_controls["secret_sharing"]["aggregate_consistency_verified"] = True
         if privacy_level == "DIFFERENTIAL_PRIVACY":
-            aggregate, privacy_controls = OpenDPAdapter.release_curve(
-                curves,
+            aggregate, dp_controls = OpenDPAdapter.release_aggregate_curve(
+                aggregate,
+                participant_count=len(curves),
                 epsilon=privacy_budget,
             )
+            privacy_controls = {**privacy_controls, "differential_privacy": dp_controls}
         peak = max(aggregate)
         valley = min(aggregate)
         peak_hour = aggregate.index(peak)

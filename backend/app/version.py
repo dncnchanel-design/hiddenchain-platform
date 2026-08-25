@@ -30,6 +30,11 @@ CAPABILITIES: tuple[dict[str, str], ...] = (
         "boundary": "protocol semantics only; independent cross-domain nodes are not deployed",
     },
     {
+        "code": "PAILLIER_HOMOMORPHIC_AGGREGATION",
+        "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
+        "boundary": "actual additive homomorphism; key custody and orchestration remain local",
+    },
+    {
         "code": "ECLIPSE_EDC",
         "implementation_status": "ADAPTER",
         "boundary": "dataspace protocol projection; no EDC control/data plane runtime",

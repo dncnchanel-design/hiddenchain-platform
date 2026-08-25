@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..config import settings
-from ..models import AgentEvent, BlockchainEvidence, SettlementTask, TaskParticipant, User
+from ..models import AuditLog, AgentEvent, BlockchainEvidence, SettlementTask, TaskParticipant, User
 from ..schemas import AgentBatchInvokeRequest, AgentInvokeRequest
 from ..services.adapters import AGENT_DEFINITIONS, LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log, model_dict
@@ -82,7 +82,7 @@ def agent_definitions(
 
 @router.get("/agents/llm/status")
 def agent_llm_status(
-    user: User = Depends(require_roles("ADMIN")),
+    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
     latest = db.scalar(
@@ -91,6 +91,23 @@ def agent_llm_status(
         .order_by(AgentEvent.created_at.desc())
     )
     latest_details = latest.details_json if latest else {}
+    latest_translation = db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action_code == "TRANSLATE_TRUSTED_SPACE_QUERY",
+            AuditLog.result.in_(("READY", "NEEDS_INPUT")),
+        )
+        .order_by(AuditLog.occurred_at.desc())
+    )
+    translation_details = latest_translation.details_json if latest_translation else {}
+    live_event = bool(
+        latest
+        and latest_details.get("provider") == "deepseek"
+        and latest_details.get("fallback") is False
+    )
+    live_translation = bool(
+        latest_translation and translation_details.get("provider") == "deepseek"
+    )
     return {
         "enabled": settings.deepseek_enabled,
         "key_configured": bool(settings.deepseek_api_key),
@@ -98,11 +115,7 @@ def agent_llm_status(
         "provider": "deepseek",
         "model": settings.deepseek_model,
         "supported_agent_count": len(AGENT_DEFINITIONS),
-        "live_verified": bool(
-            latest
-            and latest_details.get("provider") == "deepseek"
-            and latest_details.get("fallback") is False
-        ),
+        "live_verified": live_event or live_translation,
         "last_success": (
             {
                 "agent_code": latest.agent_code,
@@ -112,6 +125,14 @@ def agent_llm_status(
                 "created_at": latest.created_at.isoformat(),
             }
             if latest
+            else {
+                "agent_code": "TRUSTED_SPACE_QUERY",
+                "event_id": latest_translation.log_id,
+                "request_id": translation_details.get("request_id"),
+                "duration_ms": translation_details.get("duration_ms"),
+                "created_at": latest_translation.occurred_at.isoformat(),
+            }
+            if latest_translation
             else None
         ),
         "security_boundary": "DeepSeek只分析结构化摘要；确定性结算、权限和安全闸门仍由本地受控组件执行。",

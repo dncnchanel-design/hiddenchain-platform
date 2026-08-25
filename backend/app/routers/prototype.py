@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
-from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest, DidIdentity, Organization, User, new_id, utc_now
+from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest, DidIdentity, Organization, PrivacyAnalysisJob, SettlementTask, User, new_id, utc_now
 from ..security import sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
@@ -408,14 +408,19 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     uploads = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(1)).all()
     demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} else None
     is_demo = demo_projection is not None
-    audit_records = demo_projection["audit"] if is_demo else records[:8]
+    real_activity = bool(
+        db.scalar(select(func.count(PrivacyAnalysisJob.analysis_id)))
+        or db.scalar(select(func.count(SettlementTask.task_id)))
+    )
+    use_demo_activity = is_demo and not real_activity
+    audit_records = demo_projection["audit"] if use_demo_activity else records[:8]
     action_counts = (
         demo_projection["action_counts"]
-        if is_demo
+        if use_demo_activity
         else {action: sum(1 for item in records if item["action"] == action) for action in ACTION_LABELS}
     )
     timeline = [item for item in records if "隐私" in item["resource"] or "协同" in item["resource"]][:6]
-    if is_demo:
+    if use_demo_activity:
         timeline = demo_projection["timeline"]
     map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}, "coal_days": [], "coal_inventory": [], "coal_consumption": []}
     gauge = demo_projection["gauge"] if demo_projection else {"days": 0, "level": "暂无数据", "inventory": 0}
@@ -431,7 +436,7 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
             "rules": db.scalar(select(func.count(AccessRule.rule_id)).where(AccessRule.status == "ACTIVE")) or 0,
             "identities": db.scalar(select(func.count(Organization.org_id)).where(Organization.status == "ACTIVE")) or 0,
             "blocks": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0,
-            "today_queries": len(records) if records else (sum(action_counts.values()) if is_demo else 0),
+            "today_queries": len(records) if records else (sum(action_counts.values()) if use_demo_activity else 0),
             "no_domain_export": "100%",
         },
         "map": map_data,
@@ -443,7 +448,13 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
         "chain": {"ok": ok, "message": chain_message},
         "latest_usage": bool(uploads),
         "data_mode": "demo" if is_demo else "live",
-        "data_notice": "演示数据 · 仅用于原型展示" if is_demo else "实时数据 · 当前环境",
+        "data_notice": (
+            "演示态势图 · 真实任务已写入审计与计算记录"
+            if use_demo_activity is False and is_demo
+            else "演示数据 · 仅用于原型展示"
+            if is_demo
+            else "实时数据 · 当前环境"
+        ),
     }
 
 
