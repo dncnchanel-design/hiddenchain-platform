@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, RotateCcw, Save, UsersRound } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, post, prepareIdempotencyKey, type ApiResponseMetadata, type IdempotencyKeyRecord } from "../api";
@@ -24,7 +24,7 @@ export function SettlementCreatePage() {
   const readyTemplateSuffix = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const [taskName, setTaskName] = useState(() => isReadyTemplate ? `2026年7月月度结算流程（重新开始 ${readyTemplateSuffix}）` : "");
   const [description, setDescription] = useState(() => isReadyTemplate ? "使用已登记的数据引用跑通一笔完整的结算、确认与审计流程。" : "");
-  const [batch, setBatch] = useState(() => isReadyTemplate ? "TB-2026-07-T01" : "");
+  const [batch, setBatch] = useState("");
   const [periodStart, setPeriodStart] = useState(() => isReadyTemplate ? "2026-07-01" : "");
   const [periodEnd, setPeriodEnd] = useState(() => isReadyTemplate ? "2026-07-31" : "");
   const [generatorId, setGeneratorId] = useState("");
@@ -55,6 +55,18 @@ export function SettlementCreatePage() {
   const retailer = retailers.find((item) => item.org_id === selectedRetailerId);
   const generationData = entries.find((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.owner_org_id === selectedGeneratorId && item.trade_batch_no === batch);
   const retailData = entries.find((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.owner_org_id === selectedRetailerId && item.trade_batch_no === batch);
+  useEffect(() => {
+    if (!isReadyTemplate || batch) return;
+    const readyBatch = entries
+      .map((item: JsonRecord) => String(item.trade_batch_no || ""))
+      .filter(Boolean)
+      .find((candidate: string) => {
+        const candidateEntries = entries.filter((item: JsonRecord) => item.trade_batch_no === candidate);
+        return candidateEntries.some((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.commitment_confirmed)
+          && candidateEntries.some((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.commitment_confirmed);
+      });
+    if (readyBatch) setBatch(readyBatch);
+  }, [batch, entries, isReadyTemplate]);
   const preflightBlockers: string[] = [];
   if (!generationData) preflightBlockers.push("发电企业尚未登记当前批次的已校验计量数据");
   else if (!generationData.commitment_confirmed) preflightBlockers.push("发电企业尚未确认数据承诺");
