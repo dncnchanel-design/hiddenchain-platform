@@ -52,9 +52,10 @@ async def lifespan(app: FastAPI):
 
             seed_test_fixtures(db)
         if settings.demo_catalog_seed:
-            from .demo_seed import seed_demo_catalog
+            from .demo_seed import seed_demo_authorization_request, seed_demo_catalog
 
             seed_demo_catalog(db)
+            seed_demo_authorization_request(db)
         from .seed import ensure_agent_identities
 
         ensure_agent_identities(db)

@@ -3,9 +3,9 @@ from __future__ import annotations
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from app.demo_seed import RESOURCE_DEFINITIONS, seed_demo_catalog
+from app.demo_seed import RESOURCE_DEFINITIONS, seed_demo_authorization_request, seed_demo_catalog
 from app.migrations import apply_migrations
-from app.models import DataUpload, Organization, User
+from app.models import DataUpload, DataUsageRequest, Organization, User
 from app.trust_models import DataAsset, DataSource
 
 
@@ -27,3 +27,21 @@ def test_demo_seed_contains_five_energy_domains_without_central_raw_data(tmp_pat
         }
         assert all(source.metadata_json.get("raw_data_centrally_stored") is False for source in db.scalars(select(DataSource)))
         assert all(asset.asset_name and asset.asset_name.isascii() is False for asset in db.scalars(select(DataAsset)))
+
+
+def test_demo_seed_contains_one_pending_regulatory_authorization(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'trusted-demo-authorization.db').as_posix()}")
+    apply_migrations(engine)
+    with Session(engine) as db:
+        seed_demo_catalog(db)
+        seed_demo_authorization_request(db)
+        seed_demo_authorization_request(db)
+
+        requests = db.scalars(select(DataUsageRequest)).all()
+        assert len(requests) == 1
+        assert requests[0].applicant_org_id == "org-regulator-t01"
+        assert requests[0].provider_org_id == "org-retailer-t01"
+        assert requests[0].purpose == "REGULATORY_CROSS_ENERGY_REVIEW"
+        assert requests[0].status == "SUBMITTED"
+        assert requests[0].contract_id is None
+        assert requests[0].agreement_id is None

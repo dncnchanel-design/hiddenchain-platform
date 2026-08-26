@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .models import (
     AccessRule,
+    DataUsageRequest,
     DidIdentity,
     LocalSubjectNode,
     Organization,
@@ -19,8 +20,10 @@ from .models import (
     User,
 )
 from .security import hash_password, sha256_json, sign_value
+from .schemas import DataUsageRequestCreate
 from .seed import ORGS, USERS, _seed_upload
 from .services.adapters import AdaptivePrivacyRouter
+from .services.data_usage_requests import create_request
 from .services.workflow import run_privacy_analysis, run_settlement_workflow
 from .trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 
@@ -76,6 +79,7 @@ OWNER_BY_DOMAIN = {
 
 DEMO_BUSINESS_TASK_ID = "task-demo-business-e2e"
 DEMO_BUSINESS_BATCH = "DEMO-2026-08-E2E"
+DEMO_AUTHORIZATION_IDEMPOTENCY_KEY = "demo-regulator-retailer-load-202608"
 
 
 def seed_demo_business(db: Session) -> None:
@@ -517,3 +521,47 @@ def seed_demo_catalog(db: Session) -> None:
     _seed_participants(db)
     _seed_catalog(db)
     db.commit()
+
+
+def seed_demo_authorization_request(db: Session) -> None:
+    """Create one pending regulator request for the public demo workflow."""
+
+    existing = db.scalar(
+        select(DataUsageRequest).where(
+            DataUsageRequest.idempotency_key == DEMO_AUTHORIZATION_IDEMPOTENCY_KEY
+        )
+    )
+    if existing is not None:
+        return
+
+    applicant = db.get(User, "user-regulator")
+    asset = db.get(DataAsset, "asset-electricity-load")
+    version = db.get(DataAssetVersion, "version-electricity-load-1")
+    if applicant is None or asset is None or version is None:
+        return
+
+    create_request(
+        db,
+        DataUsageRequestCreate(
+            asset_id=asset.asset_id,
+            asset_version_id=version.version_id,
+            purpose="REGULATORY_CROSS_ENERGY_REVIEW",
+            usage_mode="MPC_AGGREGATE",
+            requested_scope={
+                "max_uses": 10,
+                "output_mode": "AGGREGATE_ONLY",
+                "region": "山东省",
+            },
+            requested_fields=["日期", "地区", "用电负荷"],
+            duration_days=30,
+            terms={
+                "accepted": True,
+                "raw_data_export": False,
+                "output_mode": "AGGREGATE_ONLY",
+                "regulatory_basis": "ENERGY_REGULATION",
+                "authority_ref": "DEMO-ENERGY-2026-001",
+            },
+        ),
+        applicant,
+        idempotency_key=DEMO_AUTHORIZATION_IDEMPOTENCY_KEY,
+    )
