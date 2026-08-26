@@ -336,6 +336,9 @@ def test_prototype_dashboard_is_role_and_energy_domain_specific(client, auth_hea
     assert "gauge" not in generator.json()
     assert "coal_days" not in generator.json()["map"]
     assert regulator_view["visualization"] == "regional_map"
+    regulator_map = regulator.json()["map"]
+    assert set(regulator_map["city_days"]) == {"济南", "青岛", "烟台", "潍坊", "临沂"}
+    assert all(len(values) == len(regulator_map["days"]) for values in regulator_map["city_days"].values())
     assert generator_view["visualization"] == "subject_trend"
 
 

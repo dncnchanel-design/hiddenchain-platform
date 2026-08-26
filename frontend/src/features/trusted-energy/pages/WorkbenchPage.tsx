@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as echarts from "echarts";
 import { Activity, ArrowRight, Database, FileCheck2, Link2, Map as MapIcon, Search, ShieldCheck, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -64,10 +64,15 @@ function formatTime(value: string) {
   return value.includes("T") ? value.slice(11, 16) : value.slice(-5);
 }
 
+function formatCityDays(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value)}天`;
+}
+
 function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: number, colors: PrototypeColors, metricLabel: string, metricUnit: string) {
   const scatterData = Object.keys(data.series).map((region) => {
     const [x, y] = CITY_XY[region] || [117, 36];
-    return { name: region, region, value: [x, y, data.series[region][index] || 0] };
+    return { name: region, region, cityDays: data.city_days?.[region]?.[index], value: [x, y, data.series[region][index] || 0] };
   });
   const lines = FLOW_ROUTES.map((route) => ({ coords: [route.from, route.to], lineStyle: { color: colors.mapRoute, width: 2.5, opacity: 0.7, curveness: 0.25 } }));
   chart.setOption({
@@ -79,7 +84,7 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
       formatter: (params: any) => {
         if (params.seriesType === "lines") return "跨主体协同 · 数据可用不可见";
         if (!params.data) return params.name;
-        return `<div style="font-weight:600">${params.data.region}</div><div>${metricLabel}：<b>${params.data.value[2]}</b> ${metricUnit}</div>`;
+        return `<div style="font-weight:600">${params.data.region}</div><div>${metricLabel}：<b>${params.data.value[2]}</b> ${metricUnit}</div><div>城市受控天数：<b>${formatCityDays(params.data.cityDays)}</b></div>`;
       },
     },
     geo: {
@@ -109,7 +114,7 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
         zlevel: 3,
         symbol: "pin",
         symbolSize: (value: any) => Math.max(50, Math.min(90, Number(value?.[2] || 0) / 55)),
-        label: { show: true, formatter: (params: any) => params.data.region, fontSize: 14, color: colors.mapLabel, position: "bottom", fontWeight: 700, distance: 10, textBorderColor: colors.surface, textBorderWidth: 3 },
+        label: { show: true, formatter: (params: any) => `${params.data.region}\n${formatCityDays(params.data.cityDays)}`, fontSize: 13, lineHeight: 18, color: colors.mapLabel, position: "bottom", fontWeight: 700, distance: 10, textBorderColor: colors.surface, textBorderWidth: 3 },
         itemStyle: { color: colors.actions.allow, borderColor: colors.surface, borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
         emphasis: { scale: 1.6, label: { show: true, fontSize: 16 } },
         animationDurationUpdate: 600,
@@ -243,16 +248,8 @@ function RoleFocusPanel({ view, notice, dataMode, dataStatus }: { view: Prototyp
 export function WorkbenchPage() {
   const remote = useRemote(loadPrototypeDashboard, []);
   const data = remote.data;
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
   const isRegionalMap = data?.view.visualization === "regional_map";
-  const dayCount = isRegionalMap ? data?.map.days.length || 0 : 0;
-
-  useEffect(() => {
-    if (!playing || dayCount < 2) return undefined;
-    const timer = window.setInterval(() => setIndex((current) => (current + 1) % dayCount), 800);
-    return () => window.clearInterval(timer);
-  }, [dayCount, playing]);
+  const index = isRegionalMap ? Math.max(0, (data?.map.days.length || 1) - 1) : 0;
 
   const pieData = data ? actionData(data) : [];
   const totalActions = pieData.reduce((sum, item) => sum + item.value, 0);
@@ -265,9 +262,8 @@ export function WorkbenchPage() {
 
       <div className="prototype-dashboard-layout">
         <section className="prototype-card prototype-dashboard-map-card">
-          <div className="prototype-card-heading"><div><PrototypeCardTitle>{isRegionalMap ? <MapIcon className="prototype-card-icon" size={18} strokeWidth={1.8} /> : <Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />}{data.view.visual_title}</PrototypeCardTitle><div className="prototype-dashboard-subline">{data.view.visual_subtitle}</div>{isRegionalMap && <div className="prototype-dashboard-legend"><span><i className="is-line" />区域受控汇总</span><span><i className="is-line" />跨主体协同</span></div>}</div><span className="prototype-day-badge">{isRegionalMap ? data.map.days[index] || "—" : data.metric.latest_date || "—"}</span></div>
+          <div className="prototype-card-heading"><div><PrototypeCardTitle>{isRegionalMap ? <MapIcon className="prototype-card-icon" size={18} strokeWidth={1.8} /> : <Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />}{data.view.visual_title}</PrototypeCardTitle><div className="prototype-dashboard-subline">{data.view.visual_subtitle}</div>{isRegionalMap && <div className="prototype-dashboard-legend"><span><i className="is-line" />区域受控汇总</span><span><i className="is-line" />城市天数标注</span></div>}</div><span className="prototype-day-badge">{isRegionalMap ? data.map.days[index] || "—" : data.metric.latest_date || "—"}</span></div>
           {isRegionalMap ? <DashboardMap data={data.map} index={index} metricLabel={data.view.visual_value_label} metricUnit={data.view.visual_value_unit} ariaLabel={`${data.view.visual_title}地图`} /> : <SubjectTrendChart points={data.metric.trend} label={data.metric.label} unit={data.metric.unit} ariaLabel={`${data.view.visual_title}趋势图`} />}
-          {isRegionalMap && <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>}
         </section>
         <aside className="prototype-dashboard-side">
           <SubjectMetricCard metric={data.metric} />
