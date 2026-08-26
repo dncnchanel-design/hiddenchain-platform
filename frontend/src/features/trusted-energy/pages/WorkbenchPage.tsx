@@ -15,7 +15,6 @@ const FLOW_ROUTES = [
   { from: [118.35, 35.1], to: [119.16, 36.71], label: "电力调配" },
 ];
 const KPI_ICONS = [Database, ShieldCheck, UsersRound, Link2, Search];
-const CONNECTOR_NOTES = ["电力连接器", "煤炭连接器", "策略引擎", "哈希链存证"];
 type PrototypeMap = PrototypeDashboardPayload["map"];
 
 let shandongMapPromise: Promise<void> | null = null;
@@ -31,7 +30,6 @@ function getPrototypeColors(host: Element) {
       delay: read("--prototype-action-delay"),
       compute_only: read("--prototype-action-compute"),
     },
-    gaugeTrack: read("--prototype-gauge-track"),
     ink: read("--prototype-ink"),
     muted: read("--prototype-muted"),
     navy: read("--prototype-action-navy"),
@@ -66,23 +64,10 @@ function formatTime(value: string) {
   return value.includes("T") ? value.slice(11, 16) : value.slice(-5);
 }
 
-function coalColor(days: number, colors: PrototypeColors) {
-  if (days >= 15) return colors.actions.allow;
-  if (days >= 7) return colors.actions.aggregate;
-  return colors.actions.deny;
-}
-
-function coalColorToken(days: number) {
-  if (days >= 15) return "var(--prototype-action-allow)";
-  if (days >= 7) return "var(--prototype-action-aggregate)";
-  return "var(--prototype-action-deny)";
-}
-
 function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: number, colors: PrototypeColors, metricLabel: string, metricUnit: string) {
-  const coalDays = data.coal_days[index] || 0;
   const scatterData = Object.keys(data.series).map((region) => {
     const [x, y] = CITY_XY[region] || [117, 36];
-    return { name: region, region, value: [x, y, data.series[region][index] || 0, coalDays] };
+    return { name: region, region, value: [x, y, data.series[region][index] || 0] };
   });
   const lines = FLOW_ROUTES.map((route) => ({ coords: [route.from, route.to], lineStyle: { color: colors.mapRoute, width: 2.5, opacity: 0.7, curveness: 0.25 } }));
   chart.setOption({
@@ -94,7 +79,7 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
       formatter: (params: any) => {
         if (params.seriesType === "lines") return "跨主体协同 · 数据可用不可见";
         if (!params.data) return params.name;
-        return `<div style="font-weight:600">${params.data.region}</div><div>${metricLabel}：<b>${params.data.value[2]}</b> ${metricUnit}</div><div>资源可支撑：<b style="color:${coalColor(params.data.value[3], colors)}">${params.data.value[3]}</b> 天</div>`;
+        return `<div style="font-weight:600">${params.data.region}</div><div>${metricLabel}：<b>${params.data.value[2]}</b> ${metricUnit}</div>`;
       },
     },
     geo: {
@@ -125,7 +110,7 @@ function renderMapOption(chart: echarts.ECharts, data: PrototypeMap, index: numb
         symbol: "pin",
         symbolSize: (value: any) => Math.max(50, Math.min(90, Number(value?.[2] || 0) / 55)),
         label: { show: true, formatter: (params: any) => params.data.region, fontSize: 14, color: colors.mapLabel, position: "bottom", fontWeight: 700, distance: 10, textBorderColor: colors.surface, textBorderWidth: 3 },
-        itemStyle: { color: (params: any) => coalColor(Number(params?.data?.value?.[3] || 0), colors), borderColor: colors.surface, borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
+        itemStyle: { color: colors.actions.allow, borderColor: colors.surface, borderWidth: 3, shadowBlur: 20, shadowColor: "rgba(0,0,0,.3)" },
         emphasis: { scale: 1.6, label: { show: true, fontSize: 16 } },
         animationDurationUpdate: 600,
       },
@@ -165,38 +150,57 @@ function DashboardMap({ data, index, metricLabel, metricUnit, ariaLabel }: { dat
   }, [data, index, metricLabel, metricUnit]);
 
   return <div className="prototype-map prototype-map-echart" ref={mapRef} aria-label={ariaLabel}>
-    {!data.days.length && <div className="prototype-map-empty">暂无负荷与库存数据</div>}
+    {!data.days.length && <div className="prototype-map-empty">暂无区域受控汇总数据</div>}
   </div>;
 }
 
-function GaugeChart({ days, level, label }: { days: number; level: string; label: string }) {
-  const gaugeRef = useRef<HTMLDivElement>(null);
+function SubjectTrendChart({ points, label, unit, ariaLabel }: { points: Array<{ date: string; value: number }>; label: string; unit: string; ariaLabel: string }) {
+  const chartRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!gaugeRef.current) return undefined;
-    const colors = getPrototypeColors(gaugeRef.current);
-    const color = coalColor(days, colors);
-    const chart = echarts.init(gaugeRef.current);
+    if (!chartRef.current || !points.length) return undefined;
+    const colors = getPrototypeColors(chartRef.current);
+    const chart = echarts.init(chartRef.current);
     chart.setOption({
-      series: [{
-        type: "gauge",
-        min: 0,
-        max: 60,
-        splitNumber: 6,
-        radius: "92%",
-        progress: { show: true, width: 12, itemStyle: { color } },
-        axisLine: { lineStyle: { width: 12, color: [[1, colors.gaugeTrack]] } },
-        axisLabel: { fontSize: 10, color: colors.muted },
-        pointer: { width: 4, itemStyle: { color: colors.secondary } },
-        detail: { fontSize: 26, color: colors.ink, offsetCenter: [0, "55%"], formatter: "{value} 天", fontWeight: 700 },
-        title: { fontSize: 12, offsetCenter: [0, "82%"], color: colors.muted },
-        data: [{ value: days, name: level }],
-      }],
+      grid: { top: 18, right: 18, bottom: 38, left: 52, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: colors.surface,
+        borderColor: colors.line,
+        textStyle: { color: colors.ink, fontSize: 12 },
+        formatter: (params: any[]) => {
+          const point = params?.[0];
+          return `${label}<br/>${point?.axisValue || "—"}：<b>${point?.data ?? "—"}</b> ${unit}`;
+        },
+      },
+      xAxis: { type: "category", boundaryGap: false, data: points.map((point) => point.date.slice(5)), axisLabel: { color: colors.muted, fontSize: 10 }, axisLine: { lineStyle: { color: colors.line } } },
+      yAxis: { type: "value", name: unit, nameTextStyle: { color: colors.muted, fontSize: 10 }, axisLabel: { color: colors.muted, fontSize: 10 }, splitLine: { lineStyle: { color: colors.line, type: "dashed" } } },
+      series: [{ type: "line", name: label, data: points.map((point) => point.value), smooth: 0.25, symbol: "circle", symbolSize: 6, showSymbol: points.length < 14, lineStyle: { color: colors.mapRoute, width: 3 }, itemStyle: { color: colors.mapRoute }, areaStyle: { color: "rgba(0,163,224,.10)" } }],
     });
     const resize = () => chart.resize();
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); chart.dispose(); };
-  }, [days, level]);
-  return <div className="prototype-echart-gauge" ref={gaugeRef} aria-label={`${label} ${days} 天`} />;
+  }, [label, points, unit]);
+  return points.length ? <div className="prototype-echart-trend" ref={chartRef} aria-label={ariaLabel} /> : <div className="prototype-trend-empty" aria-label={ariaLabel}>暂无已签名日度汇总</div>;
+}
+
+function formatMetricValue(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
+}
+
+function SubjectMetricCard({ metric }: { metric: PrototypeDashboardPayload["metric"] }) {
+  const available = metric.status === "available" && metric.value !== null;
+  return <section className={`prototype-card prototype-subject-metric-card is-${metric.status}`}>
+    <PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />{metric.title}</PrototypeCardTitle>
+    <div className="prototype-subject-metric-head"><span>{metric.label}</span><b>{metric.status_label}</b></div>
+    <div className="prototype-subject-metric-value">{available ? formatMetricValue(metric.value) : "—"}{available && <em>{metric.unit}</em>}</div>
+    {available ? <div className="prototype-subject-metric-facts">
+      <span><small>最近数据日</small><b>{metric.latest_date || "—"}</b></span>
+      <span><small>统计口径</small><b>{metric.aggregation}</b></span>
+      <span><small>记录范围</small><b>{metric.record_count} 条</b></span>
+    </div> : <div className="prototype-subject-metric-empty">{metric.message}</div>}
+    <div className="prototype-subject-metric-source"><i />{metric.source}</div>
+  </section>;
 }
 
 function ActionPieChart({ values }: { values: Array<{ name: string; value: number; key: string }> }) {
@@ -222,13 +226,14 @@ function actionData(data: PrototypeDashboardPayload) {
   return Object.entries(data.action_counts).filter(([, value]) => value > 0).map(([key, value]) => ({ name: ACTION_NAMES[key] || key, value, key }));
 }
 
-function RoleFocusPanel({ view }: { view: PrototypeDashboardPayload["view"] }) {
+function RoleFocusPanel({ view, notice, dataMode, dataStatus }: { view: PrototypeDashboardPayload["view"]; notice: string; dataMode: PrototypeDashboardPayload["data_mode"]; dataStatus: PrototypeDashboardPayload["metric"]["status"] }) {
   return <section className={`prototype-role-focus is-${view.kind}`} aria-label={view.focus_title}>
     <div className="prototype-role-focus-heading">
       <div>
         <div className="prototype-overview-label"><span>{view.scope_label}</span><span className="prototype-mode-tag">{view.energy_label}</span></div>
         <h2>{view.title}</h2>
         <p>{view.subtitle}</p>
+        <div className={`prototype-data-notice is-${dataMode === "demo" ? "demo" : dataStatus}`}><i />{notice}</div>
       </div>
       <Link className="prototype-role-focus-action" to={view.primary_action.path}>{view.primary_action.label}<ArrowRight size={14} /></Link>
     </div>
@@ -240,7 +245,8 @@ export function WorkbenchPage() {
   const data = remote.data;
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const dayCount = data?.map.days.length || 0;
+  const isRegionalMap = data?.view.visualization === "regional_map";
+  const dayCount = isRegionalMap ? data?.map.days.length || 0 : 0;
 
   useEffect(() => {
     if (!playing || dayCount < 2) return undefined;
@@ -254,24 +260,24 @@ export function WorkbenchPage() {
   return <PrototypePageFrame>
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
     {data && <>
-      <RoleFocusPanel view={data.view} />
+      <RoleFocusPanel view={data.view} notice={data.data_notice} dataMode={data.data_mode} dataStatus={data.metric.status} />
       <div className="prototype-kpi-grid">{data.view.kpis.map((item, itemIndex) => { const Icon = KPI_ICONS[itemIndex]; return <div className={`prototype-kpi-card${itemIndex > 3 ? " is-success" : ""}`} key={item.label}><div className="prototype-kpi-icon"><Icon size={17} strokeWidth={1.8} /></div><div className="prototype-kpi-label"><span>{item.label}</span><small>{item.meta}</small></div><strong>{item.value}</strong></div>; })}</div>
 
       <div className="prototype-dashboard-layout">
         <section className="prototype-card prototype-dashboard-map-card">
-          <div className="prototype-card-heading"><div><PrototypeCardTitle><MapIcon className="prototype-card-icon" size={18} strokeWidth={1.8} />{data.view.map_title}</PrototypeCardTitle><div className="prototype-dashboard-subline">{data.view.map_subtitle}</div><div className="prototype-dashboard-legend"><span><i className="is-green" />资源充足（&gt;15天）</span><span><i className="is-orange" />警戒（7-15天）</span><span><i className="is-red" />缺口风险（&lt;7天）</span><span><i className="is-line" />跨主体协同</span></div></div><span className="prototype-day-badge">{data.map.days[index] || "—"}</span></div>
-          <DashboardMap data={data.map} index={index} metricLabel={data.view.map_value_label} metricUnit={data.view.map_value_unit} ariaLabel={`${data.view.map_title}地图`} />
-          <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>
+          <div className="prototype-card-heading"><div><PrototypeCardTitle>{isRegionalMap ? <MapIcon className="prototype-card-icon" size={18} strokeWidth={1.8} /> : <Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />}{data.view.visual_title}</PrototypeCardTitle><div className="prototype-dashboard-subline">{data.view.visual_subtitle}</div>{isRegionalMap && <div className="prototype-dashboard-legend"><span><i className="is-line" />区域受控汇总</span><span><i className="is-line" />跨主体协同</span></div>}</div><span className="prototype-day-badge">{isRegionalMap ? data.map.days[index] || "—" : data.metric.latest_date || "—"}</span></div>
+          {isRegionalMap ? <DashboardMap data={data.map} index={index} metricLabel={data.view.visual_value_label} metricUnit={data.view.visual_value_unit} ariaLabel={`${data.view.visual_title}地图`} /> : <SubjectTrendChart points={data.metric.trend} label={data.metric.label} unit={data.metric.unit} ariaLabel={`${data.view.visual_title}趋势图`} />}
+          {isRegionalMap && <div className="prototype-slider-row"><button type="button" className="prototype-secondary-button" onClick={() => setPlaying((current) => !current)}>{playing ? "暂停" : "播放"}</button><input aria-label="选择态势日期" type="range" min={0} max={Math.max(0, dayCount - 1)} value={Math.min(index, Math.max(0, dayCount - 1))} onChange={(event) => { setIndex(Number(event.target.value)); setPlaying(false); }} /><span>{playing ? "播放中" : "已暂停"}</span></div>}
         </section>
         <aside className="prototype-dashboard-side">
-          <section className="prototype-card prototype-gauge-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />{data.view.gauge_title}</PrototypeCardTitle><GaugeChart days={data.gauge.days} level={data.gauge.level} label={data.view.gauge_title} /><div className="prototype-gauge-text" style={{ color: coalColorToken(data.gauge.days) }}>{data.gauge.level} · 资源 {data.gauge.inventory} {data.view.gauge_unit}</div></section>
+          <SubjectMetricCard metric={data.metric} />
           <section className="prototype-card prototype-feed-card"><PrototypeCardTitle><FileCheck2 className="prototype-card-icon" size={18} strokeWidth={1.8} />实时审计流</PrototypeCardTitle><div className="prototype-feed-list">{data.audit.length ? data.audit.map((item) => <div className="prototype-feed-item" key={item.id}><i className={`is-${item.action}`} /><span><b>{item.action_name}</b> · {item.subject} · {item.resource}</span><time>{formatTime(item.ts)}</time></div>) : <div className="prototype-empty">暂无审计记录</div>}</div></section>
         </aside>
       </div>
 
       <div className="prototype-dashboard-bottom">
         <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />策略命中分布</PrototypeCardTitle>{pieData.length ? <ActionPieChart values={pieData} /> : <div className="prototype-empty">暂无策略命中记录</div>}<div className="prototype-card-caption prototype-chart-caption">共 {totalActions} 次裁决</div></section>
-        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><MonitorIcon /><span>连接器健康状态</span></PrototypeCardTitle><div className="prototype-status-list">{CONNECTOR_NOTES.map((name, itemIndex) => <div key={name}><span>{name}</span><b className={itemIndex === 3 && !data.chain.ok ? "is-danger" : ""}>{itemIndex === 3 ? (data.chain.ok ? "完整" : "异常") : "正常"}</b></div>)}</div></section>
+        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><MonitorIcon /><span>连接器健康状态</span></PrototypeCardTitle><div className="prototype-status-list">{data.connectors.map((connector) => <div key={connector.name}><span>{connector.name}</span><b className={/未接入|不可用|异常/.test(connector.status) ? "is-danger" : ""}>{connector.status}</b></div>)}</div></section>
         <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><UsersRound className="prototype-card-icon" size={18} strokeWidth={1.8} />跨主体协同轨迹</PrototypeCardTitle><div className="prototype-timeline">{data.timeline.length ? data.timeline.map((item) => <div key={item.id}><time>{formatTime(item.ts)}</time><span><b>{item.resource}</b> · {item.subject}</span></div>) : <div className="prototype-empty">暂无跨主体协同记录</div>}</div></section>
       </div>
     </>}

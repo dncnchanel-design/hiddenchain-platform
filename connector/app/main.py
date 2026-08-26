@@ -221,10 +221,21 @@ class ComputeRequest(BaseModel):
     decimals: int = Field(default=2, ge=0, le=6)
 
 
-def _verify_platform_request(payload: ComputeRequest, timestamp: str, nonce: str, signature: str, presented_public_key: str | None) -> None:
-    if payload.provider_org_id and not ORGANIZATION_ID:
+class DashboardRequest(BaseModel):
+    request_id: str = Field(min_length=6, max_length=96)
+    provider_org_id: str = Field(min_length=3, max_length=96)
+    resource: str = Field(min_length=1, max_length=64)
+    aggregation: str = Field(pattern="^(sum|average|max|min)$")
+    start_date: date
+    end_date: date
+    decimals: int = Field(default=2, ge=0, le=6)
+
+
+def _verify_platform_request(payload: BaseModel, timestamp: str, nonce: str, signature: str, presented_public_key: str | None) -> None:
+    provider_org_id = getattr(payload, "provider_org_id", None)
+    if provider_org_id and not ORGANIZATION_ID:
         raise HTTPException(503, "主体节点未绑定组织身份")
-    if payload.provider_org_id and ORGANIZATION_ID and payload.provider_org_id != ORGANIZATION_ID:
+    if provider_org_id and ORGANIZATION_ID and provider_org_id != ORGANIZATION_ID:
         raise HTTPException(403, "请求主体与本地节点身份不一致")
     public_text = os.getenv("PLATFORM_SIGNING_PUBLIC_KEY", "").strip()
     if not public_text:
@@ -335,6 +346,55 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
     raise HTTPException(422, "固定函数尚未启用")
 
 
+def _dashboard_series(payload: DashboardRequest) -> tuple[list[dict[str, Any]], str, int]:
+    if payload.resource not in {item[0] for item in RESOURCE_DEFINITIONS[DOMAIN]}:
+        raise HTTPException(422, "未找到该能源域的受控数据资源")
+    if payload.end_date < payload.start_date:
+        raise HTTPException(422, "结束日期不能早于开始日期")
+    sql = (
+        "SELECT record_date, value, unit FROM records "
+        "WHERE resource = ? AND record_date BETWEEN ? AND ? AND hour IS NULL "
+        "ORDER BY record_date"
+    )
+    with _database() as connection:
+        rows = connection.execute(
+            sql,
+            (payload.resource, payload.start_date.isoformat(), payload.end_date.isoformat()),
+        ).fetchall()
+    grouped: dict[str, list[float]] = {}
+    unit = next(unit for resource, _name, unit in RESOURCE_DEFINITIONS[DOMAIN] if resource == payload.resource)
+    for row in rows:
+        grouped.setdefault(str(row["record_date"]), []).append(float(row["value"]))
+        unit = str(row["unit"])
+    valid_days = [(day, values) for day, values in sorted(grouped.items()) if len(values) >= MIN_GROUP_SIZE]
+    if not valid_days:
+        raise HTTPException(403, f"可用日度记录少于隐私保护下限 {MIN_GROUP_SIZE} 条")
+    decimals = min(payload.decimals, MAX_DECIMALS)
+    points: list[dict[str, Any]] = []
+    for day, values in valid_days:
+        if payload.aggregation == "sum":
+            value = sum(values)
+        elif payload.aggregation == "max":
+            value = max(values)
+        elif payload.aggregation == "min":
+            value = min(values)
+        else:
+            value = statistics.fmean(values)
+        points.append({"date": day, "value": round(value, decimals)})
+    return points, unit, sum(len(values) for _day, values in valid_days)
+
+
+def _signed_response(envelope: dict[str, Any]) -> dict[str, Any]:
+    signature = PRIVATE_KEY.sign(_canonical(envelope))
+    return {
+        **envelope,
+        "signature": base64.b64encode(signature).decode(),
+        "public_key": PUBLIC_KEY,
+        "signature_algorithm": "Ed25519",
+        "signature_valid": True,
+    }
+
+
 app = FastAPI(title=f"{DOMAIN_LABELS[DOMAIN]}可信数据空间连接器", version="1.0.0")
 
 
@@ -367,6 +427,40 @@ def catalog() -> dict[str, Any]:
         "functions": [{"code": code, "name": label} for code, label in FUNCTION_LABELS.items()],
         "notice": "这里只发布目录信息，原始数据保存在企业连接器中。",
     }
+
+
+@app.post("/dashboard")
+def dashboard_metrics(
+    payload: DashboardRequest,
+    x_request_timestamp: str = Header(alias="X-Request-Timestamp"),
+    x_request_nonce: str = Header(alias="X-Request-Nonce"),
+    x_request_signature: str = Header(alias="X-Request-Signature"),
+    x_platform_public_key: str | None = Header(default=None, alias="X-Platform-Public-Key"),
+) -> dict[str, Any]:
+    _verify_platform_request(payload, x_request_timestamp, x_request_nonce, x_request_signature, x_platform_public_key)
+    trend, unit, record_count = _dashboard_series(payload)
+    resource_name = next(name for resource, name, _unit in RESOURCE_DEFINITIONS[DOMAIN] if resource == payload.resource)
+    envelope = {
+        "request_id": payload.request_id,
+        "provider_org_id": ORGANIZATION_ID or payload.provider_org_id,
+        "connector_id": CONNECTOR_ID,
+        "energy_domain": DOMAIN,
+        "resource": payload.resource,
+        "resource_name": resource_name,
+        "aggregation": payload.aggregation,
+        "unit": unit,
+        "latest": trend[-1],
+        "trend": trend,
+        "record_count": record_count,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "privacy": {
+            "granularity": "day",
+            "minimum_group_size": MIN_GROUP_SIZE,
+            "raw_records_returned": False,
+        },
+        "raw_records_returned": False,
+    }
+    return _signed_response(envelope)
 
 
 @app.post("/compute")
