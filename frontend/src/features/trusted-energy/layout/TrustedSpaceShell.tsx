@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Cable, ChevronDown, Database, FileSignature, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { NotificationCenter } from "../components/NotificationCenter";
+import { AgentSheet } from "../components/AgentSheet";
 import { ROLE_LABELS, labelForCode } from "../../../types";
 import { isKnownTrustedPath, primaryNavItems, getTrustedView, routeForView, trustedMenuCodeForView, TRUSTED_BASE, type TrustedViewKey } from "../types";
 import { cn } from "../utils";
@@ -72,6 +73,7 @@ export function TrustedSpaceShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const view = getTrustedView(location.pathname);
   const context = trustedContext.context;
@@ -80,6 +82,12 @@ export function TrustedSpaceShell() {
     const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
     return primaryNavItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
   }, [context?.visible_menus]);
+
+  useEffect(() => {
+    const openAgent = () => setAgentOpen(true);
+    window.addEventListener("trusted-energy:agent-open", openAgent);
+    return () => window.removeEventListener("trusted-energy:agent-open", openAgent);
+  }, []);
 
   if (trustedContext.loading) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState loading /></div>;
   if (trustedContext.error || !context) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState error={trustedContext.error || "可信数据空间上下文不可用"} onRetry={() => void trustedContext.reload()} /></div>;
@@ -148,5 +156,6 @@ export function TrustedSpaceShell() {
     </nav>
 
     <main className={cn("trusted-main", targetChrome && "prototype-container")} key={location.pathname}>{renderView(view)}</main>
+    <AgentSheet open={agentOpen} onOpenChange={setAgentOpen} />
   </div>;
 }
