@@ -153,7 +153,7 @@ export function MetricBand({ items }: { items: Array<{ label: string; value: str
 
 export function StatusBadge({ value }: { value: string }) {
   const label = labelForCode(value, "未登记");
-  const tone = /已完成|已验证|通过|成功|有效|已连接|已授权|可申请|已启用/.test(label) ? "success" : /计算中|进行中|运行中|已签署|执行中/.test(label) ? "info" : /复核|待开始|适配器|演示|待执行|未提供|未配置/.test(label) ? "warning" : /受限|阻断|失败|拒绝|无效/.test(label) ? "danger" : "neutral";
+  const tone = /已完成|已验证|通过|成功|有效|正常|已连接|已授权|可申请/.test(label) ? "success" : /计算中|进行中|运行中|已签署|执行中/.test(label) ? "info" : /复核|待开始|适配器|演示|待执行|未提供|未配置/.test(label) ? "warning" : /受限|阻断|失败|拒绝|无效/.test(label) ? "danger" : "neutral";
   return <Badge tone={tone} dot>{label}</Badge>;
 }
 

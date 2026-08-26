@@ -117,7 +117,7 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   UNKNOWN: "未知",
-  ACTIVE: "已启用",
+  ACTIVE: "正常",
   VALID: "有效",
   REAL: "真实能力",
   LOCAL_REAL: "本地真实能力",
@@ -473,7 +473,7 @@ export const DATA_STATUS_LABELS: Record<string, string> = {
   PASSED: "已通过",
   VALID: "有效",
   READY: "已就绪",
-  ACTIVE: "已启用",
+  ACTIVE: "有效",
   PENDING: "待处理",
   UNCONFIRMED: "待确认",
   NOT_PROVIDED: "未提供",

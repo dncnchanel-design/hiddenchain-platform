@@ -38,7 +38,7 @@ export function RulesPage() {
     setMessage("");
     try {
       await post(`/rules/${ruleId}/activate`, {});
-      setMessage("规则已启用并记录审批签名。");
+      setMessage("规则已生效并记录审批签名。");
       await reload();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "启用失败");

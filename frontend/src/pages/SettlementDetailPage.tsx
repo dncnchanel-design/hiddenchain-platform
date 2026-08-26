@@ -179,7 +179,7 @@ export function SettlementDetailPage() {
           <AssociationList icon={ShieldCheck} empty="尚未生成用途授权" items={data.agreements.map((item) => ({ id: item.agreement_id, title: `${purposeLabel(item.requested_purpose)} · ${item.state === "ACTIVE" ? "已授权" : "待授权"}`, meta: `${item.provider_org_name || item.provider_org_id} → ${item.consumer_org_name || item.consumer_org_id}`, path: `/data-space?task_id=${taskId}` }))} />
         </Surface>
         <Surface title="规则与计算">
-          <AssociationList icon={Gavel} empty="未绑定规则" items={task.rule ? [{ id: task.rule.rule_id, title: `${task.rule.rule_version} · ${task.rule.rule_name}`, meta: task.rule.status === "ACTIVE" ? "规则已锁定" : "规则尚未启用", path: `/rules?task_id=${taskId}` }] : []} />
+          <AssociationList icon={Gavel} empty="未绑定规则" items={task.rule ? [{ id: task.rule.rule_id, title: `${task.rule.rule_version} · ${task.rule.rule_name}`, meta: task.rule.status === "ACTIVE" ? "规则已锁定" : "规则待锁定", path: `/rules?task_id=${taskId}` }] : []} />
           <AssociationList icon={Network} empty="尚未执行计算" items={data.jobs.map((item) => ({ id: item.job_id, title: `${ALGORITHM_LABELS[item.algorithm_code] || "受控结算计算"} · ${item.status === "SUCCESS" ? "已完成" : "执行中"}`, meta: "输出范围：聚合结算结果", path: `/compute?task_id=${taskId}` }))} />
         </Surface>
         <Surface title="结算结果" id="business-summary">

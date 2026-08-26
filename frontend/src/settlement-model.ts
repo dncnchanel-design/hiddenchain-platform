@@ -302,7 +302,7 @@ export function trustedChain(task: JsonRecord, context: TrustedChainContext = {}
     },
     {
       code: "RULE", title: "结算规则锁定", done: rule?.status === "ACTIVE", blocked: Boolean(rule && rule.status !== "ACTIVE"),
-      detail: rule ? `${rule.rule_version} · ${rule.status === "ACTIVE" ? "已锁定" : "尚未启用"}` : "未绑定有效规则", owner: task.creator_org_name || "交易中心",
+      detail: rule ? `${rule.rule_version} · ${rule.status === "ACTIVE" ? "已锁定" : "待锁定"}` : "未绑定有效规则", owner: task.creator_org_name || "交易中心",
       completedAt: rule?.updated_at || rule?.created_at, evidenceCount: evidenceOf("AUTHORIZATION_BUNDLE").length, path: statePath("RULE_FROZEN", String(task.task_id || ""), context.viewerRole),
     },
     {

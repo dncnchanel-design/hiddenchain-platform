@@ -72,7 +72,7 @@ export function SettlementCreatePage() {
   else if (!generationData.commitment_confirmed) preflightBlockers.push("发电企业尚未确认数据承诺");
   if (!retailData) preflightBlockers.push("售电企业尚未登记当前批次的已校验履约数据");
   else if (!retailData.commitment_confirmed) preflightBlockers.push("售电企业尚未确认数据承诺");
-  if (!selectedRule) preflightBlockers.push("尚未选择启用的结算规则版本");
+  if (!selectedRule) preflightBlockers.push("尚未选择可用的结算规则版本");
 
   if (loading) return <LoadingState label="正在准备结算任务" variant="page" />;
   if (loadError || !data) return <ErrorState message={loadError || "创建页加载失败"} retry={reload} />;
@@ -172,7 +172,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {step === 3 && <div className="wizard-section">
-            <SectionHeader icon={Gavel} title="规则与计算" description="选择已启用规则；执行边界将写入单笔回执。" />
+            <SectionHeader icon={Gavel} title="规则与计算" description="选择可用规则；执行边界将写入单笔回执。" />
             <div className="form-grid two">
               <Field label="结算规则版本"><select value={selectedRuleId} onChange={(event) => setRuleId(event.target.value)} autoFocus><option value="">请选择</option>{activeRules.map((item) => <option key={item.rule_id} value={item.rule_id}>{item.rule_version} · {item.rule_name}</option>)}</select></Field>
               <Field label="计算方式"><select value="LOCAL_CONTROLLED" disabled><option value="LOCAL_CONTROLLED">本地受控计算</option></select></Field>
@@ -195,7 +195,7 @@ export function SettlementCreatePage() {
           </div>}
 
           {error && <Notice tone="warning">{error}</Notice>}
-          {!canAdvance && <div className="wizard-action-hint" role="status">{step === 0 ? "请填写任务名称、交易批次和完整结算周期。" : step === 1 ? "请选择一个发电企业和一个售电企业。" : step === 3 ? "请选择已启用的结算规则版本。" : "当前步骤还有未完成条件。"}</div>}
+          {!canAdvance && <div className="wizard-action-hint" role="status">{step === 0 ? "请填写任务名称、交易批次和完整结算周期。" : step === 1 ? "请选择一个发电企业和一个售电企业。" : step === 3 ? "请选择可用的结算规则版本。" : "当前步骤还有未完成条件。"}</div>}
           <div className="wizard-actions">
             <Button disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}><ArrowLeft size={16} />上一步</Button>
             {step < steps.length - 1

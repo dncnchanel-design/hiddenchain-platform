@@ -62,6 +62,7 @@ describe("trusted energy console model", () => {
     expect(labelForCode("GENERATION_DATA")).toBe("发电计量数据");
     expect(labelForCode("DEMO")).toBe("演示能力");
     expect(labelForCode("LOCAL_REAL")).toBe("本地真实能力");
+    expect(labelForCode("ACTIVE")).toBe("正常");
     expect(labelForCode("VerifiableCredential")).toBe("可验证凭证");
     expect(labelForCode("EnergyMarketParticipantCredential")).toBe("能源市场参与方凭证");
     expect(labelForCode("HCDS_CONNECTOR_1_0")).toBe("HCDS 1.0 连接器");

@@ -46,8 +46,8 @@ export function OverviewPage() {
       />
 
       <div className="metrics-grid five">
-        <Metric label="组织" value={data.orgs.length} meta={`${activeOrganizations} 个启用`} />
-        <Metric label="用户" value={data.users.length} meta={`${activeUsers} 个启用`} />
+        <Metric label="组织" value={data.orgs.length} meta={`${activeOrganizations} 个正常`} />
+        <Metric label="用户" value={data.users.length} meta={`${activeUsers} 个正常`} />
         <Metric label="身份凭证" value={data.dids.length} meta={`${data.dids.filter((item) => item.credential_status === "VALID").length} 个有效`} />
         <Metric label="能力定义" value={data.services.length} meta="已登记" />
         <Metric label="待处置风险" value={openRisks} tone={openRisks ? "red" : "green"} />
