@@ -37,6 +37,7 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
     monkeypatch.setenv("CONNECTOR_SIGNING_PRIVATE_KEY", _raw_private(connector_key))
     monkeypatch.setenv("PLATFORM_SIGNING_PUBLIC_KEY", _raw_public(platform_key))
     monkeypatch.setenv("CONNECTOR_DATABASE_PATH", str(tmp_path / "coal.db"))
+    monkeypatch.setenv("ORGANIZATION_ID", "org-coal-t01")
     monkeypatch.setenv("PRIVACY_MIN_GROUP_SIZE", "3")
     try:
         module = importlib.import_module("connector.app.main")
@@ -82,6 +83,52 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
                 base64.b64decode(body["signature"]),
                 json.dumps(
                     {key: value for key, value in body.items() if key not in {"signature", "public_key", "signature_algorithm", "signature_valid"}},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode(),
+            )
+
+            dashboard_payload = {
+                "request_id": "dashboard-test-0001",
+                "provider_org_id": "org-coal-t01",
+                "resource": "inventory",
+                "aggregation": "average",
+                "start_date": "2026-08-01",
+                "end_date": "2026-08-23",
+                "decimals": 2,
+            }
+            dashboard_timestamp = str(int(datetime.now(UTC).timestamp()))
+            dashboard_nonce = "connector-dashboard-nonce-0001"
+            dashboard_envelope = {
+                "timestamp": dashboard_timestamp,
+                "nonce": dashboard_nonce,
+                "payload": dashboard_payload,
+            }
+            dashboard_signature = platform_key.sign(
+                json.dumps(dashboard_envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+            )
+            dashboard_response = client.post(
+                "/dashboard",
+                json=dashboard_payload,
+                headers={
+                    "X-Request-Timestamp": dashboard_timestamp,
+                    "X-Request-Nonce": dashboard_nonce,
+                    "X-Request-Signature": base64.b64encode(dashboard_signature).decode(),
+                },
+            )
+            assert dashboard_response.status_code == 200, dashboard_response.text
+            dashboard_body = dashboard_response.json()
+            assert dashboard_body["energy_domain"] == "coal"
+            assert dashboard_body["resource_name"] == "煤炭库存"
+            assert dashboard_body["trend"]
+            assert isinstance(dashboard_body["latest"]["value"], (int, float))
+            assert dashboard_body["raw_records_returned"] is False
+            assert "raw_records" not in dashboard_body
+            connector_key.public_key().verify(
+                base64.b64decode(dashboard_body["signature"]),
+                json.dumps(
+                    {key: value for key, value in dashboard_body.items() if key not in {"signature", "public_key", "signature_algorithm", "signature_valid"}},
                     ensure_ascii=False,
                     sort_keys=True,
                     separators=(",", ":"),

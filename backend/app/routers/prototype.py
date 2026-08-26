@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import io
+import math
 import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
@@ -10,6 +12,8 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
+import httpx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -19,12 +23,13 @@ from ..config import settings
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest, DidIdentity, Organization, PrivacyAnalysisJob, SettlementTask, User, new_id, utc_now
-from ..security import sha256_json
+from ..security import canonical_json, sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
+from ..services.local_data_boundary import subject_node_config
 from ..services.trust_space import workbench as trusted_workbench
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
-from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _manual_parse
+from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _connector_failure, _manual_parse, _platform_private_key, _platform_public_key
 
 
 router = APIRouter(prefix="/prototype", tags=["target-prototype"])
@@ -40,21 +45,24 @@ ROLE_LABELS = {
     "REGULATOR": "能源局-监管",
 }
 
-ENERGY_DOMAIN_UNITS = {
-    "electricity": ("平均负荷", "MW"),
-    "coal": ("供耗存监测值", "吨"),
-    "heat": ("热能供需监测值", "GJ"),
-    "gas": ("天然气供需监测值", "万立方米"),
-    "oil": ("石油供需监测值", "吨"),
+ENTERPRISE_METRIC_SPECS: dict[str, dict[str, str]] = {
+    "GENERATOR": {"resource": "generation", "aggregation": "sum", "label": "日发电量", "unit": "MWh"},
+    "RETAILER": {"resource": "load", "aggregation": "average", "label": "平均用电负荷", "unit": "MW"},
+    "COAL_ENTERPRISE": {"resource": "inventory", "aggregation": "average", "label": "煤炭库存", "unit": "吨"},
+    "HEAT_ENTERPRISE": {"resource": "supply", "aggregation": "sum", "label": "日供热量", "unit": "GJ"},
+    "GAS_ENTERPRISE": {"resource": "storage", "aggregation": "average", "label": "天然气储量", "unit": "万立方米"},
+    "OIL_ENTERPRISE": {"resource": "inventory", "aggregation": "average", "label": "石油库存", "unit": "吨"},
 }
 
-ENERGY_GAUGE_UNITS = {
-    "electricity": "万MWh",
-    "coal": "万吨",
-    "heat": "万GJ",
-    "gas": "万立方米",
-    "oil": "万吨",
+EXCHANGE_METRIC_SPECS: dict[str, dict[str, str]] = {
+    "electricity": {"resource": "load", "aggregation": "average", "label": "区域平均负荷", "unit": "MW"},
+    "coal": {"resource": "supply", "aggregation": "sum", "label": "日煤炭供应量", "unit": "吨"},
+    "heat": {"resource": "supply", "aggregation": "sum", "label": "日供热量", "unit": "GJ"},
+    "gas": {"resource": "pipeline_flow", "aggregation": "average", "label": "管道平均流量", "unit": "万立方米/日"},
+    "oil": {"resource": "sales", "aggregation": "sum", "label": "日石油销售量", "unit": "吨"},
 }
+
+AGGREGATION_LABELS = {"sum": "日度求和", "average": "日度平均", "max": "日度最大值", "min": "日度最小值"}
 
 ENTERPRISE_VIEW_COPY = {
     "GENERATOR": ("发电企业运行总览", "发电侧资产、授权处理与结算结果确认", "本方发电侧态势", "发电出力 · 新能源预测 · 结算协同"),
@@ -311,9 +319,6 @@ def _demo_dashboard_projection() -> dict[str, Any]:
         "潍坊": [4310, 4420, 4510, 4470, 4630, 4700, 4650],
         "临沂": [3290, 3380, 3460, 3520, 3590, 3660, 3610],
     }
-    coal_days = [15.4, 15.8, 16.2, 16.0, 16.7, 17.2, 17.8]
-    coal_inventory = [468.2, 476.5, 484.1, 480.6, 497.8, 511.4, 522.6]
-    coal_consumption = [30.4, 30.1, 29.8, 30.7, 29.6, 29.2, 29.4]
     audit_specs = [
         ("compute_only", "仅计算不出域", "山东电力交易中心", "电煤供耗存日报", "SUCCESS"),
         ("aggregate", "汇总提供", "能源局-监管", "电网负荷曲线", "SUCCESS"),
@@ -342,11 +347,7 @@ def _demo_dashboard_projection() -> dict[str, Any]:
         "map": {
             "days": days,
             "series": series,
-            "coal_days": coal_days,
-            "coal_inventory": coal_inventory,
-            "coal_consumption": coal_consumption,
         },
-        "gauge": {"days": coal_days[-1], "level": "库存充足", "inventory": coal_inventory[-1]},
         "audit": audit,
         "action_counts": {"allow": 8, "deny": 2, "aggregate": 11, "delay": 1, "compute_only": 10},
         "connectors": [
@@ -356,49 +357,6 @@ def _demo_dashboard_projection() -> dict[str, Any]:
             {"name": "哈希链存证", "status": "完整"},
         ],
         "timeline": audit[:5],
-    }
-
-
-DOMAIN_PROJECTION_FACTORS = {
-    "electricity": 1.0,
-    "coal": 0.18,
-    "heat": 0.12,
-    "gas": 0.08,
-    "oil": 0.16,
-}
-
-
-def _domain_demo_projection(projection: dict[str, Any] | None, domain: str) -> dict[str, Any] | None:
-    """Keep the prototype aggregate shape while making each energy domain legible."""
-
-    if projection is None or domain in {"electricity", "all"}:
-        return projection
-    factor = DOMAIN_PROJECTION_FACTORS.get(domain, 1.0)
-    map_data = projection["map"]
-    series = {
-        region: [round(float(value) * factor) for value in values]
-        for region, values in map_data["series"].items()
-    }
-    resource_days = [round(float(value) * (0.72 + factor), 1) for value in map_data["coal_days"]]
-    inventory = [round(float(value) * factor, 1) for value in map_data["coal_inventory"]]
-    consumption = [round(float(value) * factor, 1) for value in map_data["coal_consumption"]]
-    return {
-        **projection,
-        "map": {
-            **map_data,
-            "series": series,
-            "coal_days": resource_days,
-            "coal_inventory": inventory,
-            "coal_consumption": consumption,
-            "resource_days": resource_days,
-            "resource_inventory": inventory,
-            "resource_consumption": consumption,
-        },
-        "gauge": {
-            **projection["gauge"],
-            "days": resource_days[-1],
-            "inventory": inventory[-1],
-        },
     }
 
 
@@ -414,8 +372,11 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         energy_label = "全域能源"
         title = "全域能源监管总览"
         subtitle = "跨能源域态势监测、审计复核与风险处置"
-        map_title = "全域能源监管态势"
-        map_subtitle = "电力负荷 · 电煤库存 · 跨主体协同，监管汇总视图"
+        visual_title = "全域能源监管态势"
+        visual_subtitle = "仅展示已形成受控汇总的监管视角，不从主体目录推断业务数值"
+        visual_value_label = "区域监测值"
+        visual_value_unit = "综合单位"
+        visualization = "regional_map"
         focus_title = "监管重点"
         kpi_items = [
             {"label": "全域数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
@@ -431,8 +392,16 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         energy_label = DOMAIN_LABELS.get(domain, domain)
         title = f"区域{energy_label}交易中心总览"
         subtitle = f"{energy_label}供需协调、结算发起与审计协同"
-        map_title = f"区域{energy_label}供需协同态势"
-        map_subtitle = f"{energy_label}资源 · 交易批次 · 跨主体协同，交易中心视图"
+        metric_spec = EXCHANGE_METRIC_SPECS.get(domain)
+        visual_title = f"区域{energy_label}{metric_spec['label']}趋势" if metric_spec else f"区域{energy_label}业务趋势"
+        visual_subtitle = (
+            f"按日展示{metric_spec['label']}，统计方式：{AGGREGATION_LABELS[metric_spec['aggregation']]}"
+            if metric_spec
+            else f"当前{energy_label}交易协同暂无可用受控指标"
+        )
+        visual_value_label = metric_spec["label"] if metric_spec else f"{energy_label}业务指标"
+        visual_value_unit = metric_spec["unit"] if metric_spec else ""
+        visualization = "subject_trend"
         focus_title = "交易中心重点"
         kpi_items = [
             {"label": f"{energy_label}数据资产", "value": trusted_kpis["visible_assets"], "meta": "当前能源域目录"},
@@ -448,11 +417,24 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         default_copy = (
             f"{ROLE_LABELS.get(user.role_code, '能源主体')}运行总览",
             f"{DOMAIN_LABELS.get(domain, '能源')}资产、授权处理与协同任务",
-            f"本方{DOMAIN_LABELS.get(domain, '能源')}态势",
-            f"{DOMAIN_LABELS.get(domain, '能源')}供给 · 使用 · 协同",
+            f"本方{DOMAIN_LABELS.get(domain, '能源')}数据趋势",
+            f"{DOMAIN_LABELS.get(domain, '能源')}主体连接器受控汇总",
         )
-        title, subtitle, map_title, map_subtitle = ENTERPRISE_VIEW_COPY.get(user.role_code, default_copy)
+        title, subtitle, _legacy_visual_title, _legacy_visual_subtitle = ENTERPRISE_VIEW_COPY.get(user.role_code, default_copy)
         energy_label = DOMAIN_LABELS.get(domain, domain)
+        metric_spec = ENTERPRISE_METRIC_SPECS.get(user.role_code)
+        if metric_spec is None:
+            metric_spec = {
+                "resource": "",
+                "aggregation": "average",
+                "label": f"{energy_label}业务指标",
+                "unit": "",
+            }
+        visual_title = f"本方{metric_spec['label']}趋势"
+        visual_subtitle = f"按日展示{metric_spec['label']}，统计方式：{AGGREGATION_LABELS[metric_spec['aggregation']]}"
+        visual_value_label = metric_spec["label"]
+        visual_value_unit = metric_spec["unit"]
+        visualization = "subject_trend"
         focus_title = "本方业务重点"
         kpi_items = [
             {"label": "本方数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
@@ -464,11 +446,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         primary_action = {"label": "查看本方数据目录", "path": "/trusted-space/catalog"}
         scope_label = f"{ROLE_LABELS.get(user.role_code, '主体')}视角"
 
-    value_label, value_unit = ENERGY_DOMAIN_UNITS.get(domain, ("综合监测值", "指数"))
-    if kind == "regulator":
-        value_label, value_unit = "跨域供需监测值", "综合单位"
-    gauge_title = f"{energy_label}资源可支撑天数"
-    gauge_unit = "综合单位" if kind == "regulator" else ENERGY_GAUGE_UNITS.get(domain, "资源量")
     return {
         "kind": kind,
         "role_code": user.role_code,
@@ -477,18 +454,223 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         "scope_label": scope_label,
         "title": title,
         "subtitle": subtitle,
-        "map_title": map_title,
-        "map_subtitle": map_subtitle,
-        "map_value_label": value_label,
-        "map_value_unit": value_unit,
-        "gauge_title": gauge_title,
-        "gauge_unit": gauge_unit,
+        "visualization": visualization,
+        "visual_title": visual_title,
+        "visual_subtitle": visual_subtitle,
+        "visual_value_label": visual_value_label,
+        "visual_value_unit": visual_value_unit,
         "focus_title": focus_title,
         "kpis": kpi_items,
         "primary_action": primary_action,
-        "data_scope": "role_scoped_aggregate_only",
-        "projection": "demo_aggregate" if projection is not None else "live_scoped_data",
+        "data_scope": "role_scoped_controlled_aggregate",
+        "projection": "demo_aggregate" if projection is not None else "subject_connector",
     }
+
+
+def _subject_metric_spec(view: dict[str, Any]) -> dict[str, str] | None:
+    if view["kind"] == "exchange":
+        return EXCHANGE_METRIC_SPECS.get(view["energy_domain"])
+    if view["kind"] == "enterprise":
+        return ENTERPRISE_METRIC_SPECS.get(view["role_code"])
+    return None
+
+
+def _empty_subject_metric(
+    spec: dict[str, str],
+    *,
+    status: str,
+    status_label: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "title": "主体核心指标",
+        "label": spec["label"],
+        "value": None,
+        "unit": spec["unit"],
+        "status": status,
+        "status_label": status_label,
+        "source": "主体本地连接器",
+        "latest_date": None,
+        "record_count": 0,
+        "aggregation": AGGREGATION_LABELS.get(spec["aggregation"], "日度汇总"),
+        "trend": [],
+        "message": message,
+        "raw_records_returned": False,
+    }
+
+
+def _regulator_metric(view: dict[str, Any]) -> dict[str, Any]:
+    value = next(
+        (item["value"] for item in view["kpis"] if item["label"] == "全域数据资源"),
+        0,
+    )
+    value = int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+    return {
+        "title": "监管可见资源",
+        "label": "已纳入监管的数据资源",
+        "value": value,
+        "unit": "项",
+        "status": "available",
+        "status_label": "平台汇总",
+        "source": "可信空间目录",
+        "latest_date": None,
+        "record_count": value,
+        "aggregation": "当前可见范围",
+        "trend": [],
+        "message": "仅统计目录元数据，不代表跨主体业务数值",
+        "raw_records_returned": False,
+    }
+
+
+def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[str, Any]:
+    if view["kind"] == "regulator":
+        return _regulator_metric(view)
+
+    spec = _subject_metric_spec(view)
+    energy_label = view["energy_label"]
+    if spec is None:
+        fallback = {
+            "resource": "",
+            "aggregation": "average",
+            "label": f"{energy_label}业务指标",
+            "unit": "",
+        }
+        return _empty_subject_metric(
+            fallback,
+            status="not_configured",
+            status_label="未配置",
+            message=f"当前主体没有配置可展示的{energy_label}业务指标。",
+        )
+
+    node = subject_node_config(db, user.org_id)
+    endpoint = node.get("endpoint") if node else None
+    if not endpoint or not str(endpoint).lower().startswith(("http://", "https://")):
+        return _empty_subject_metric(
+            spec,
+            status="not_configured",
+            status_label="未接入",
+            message=f"暂未接入{energy_label}主体连接器，无法展示{spec['label']}。",
+        )
+
+    try:
+        today = utc_now().date()
+        connector_payload = {
+            "request_id": f"dashboard-{new_id()}",
+            "provider_org_id": user.org_id,
+            "resource": spec["resource"],
+            "aggregation": spec["aggregation"],
+            "start_date": (today - timedelta(days=30)).isoformat(),
+            "end_date": today.isoformat(),
+            "decimals": 2,
+        }
+        timestamp = str(int(datetime.now(ZoneInfo("UTC")).timestamp()))
+        nonce = new_id()
+        signed_request = {"timestamp": timestamp, "nonce": nonce, "payload": connector_payload}
+        platform_private_key = _platform_private_key()
+        signature = platform_private_key.sign(canonical_json(signed_request).encode())
+        response = httpx.post(
+            f"{str(endpoint).rstrip('/')}/dashboard",
+            json=connector_payload,
+            headers={
+                "X-Request-Timestamp": timestamp,
+                "X-Request-Nonce": nonce,
+                "X-Request-Signature": base64.b64encode(signature).decode(),
+                "X-Platform-Public-Key": _platform_public_key(platform_private_key),
+            },
+            timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
+        )
+        if response.status_code >= 400:
+            status_code, detail = _connector_failure(response)
+            return _empty_subject_metric(
+                spec,
+                status="unavailable",
+                status_label="不可用",
+                message=f"主体连接器返回 {status_code}：{detail}",
+            )
+
+        result = response.json()
+        if not isinstance(result, dict):
+            raise ValueError("主体连接器返回格式无效")
+        expected_public_key = node.get("public_key") if node else None
+        if expected_public_key and result.get("public_key") != expected_public_key:
+            raise ValueError("主体连接器签名公钥与登记信息不一致")
+        if not expected_public_key and settings.app_env == "demo":
+            expected_public_key = str(result.get("public_key") or "")
+        if not expected_public_key:
+            raise ValueError("主体连接器公钥未登记")
+        signed_result = {
+            key: value
+            for key, value in result.items()
+            if key not in {"signature", "public_key", "signature_algorithm", "signature_valid"}
+        }
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(expected_public_key)).verify(
+            base64.b64decode(str(result["signature"])),
+            canonical_json(signed_result).encode(),
+        )
+        if result.get("provider_org_id") != user.org_id:
+            raise ValueError("主体连接器返回了不匹配的组织身份")
+        if result.get("energy_domain") != view["energy_domain"]:
+            raise ValueError("主体连接器返回了不匹配的能源域")
+        if result.get("resource") != spec["resource"]:
+            raise ValueError("主体连接器返回了不匹配的数据资源")
+
+        trend: list[dict[str, Any]] = []
+        raw_trend = result.get("trend")
+        if isinstance(raw_trend, list):
+            for point in raw_trend:
+                if not isinstance(point, dict):
+                    continue
+                point_date = str(point.get("date") or "")
+                raw_value = point.get("value")
+                if not point_date or isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+                    continue
+                value = float(raw_value)
+                if math.isfinite(value):
+                    trend.append({"date": point_date, "value": value})
+        if not trend:
+            raise ValueError("主体连接器没有返回可用日度汇总")
+        raw_count = result.get("record_count", 0)
+        record_count = int(raw_count) if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool) else 0
+        latest = trend[-1]
+        return {
+            "title": "主体核心指标",
+            "label": spec["label"],
+            "value": latest["value"],
+            "unit": str(result.get("unit") or spec["unit"]),
+            "status": "available",
+            "status_label": "已接入",
+            "source": f"{energy_label}主体本地连接器 · 签名汇总",
+            "latest_date": latest["date"],
+            "record_count": max(0, record_count),
+            "aggregation": AGGREGATION_LABELS.get(spec["aggregation"], "日度汇总"),
+            "trend": trend,
+            "message": f"已接收 {latest['date']} 日度受控汇总",
+            "raw_records_returned": False,
+        }
+    except Exception:
+        return _empty_subject_metric(
+            spec,
+            status="unavailable",
+            status_label="不可用",
+            message="主体连接器暂不可用，未生成业务指标。",
+        )
+
+
+def _dashboard_connectors(
+    view: dict[str, Any],
+    metric: dict[str, Any],
+    chain_ok: bool,
+    projection: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    if projection is not None:
+        return projection["connectors"]
+    subject_name = "监管目录汇总" if view["kind"] == "regulator" else f"{view['energy_label']}主体连接器"
+    subject_status = metric["status_label"]
+    return [
+        {"name": subject_name, "status": subject_status},
+        {"name": "策略引擎", "status": "正常"},
+        {"name": "审计哈希链", "status": "完整" if chain_ok else "异常"},
+    ]
 
 
 def _parse_period(text: str) -> tuple[date, date]:
@@ -565,9 +747,9 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     records = _audit_records(db, 200)
     ok, chain_message = _chain_state(db)
     uploads = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(1)).all()
-    demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} else None
+    demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} and user.role_code == "REGULATOR" else None
     view = _dashboard_view(db, user, demo_projection)
-    projection = _domain_demo_projection(demo_projection, view["energy_domain"])
+    metric = _load_subject_metric(db, user, view)
     is_demo = demo_projection is not None
     real_activity = bool(
         db.scalar(select(func.count(PrivacyAnalysisJob.analysis_id)))
@@ -583,14 +765,8 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     timeline = [item for item in records if "隐私" in item["resource"] or "协同" in item["resource"]][:6]
     if use_demo_activity:
         timeline = demo_projection["timeline"]
-    map_data = projection["map"] if projection else {"days": [], "series": {}, "coal_days": [], "coal_inventory": [], "coal_consumption": []}
-    gauge = projection["gauge"] if projection else {"days": 0, "level": "暂无数据", "inventory": 0}
-    connectors = projection["connectors"] if projection else [
-        {"name": "电力连接器", "status": "正常"},
-        {"name": "煤炭连接器", "status": "正常"},
-        {"name": "策略引擎", "status": "正常"},
-        {"name": "哈希链存证", "status": "完整" if ok else "异常"},
-    ]
+    map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}}
+    connectors = _dashboard_connectors(view, metric, ok, demo_projection)
     return {
         "kpis": {
             "resources": db.scalar(select(func.count(DataAsset.asset_id)).where(DataAsset.status == "ACTIVE")) or 0,
@@ -600,21 +776,25 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
             "today_queries": len(records) if records else (sum(action_counts.values()) if use_demo_activity else 0),
         },
         "map": map_data,
-        "gauge": gauge,
+        "metric": metric,
         "audit": audit_records,
         "action_counts": action_counts,
         "connectors": connectors,
         "timeline": timeline,
         "chain": {"ok": ok, "message": chain_message},
         "latest_usage": bool(uploads),
-        "data_mode": "demo" if is_demo else "live",
+        "data_mode": "demo" if is_demo else "subject_connector",
         "view": view,
         "data_notice": (
-            "演示态势图 · 真实任务已写入审计与计算记录"
-            if use_demo_activity is False and is_demo
-            else "演示数据 · 仅用于原型展示"
+            "演示数据 · 当前页面仅展示监管演示汇总，业务指标不代表生产数据"
             if is_demo
-            else "实时数据 · 当前环境"
+            else "演示环境 · 当前主体连接器已返回签名汇总，节点数据为本地样例"
+            if settings.app_env in {"development", "test", "demo"} and metric["status"] == "available"
+            else "主体受控汇总 · 当前主体连接器已返回签名汇总"
+            if metric["status"] == "available"
+            else "主体受控汇总 · 主体连接器未接入，未生成业务指标"
+            if metric["status"] == "not_configured"
+            else "主体受控汇总 · 主体连接器暂不可用，未生成业务指标"
         ),
     }
 

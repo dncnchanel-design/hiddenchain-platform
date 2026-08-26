@@ -329,7 +329,14 @@ def test_prototype_dashboard_is_role_and_energy_domain_specific(client, auth_hea
     exchange_coal_view = exchange_coal.json()["view"]
     assert exchange_coal_view["energy_domain"] == "coal"
     assert exchange_coal_view["energy_label"] == "煤炭"
-    assert exchange_coal_view["map_title"] != exchange_view["map_title"]
+    assert exchange_coal_view["visual_title"] != exchange_view["visual_title"]
+    assert generator.json()["metric"]["status"] == "not_configured"
+    assert generator.json()["metric"]["value"] is None
+    assert retailer.json()["metric"]["label"] != generator.json()["metric"]["label"]
+    assert "gauge" not in generator.json()
+    assert "coal_days" not in generator.json()["map"]
+    assert regulator_view["visualization"] == "regional_map"
+    assert generator_view["visualization"] == "subject_trend"
 
 
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):

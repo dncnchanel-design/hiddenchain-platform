@@ -449,15 +449,29 @@ export type PrototypeHeaderPayload = {
 
 export type PrototypeDashboardPayload = {
   kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number };
-  map: { days: string[]; series: Record<string, number[]>; coal_days: number[]; coal_inventory: number[]; coal_consumption: number[] };
-  gauge: { days: number; level: string; inventory: number };
+  map: { days: string[]; series: Record<string, number[]> };
+  metric: {
+    title: string;
+    label: string;
+    value: number | null;
+    unit: string;
+    status: "available" | "not_configured" | "unavailable";
+    status_label: string;
+    source: string;
+    latest_date: string | null;
+    record_count: number;
+    aggregation: string;
+    trend: Array<{ date: string; value: number }>;
+    message: string;
+    raw_records_returned: boolean;
+  };
   audit: PrototypeAuditRecord[];
   action_counts: Record<string, number>;
   connectors: Array<{ name: string; status: string }>;
   timeline: PrototypeAuditRecord[];
   chain: { ok: boolean; message: string };
   latest_usage: boolean;
-  data_mode: "demo" | "live";
+  data_mode: "demo" | "subject_connector" | "live";
   view: {
     kind: "enterprise" | "exchange" | "regulator";
     role_code: string;
@@ -466,12 +480,11 @@ export type PrototypeDashboardPayload = {
     scope_label: string;
     title: string;
     subtitle: string;
-    map_title: string;
-    map_subtitle: string;
-    map_value_label: string;
-    map_value_unit: string;
-    gauge_title: string;
-    gauge_unit: string;
+    visualization: "regional_map" | "subject_trend";
+    visual_title: string;
+    visual_subtitle: string;
+    visual_value_label: string;
+    visual_value_unit: string;
     focus_title: string;
     kpis: Array<{ label: string; value: number | string; meta: string }>;
     primary_action: { label: string; path: string };
