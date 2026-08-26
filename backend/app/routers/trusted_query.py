@@ -847,7 +847,8 @@ def execute_query(
     if request_item.status == "SUCCEEDED" and request_item.result_json:
         replayed_result = request_item.result_json
         return {
-            "task_id": replayed_result.get("task_id"),
+            "task_id": replayed_result.get("_hiddenchain_task_id") or replayed_result.get("task_id"),
+            "job_id": replayed_result.get("_hiddenchain_job_id"),
             "request_item_id": request_item.request_item_id,
             "authorization_scope": authorization.request_id,
             "generated_at": replayed_result.get("generated_at"),
@@ -860,6 +861,7 @@ def execute_query(
             "digital_signature": "已验证",
             "audit_recorded": True,
             "raw_records_returned": False,
+            "capability": replayed_result.get("capability", "本地受控计算"),
             "idempotent_replay": True,
         }
     metadata = asset.metadata_json or {}
@@ -941,8 +943,9 @@ def execute_query(
         raise HTTPException(502, "企业连接器返回了不允许交付的原始记录")
     trend = _validated_trend(result.get("trend"))
     output_hash = sha256_json(signed_result)
+    job_id = new_id()
     job = PrivacyComputeJob(
-        job_id=new_id(),
+        job_id=job_id,
         task_id=task_id,
         algorithm_code=payload.function,
         adapter_code=f"LOCAL_SUBJECT_NODE_{authorization.provider_org_id}",
@@ -982,7 +985,11 @@ def execute_query(
         },
     )
     request_item.status = "SUCCEEDED"
-    request_item.result_json = result
+    request_item.result_json = {
+        **result,
+        "_hiddenchain_task_id": task_id,
+        "_hiddenchain_job_id": job.job_id,
+    }
     request_item.result_hash = output_hash
     request_item.completed_at = utc_now()
     db.add(
@@ -1008,6 +1015,7 @@ def execute_query(
     db.commit()
     return {
         "task_id": task_id,
+        "job_id": job.job_id,
         "request_item_id": request_item.request_item_id,
         "authorization_scope": authorization.request_id,
         "generated_at": result.get("generated_at"),
@@ -1021,6 +1029,7 @@ def execute_query(
         "audit_recorded": True,
         "raw_records_returned": False,
         "capability": result.get("capability", "本地受控计算"),
+        "idempotent_replay": False,
     }
 
 

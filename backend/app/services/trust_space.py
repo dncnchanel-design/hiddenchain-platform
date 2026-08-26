@@ -19,6 +19,7 @@ from ..models import (
     DataSpaceAgreement,
     DataUsageRequest,
     DidIdentity,
+    ExecutionReceipt,
     Organization,
     PrivacyComputeJob,
     SettlementResult,
@@ -2219,7 +2220,20 @@ def transition_ttc(
 
 def _compute_visible(db: Session, job: PrivacyComputeJob, user: User) -> bool:
     task = db.get(SettlementTask, job.task_id)
-    return task is not None and _task_visible(db, task, user)
+    if task is not None:
+        return _task_visible(db, task, user)
+
+    # Trusted-space queries use a generated task id for the connector
+    # invocation, but deliberately do not create a SettlementTask.  Scope
+    # those jobs by the two organizations recorded in the signed execution
+    # attestation instead of making every detached job visible.
+    attestation = job.execution_attestation_json or {}
+    if not attestation.get("request_item_id"):
+        return False
+    return user.org_id in {
+        str(attestation.get("applicant_org_id") or ""),
+        str(attestation.get("provider_org_id") or ""),
+    }
 
 
 LOCAL_COMPUTE_ADAPTER = "LOCAL_CONTROLLED_SETTLEMENT_V1"
@@ -2442,15 +2456,82 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
         .where(BlockchainEvidence.task_id == job.task_id)
         .order_by(BlockchainEvidence.created_at.asc())
     ).all()
-    # Participants are real task registrations.  The external MPC/TEE
-    # network is intentionally not inferred from those rows.
-    external_state = "BLOCKED" if len(participants) < 2 else "ADAPTER"
+    attestation = job.execution_attestation_json or {}
+    is_trusted_query = task is None and bool(attestation.get("request_item_id"))
+    participant_payloads = [
+        {
+            "org_id": item.org_id,
+            "organization": _organization_payload(db, item.org_id),
+            "role_in_task": item.role_in_task,
+            "data_status": item.data_status,
+        }
+        for item in participants
+    ]
+    if is_trusted_query:
+        seen_org_ids = {item["org_id"] for item in participant_payloads}
+        for org_id, role_in_task, data_status in (
+            (attestation.get("applicant_org_id"), "QUERY_APPLICANT", "AUTHORIZED"),
+            (attestation.get("provider_org_id"), "DATA_PROVIDER", "CONNECTOR_READY"),
+        ):
+            normalized_org_id = str(org_id or "")
+            if normalized_org_id and normalized_org_id not in seen_org_ids:
+                participant_payloads.append(
+                    {
+                        "org_id": normalized_org_id,
+                        "organization": _organization_payload(db, normalized_org_id),
+                        "role_in_task": role_in_task,
+                        "data_status": data_status,
+                    }
+                )
+                seen_org_ids.add(normalized_org_id)
+
+    # Participants are real task registrations for settlement jobs.  A
+    # completed trusted query has a verified subject connector attestation,
+    # so its capability is the registered local adapter even without a TTC
+    # task row.  No external MPC/TEE capability is inferred here.
+    external_state = "ADAPTER" if is_trusted_query else ("BLOCKED" if len(participants) < 2 else "ADAPTER")
+    query_receipts = db.scalars(
+        select(ExecutionReceipt)
+        .where(ExecutionReceipt.task_id == job.task_id)
+        .order_by(ExecutionReceipt.executed_at.asc())
+    ).all() if is_trusted_query else []
+    receipt_payloads = [
+        {
+            "evidence_id": item.evidence_id,
+            "stage": item.stage,
+            "biz_type": item.biz_type,
+            "biz_id": item.biz_id,
+            "evidence_hash": item.evidence_hash,
+            "chain_code": item.chain_code,
+            "status": item.status,
+            "tx_hash": item.tx_hash,
+            "block_height": item.block_height,
+        }
+        for item in evidence
+    ]
+    receipt_payloads.extend(
+        {
+            "evidence_id": item.receipt_id,
+            "stage": "IN_COMPUTE",
+            "biz_type": "TRUSTED_QUERY",
+            "biz_id": item.request_item_id,
+            "evidence_hash": item.result_hash,
+            "chain_code": None,
+            "status": item.status,
+            "tx_hash": None,
+            "block_height": None,
+        }
+        for item in query_receipts
+    )
     control_actions, action_reasons = _compute_control_actions(db, job, user, task)
     return {
         "job": {
             "job_id": job.job_id,
             "task_id": job.task_id,
-            "task_name": task.task_name if task else None,
+            "task_name": task.task_name
+            if task
+            else f"智能查询 · {(job.result_json or {}).get('resource_name') or job.algorithm_code}",
+            "task_kind": "TRUSTED_QUERY" if is_trusted_query else "SETTLEMENT",
             "algorithm_code": job.algorithm_code,
             "adapter_code": job.adapter_code,
             "status": job.status,
@@ -2467,15 +2548,7 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
             "execution_snapshot_id": job.execution_snapshot_id,
             "state_version": int(job.state_version or 1),
         },
-        "participants": [
-            {
-                "org_id": item.org_id,
-                "organization": _organization_payload(db, item.org_id),
-                "role_in_task": item.role_in_task,
-                "data_status": item.data_status,
-            }
-            for item in participants
-        ],
+        "participants": participant_payloads,
         "attempt": _attempt_item(attempt) if attempt else None,
         "snapshot": {
             "snapshot_id": snapshot.snapshot_id,
@@ -2485,26 +2558,24 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
         }
         if snapshot
         else None,
-        "receipts": [
-            {
-                "evidence_id": item.evidence_id,
-                "stage": item.stage,
-                "biz_type": item.biz_type,
-                "biz_id": item.biz_id,
-                "evidence_hash": item.evidence_hash,
-                "chain_code": item.chain_code,
-                "status": item.status,
-                "tx_hash": item.tx_hash,
-                "block_height": item.block_height,
-            }
-            for item in evidence
-        ],
+        "receipts": receipt_payloads,
         "external_execution": {
             "capability_state": external_state,
-            "source_of_truth": "privacy_compute_jobs/task_participants",
+            "source_of_truth": "privacy_compute_jobs/execution_attestation"
+            if is_trusted_query
+            else "privacy_compute_jobs/task_participants",
             "adapter_code": job.adapter_code,
             "tee_attestation": "NOT_CONFIGURED",
-            "cross_domain_participants": [],
+            "cross_domain_participants": [
+                str(org_id)
+                for org_id in (
+                    attestation.get("applicant_org_id"),
+                    attestation.get("provider_org_id"),
+                )
+                if org_id
+            ]
+            if is_trusted_query
+            else [],
         },
         **_allowed_actions(
             user,

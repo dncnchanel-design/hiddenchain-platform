@@ -554,6 +554,7 @@ export type AccessRuleListPayload = CapabilityEnvelope & {
 
 export type ControlledQueryResult = {
   task_id: string;
+  job_id?: string | null;
   request_item_id?: string;
   authorization_scope: string;
   generated_at: string;
@@ -772,6 +773,7 @@ export type ComputationJob = {
   job_id: string;
   task_id: string;
   task_name?: string | null;
+  task_kind?: "SETTLEMENT" | "TRUSTED_QUERY" | string;
   algorithm_code: string;
   adapter_code?: string | null;
   status: string;

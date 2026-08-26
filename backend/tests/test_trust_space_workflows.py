@@ -354,6 +354,70 @@ def test_computation_truth_labels_and_log_cursor(client, auth_headers):
     assert blocked.json()["external_execution"]["cross_domain_participants"] == []
 
 
+def test_trusted_query_computation_is_scoped_by_attested_subjects(client, auth_headers):
+    with SessionLocal() as db:
+        job = PrivacyComputeJob(
+            job_id="query-job-scoped",
+            task_id="TASK-QUERY-SCOPED",
+            algorithm_code="average",
+            adapter_code="LOCAL_SUBJECT_NODE_org-generator-t01",
+            input_hashes_json=["authorization-hash"],
+            output_hash="query-output-hash",
+            result_json={
+                "resource_name": "日发电量",
+                "result": 128.5,
+                "unit": "MWh",
+            },
+            execution_attestation_json={
+                "request_item_id": "query-request-item",
+                "applicant_org_id": "org-exchange-t01",
+                "provider_org_id": "org-generator-t01",
+                "connector_signature_verified": True,
+            },
+            status="SUCCEEDED",
+            progress=100,
+            logs_json=["connector computation completed"],
+            privacy_guarantees_json={"raw_records_returned": False},
+        )
+        db.add(job)
+        db.commit()
+
+    exchange_list = client.get(
+        "/api/trust-space/computations?page=1&page_size=100",
+        headers=auth_headers["exchange"],
+    )
+    generator_list = client.get(
+        "/api/trust-space/computations?page=1&page_size=100",
+        headers=auth_headers["generator"],
+    )
+    retailer_list = client.get(
+        "/api/trust-space/computations?page=1&page_size=100",
+        headers=auth_headers["retailer"],
+    )
+    assert exchange_list.status_code == generator_list.status_code == retailer_list.status_code == 200
+    assert any(item["job_id"] == "query-job-scoped" for item in exchange_list.json()["items"])
+    assert any(item["job_id"] == "query-job-scoped" for item in generator_list.json()["items"])
+    assert not any(item["job_id"] == "query-job-scoped" for item in retailer_list.json()["items"])
+
+    applicant_detail = client.get(
+        "/api/trust-space/computations/query-job-scoped",
+        headers=auth_headers["exchange"],
+    )
+    provider_detail = client.get(
+        "/api/trust-space/computations/query-job-scoped",
+        headers=auth_headers["generator"],
+    )
+    assert applicant_detail.status_code == provider_detail.status_code == 200
+    assert applicant_detail.json()["job"]["task_kind"] == "TRUSTED_QUERY"
+    assert applicant_detail.json()["job"]["task_name"] == "智能查询 · 日发电量"
+    assert {item["role_in_task"] for item in applicant_detail.json()["participants"]} == {
+        "QUERY_APPLICANT",
+        "DATA_PROVIDER",
+    }
+    assert applicant_detail.json()["job"]["result"]["result"] == 128.5
+    assert provider_detail.json()["job"]["result"] == {"output_hash": "query-output-hash"}
+
+
 def test_computation_controls_are_truthful_scoped_idempotent_and_audited(client, auth_headers):
     task_id = "batch3-compute-control-task"
     with SessionLocal() as db:

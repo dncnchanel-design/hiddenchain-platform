@@ -313,6 +313,8 @@ export const RESULT_SCOPE_LABELS: Record<string, string> = {
 export const ROLE_IN_TASK_LABELS: Record<string, string> = {
   GENERATOR: "发电方",
   RETAILER: "用电方",
+  QUERY_APPLICANT: "查询发起方",
+  DATA_PROVIDER: "数据提供方",
 };
 
 export const ACTION_LABELS: Record<string, string> = {
