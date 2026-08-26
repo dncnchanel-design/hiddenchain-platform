@@ -319,6 +319,13 @@ def _demo_dashboard_projection() -> dict[str, Any]:
         "潍坊": [4310, 4420, 4510, 4470, 4630, 4700, 4650],
         "临沂": [3290, 3380, 3460, 3520, 3590, 3660, 3610],
     }
+    city_days = {
+        "济南": [16.8, 17.0, 17.2, 16.9, 17.5, 17.7, 17.4],
+        "青岛": [13.6, 13.8, 14.1, 13.9, 14.4, 14.6, 14.3],
+        "烟台": [11.2, 11.5, 11.7, 11.9, 12.2, 12.4, 12.1],
+        "潍坊": [14.1, 14.3, 14.6, 14.4, 14.9, 15.1, 14.8],
+        "临沂": [9.8, 10.1, 10.3, 10.5, 10.8, 11.0, 10.7],
+    }
     audit_specs = [
         ("compute_only", "仅计算不出域", "山东电力交易中心", "电煤供耗存日报", "SUCCESS"),
         ("aggregate", "汇总提供", "能源局-监管", "电网负荷曲线", "SUCCESS"),
@@ -347,6 +354,7 @@ def _demo_dashboard_projection() -> dict[str, Any]:
         "map": {
             "days": days,
             "series": series,
+            "city_days": city_days,
         },
         "audit": audit,
         "action_counts": {"allow": 8, "deny": 2, "aggregate": 11, "delay": 1, "compute_only": 10},

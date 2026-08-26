@@ -449,7 +449,7 @@ export type PrototypeHeaderPayload = {
 
 export type PrototypeDashboardPayload = {
   kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number };
-  map: { days: string[]; series: Record<string, number[]> };
+  map: { days: string[]; series: Record<string, number[]>; city_days?: Record<string, number[]> };
   metric: {
     title: string;
     label: string;
