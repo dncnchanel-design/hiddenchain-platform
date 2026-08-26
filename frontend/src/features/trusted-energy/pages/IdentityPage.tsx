@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Building2,
-  CheckCircle2,
   ChevronDown,
   Copy,
   Factory,
@@ -14,7 +13,6 @@ import {
   Link2,
   LoaderCircle,
   RefreshCw,
-  ShieldCheck,
   UserRound,
   Waves,
 } from "lucide-react";
@@ -23,8 +21,6 @@ import { Badge, Button, Card, CardContent, CardHeader, Divider, IconButton, Metr
 import { PageFrame } from "../components/PageFrame";
 import { loadDidDocument, loadIdentity, loadIdentityDirectory, type DidDocumentPayload, type IdentityDirectoryItem } from "../trusted-space-api";
 import { ROLE_LABELS, labelForCode } from "../../../types";
-import { useTrustedSpaceContext } from "../trusted-space-context";
-
 function valueOrDash(value?: string | null) {
   return value || "暂无";
 }
@@ -33,10 +29,6 @@ function formatTime(value?: string | null) {
   if (!value) return "暂无";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-CN", { hour12: false });
-}
-
-function capabilityLabel(key: string) {
-  return ({ identity: "身份凭证", asset_registry: "数据目录登记", connector_control_plane: "可信数据空间连接器", tee: "TEE 远程证明", hash_chain: "审计哈希链", blockchain: "外部区块链存证" } as Record<string, string>)[key] || labelForCode(key, "已登记能力");
 }
 
 function roleLabel(value?: string | null) {
@@ -58,25 +50,6 @@ function identityGlyph(item: IdentityDirectoryItem) {
   if (item.energy_domain === "oil") return <Fuel size={20} />;
   return <UserRound size={20} />;
 }
-
-function capabilityTone(state?: string) {
-  if (state === "BLOCKED") return "danger" as const;
-  if (state === "DEMO" || state === "ADAPTER" || state === "NOT_CONFIGURED") return "warning" as const;
-  return "success" as const;
-}
-
-const permissionLabels: Record<string, string> = {
-  MANAGE_CATALOG: "管理数据目录",
-  MANAGE_CONNECTOR: "管理数据连接",
-  MANAGE_PUBLICATION_POLICY: "配置数据公布规则",
-  APPROVE_AUTHORIZATION: "审批数据授权",
-  CREATE_COMPUTE_TASK: "创建计算任务",
-  VIEW_COMPUTE_RESULT: "查看计算结果",
-  VIEW_AUDIT: "查看审计记录",
-  MANAGE_MEMBERS: "管理成员与权限",
-  CREATE_CROSS_ENERGY_QUERY: "发起跨能源查询",
-  MANAGE_PLATFORM_OPERATIONS: "维护平台运行",
-};
 
 async function copyValue(value?: string | null) {
   if (value && navigator.clipboard) await navigator.clipboard.writeText(value);
@@ -159,7 +132,6 @@ function IdentityDirectory({ remote }: { remote: ReturnType<typeof useRemote<Awa
 export function IdentityPage() {
   const remote = useRemote(loadIdentity, []);
   const directoryRemote = useRemote(loadIdentityDirectory, []);
-  const { context } = useTrustedSpaceContext();
   const identity = remote.data;
   return <PageFrame title="身份拓扑" action={<Button variant="secondary" onClick={() => Promise.all([remote.reload(), directoryRemote.reload()])} busy={remote.refreshing || directoryRemote.refreshing}><RefreshCw size={14} />刷新主体状态</Button>}>
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
@@ -171,7 +143,6 @@ export function IdentityPage() {
           <a href="#trusted-identity-did"><Fingerprint size={14} />DID 身份</a>
           <a href="#trusted-identity-connector"><Link2 size={14} />连接器绑定</a>
           <a href="#trusted-identity-certificate"><FileKey2 size={14} />数字证书</a>
-          <a href="#trusted-identity-capabilities"><ShieldCheck size={14} />能力矩阵</a>
         </nav>
         <div className="trusted-identity-content">
           <div className="trusted-detail-grid trusted-identity-grid">
@@ -180,9 +151,6 @@ export function IdentityPage() {
           </div>
 
           <IdentityDirectory remote={directoryRemote} />
-
-          <Card id="trusted-identity-capabilities" className="trusted-capability-card"><CardHeader><SurfaceHeader title="可信能力矩阵" description="能力标签由后端返回；适配器、阻断和演示状态不会被包装成生产连接。" /></CardHeader><CardContent><div className="trusted-capability-table">{Object.entries(identity.capability_matrix).map(([key, item]) => <div className="trusted-capability-row" key={key}><span className="trusted-capability-name"><ShieldCheck size={15} />{capabilityLabel(key)}</span><Badge tone={capabilityTone(item.capability_state)}>{labelForCode(item.capability_state, "未配置")}</Badge><span className="trusted-muted">{item.readiness ? labelForCode(item.readiness, "已登记状态") : labelForCode(item.source_of_truth, "未登记来源")}</span><CheckCircle2 size={15} className={item.capability_state === "BLOCKED" ? "trusted-icon-muted" : "trusted-icon-success"} /></div>)}</div></CardContent></Card>
-          <Card className="trusted-capability-card tw-mt-4"><CardHeader><SurfaceHeader title="当前账号权限" description="权限由企业最高权限账号授予，不绑定固定岗位名称。" /></CardHeader><CardContent><div className="trusted-function-chips">{(context?.actor.permissions || []).map((permission) => <span key={permission}>{permissionLabels[permission] || "企业授予权限"}</span>)}{!(context?.actor.permissions || []).length && <span>当前账号没有业务权限</span>}</div></CardContent></Card>
         </div>
       </div>
     </>}
