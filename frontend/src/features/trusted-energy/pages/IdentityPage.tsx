@@ -229,10 +229,10 @@ export function IdentityPage() {
         <nav className="trusted-identity-nav" aria-label="参与主体分区">
           <a className="is-active" href="#trusted-identity-subject"><UserRound size={14} />主体概览</a>
           <a href="#trusted-identity-topology"><Network size={14} />身份拓扑</a>
-          <a href="#trusted-identity-did"><Fingerprint size={14} />DID 身份</a>
           <a href="#trusted-identity-directory"><Building2 size={14} />主体注册表</a>
-          <a href="#trusted-identity-certificate"><FileKey2 size={14} />数字证书</a>
+          <a href="#trusted-identity-did"><Fingerprint size={14} />DID 身份</a>
           <a href="#trusted-identity-connector"><Link2 size={14} />连接器绑定</a>
+          <a href="#trusted-identity-certificate"><FileKey2 size={14} />数字证书</a>
           <a href="#trusted-identity-capabilities"><ShieldCheck size={14} />能力矩阵</a>
         </nav>
         <div className="trusted-identity-content">

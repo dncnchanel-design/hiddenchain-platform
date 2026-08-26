@@ -199,10 +199,11 @@
 .trusted-identity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .trusted-identity-grid .trusted-detail-main, .trusted-identity-grid .trusted-detail-side { display: contents; }
 .trusted-identity-grid > .energy-card { min-height: 0; }
-.trusted-identity-layout { display: grid; grid-template-columns: 126px minmax(0, 1fr); gap: 12px; align-items: start; }
-.trusted-identity-nav { position: sticky; top: 14px; display: flex; flex-direction: column; gap: 2px; padding: 6px 0; background: #fff; border: 1px solid var(--energy-line); border-radius: 3px; }
-.trusted-identity-nav a { min-height: 33px; display: flex; align-items: center; gap: 7px; padding: 0 10px; color: var(--energy-secondary); font-size: 10px; }
+.trusted-identity-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; align-items: start; }
+.trusted-identity-nav { position: sticky; top: 14px; display: flex; flex-direction: column; gap: 3px; padding: 8px 0; background: #fff; border: 1px solid var(--energy-line); border-radius: 3px; }
+.trusted-identity-nav a { min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--energy-secondary); font-size: 12px; line-height: 1.35; transition: color 140ms ease, background 140ms ease; }
 .trusted-identity-nav a:hover { color: var(--energy-brand); background: var(--energy-brand-soft); }
+.trusted-identity-nav a:focus-visible { outline: 2px solid var(--energy-brand); outline-offset: -2px; }
 .trusted-identity-nav a.is-active { color: var(--energy-brand); font-weight: 700; background: var(--energy-brand-soft); box-shadow: inset 2px 0 0 var(--energy-brand); }
 .trusted-identity-content { min-width: 0; }
 .trusted-detail-main, .trusted-detail-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
