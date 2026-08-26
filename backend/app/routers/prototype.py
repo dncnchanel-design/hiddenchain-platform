@@ -428,7 +428,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
             {"label": "授权记录", "value": trusted_kpis["usage_requests"], "meta": "跨主体申请"},
             {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "全域任务"},
             {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
-            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
         ]
         primary_action = {"label": "进入审计追溯", "path": "/trusted-space/audit"}
         scope_label = "监管全域视角"
@@ -451,7 +450,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
             {"label": "授权申请", "value": trusted_kpis["usage_requests"], "meta": "跨主体协同"},
             {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
             {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "证据复核"},
-            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
         ]
         primary_action = {"label": "发起结算任务", "path": "/settlements/new"}
         scope_label = f"{energy_label}交易协同视角"
@@ -477,7 +475,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
             {"label": "本方任务", "value": trusted_kpis["visible_tasks"], "meta": "参与结算"},
             {"label": "受控计算任务", "value": trusted_kpis["compute_jobs"], "meta": "不出域执行"},
             {"label": "授权记录", "value": trusted_kpis["usage_requests"], "meta": "本方范围"},
-            {"label": "数据不出域", "value": "100%", "meta": "策略保障"},
         ]
         primary_action = {"label": "查看本方数据目录", "path": "/trusted-space/catalog"}
         scope_label = f"{ROLE_LABELS.get(user.role_code, '主体')}视角"
@@ -617,7 +614,6 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
             "identities": db.scalar(select(func.count(Organization.org_id)).where(Organization.status == "ACTIVE")) or 0,
             "blocks": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0,
             "today_queries": len(records) if records else (sum(action_counts.values()) if use_demo_activity else 0),
-            "no_domain_export": "100%",
         },
         "map": map_data,
         "gauge": gauge,

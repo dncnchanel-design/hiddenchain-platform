@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
-import { Activity, ArrowRight, Database, FileCheck2, Link2, LockKeyhole, Map as MapIcon, Search, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, ArrowRight, Database, FileCheck2, Link2, Map as MapIcon, Search, ShieldCheck, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useRemote } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
@@ -14,7 +14,7 @@ const FLOW_ROUTES = [
   { from: [117.0, 36.65], to: [121.45, 37.46], label: "电力 ↔ 煤炭" },
   { from: [118.35, 35.1], to: [119.16, 36.71], label: "电力调配" },
 ];
-const KPI_ICONS = [Database, ShieldCheck, UsersRound, Link2, Search, LockKeyhole];
+const KPI_ICONS = [Database, ShieldCheck, UsersRound, Link2, Search];
 const CONNECTOR_NOTES = ["电力连接器", "煤炭连接器", "策略引擎", "哈希链存证"];
 type PrototypeMap = PrototypeDashboardPayload["map"];
 
