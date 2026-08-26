@@ -342,6 +342,35 @@ def test_prototype_dashboard_is_role_and_energy_domain_specific(client, auth_hea
     assert generator_view["visualization"] == "subject_trend"
 
 
+def test_prototype_audit_tamper_exposes_actor_and_affected_block(client, auth_headers):
+    initial = client.get("/api/prototype/audit", headers=auth_headers["regulator"])
+    assert initial.status_code == 200, initial.text
+
+    tampered = client.post("/api/prototype/audit/tamper", headers=auth_headers["regulator"])
+    assert tampered.status_code == 200, tampered.text
+    assert tampered.json()["event_id"]
+
+    failed = client.get("/api/prototype/audit", headers=auth_headers["regulator"])
+    assert failed.status_code == 200, failed.text
+    failed_payload = failed.json()
+    tamper = failed_payload["tamper"]
+    assert failed_payload["chain"]["ok"] is False
+    assert tamper["active"] is True
+    assert tamper["actor_name"]
+    assert tamper["event_id"] == tampered.json()["event_id"]
+    assert tamper["block"]["height"] == tampered.json()["affected_block"]
+    assert any(item["action"] == "tamper" for item in failed_payload["records"])
+
+    restored = client.post("/api/prototype/audit/restore", headers=auth_headers["regulator"])
+    assert restored.status_code == 200, restored.text
+    recovered = client.get("/api/prototype/audit", headers=auth_headers["regulator"])
+    assert recovered.status_code == 200, recovered.text
+    recovered_payload = recovered.json()
+    assert recovered_payload["chain"]["ok"] is True
+    assert recovered_payload["tamper"]["active"] is False
+    assert recovered_payload["tamper"]["event_id"] == tamper["event_id"]
+
+
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
     catalog = client.get(
         "/api/data/catalog?trade_batch_no=TB-2026-07-T01",

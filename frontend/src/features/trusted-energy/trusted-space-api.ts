@@ -517,7 +517,9 @@ export type PrototypePolicyResource = { id: string; name: string; level: string;
 export type PrototypePolicyPayload = { matrix: PrototypePolicyResource[]; applications: Array<{ ts: string; resource_id: string; resource_name: string; applicant_role: string; applicant_did: string; purpose: string; status: string }> };
 
 export type PrototypeAuditRecord = { id: string; ts: string; action: string; action_name: string; subject: string; resource: string; target_type: string; target_id: string; result: string; trace_id: string };
-export type PrototypeAuditPayload = { records: PrototypeAuditRecord[]; blocks: Array<{ id: string; height: number; hash: string; tx_hash: string; status: string; created_at: string }>; metrics: { total: number; denied: number; controlled: number; blocks: number }; chain: { ok: boolean; message: string } };
+export type PrototypeAuditBlock = { id: string; height: number; hash: string; tx_hash: string; status: string; created_at: string };
+export type PrototypeTamperEvent = { event_id: string; active: boolean; actor_name: string; actor_user_id: string | null; actor_org_id: string | null; occurred_at: string; trace_id: string; target_type: string; target_id: string; block: PrototypeAuditBlock | null; note: string };
+export type PrototypeAuditPayload = { records: PrototypeAuditRecord[]; blocks: PrototypeAuditBlock[]; metrics: { total: number; denied: number; controlled: number; blocks: number }; chain: { ok: boolean; message: string }; tamper: PrototypeTamperEvent | null };
 
 export type QueryConfirmation = {
   confirmed: boolean;
@@ -1213,7 +1215,7 @@ export function verifyPrototypeAudit(options: ApiCommandOptions = {}) {
 }
 
 export function tamperPrototypeAudit(options: ApiCommandOptions = {}) {
-  return post<{ ok: boolean; message: string }>("/prototype/audit/tamper", {}, options);
+  return post<{ ok: boolean; event_id: string; affected_block: number | null; message: string }>("/prototype/audit/tamper", {}, options);
 }
 
 export function restorePrototypeAudit(options: ApiCommandOptions = {}) {

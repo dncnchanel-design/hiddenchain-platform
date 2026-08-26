@@ -79,6 +79,8 @@ ACTION_LABELS = {
     "aggregate": "汇总提供",
     "delay": "延迟提供",
     "compute_only": "仅计算不出域",
+    "tamper": "模拟篡改",
+    "restore": "恢复模拟状态",
 }
 
 ACTION_TO_MODE = {
@@ -275,7 +277,11 @@ def _audit_records(db: Session, limit: int) -> list[dict[str, Any]]:
     for item in items:
         details = item.details_json if isinstance(item.details_json, dict) else {}
         action = str(details.get("prototype_action") or "")
-        if action not in ACTION_LABELS:
+        if item.action_code == "PROTOTYPE_CHAIN_TAMPER":
+            action = "tamper"
+        elif item.action_code == "PROTOTYPE_CHAIN_RESTORE":
+            action = "restore"
+        elif action not in ACTION_LABELS:
             action = "deny" if "DEN" in item.action_code or item.result in {"DENIED", "REJECTED"} else "aggregate"
         records.append(
             {
@@ -294,18 +300,66 @@ def _audit_records(db: Session, limit: int) -> list[dict[str, Any]]:
     return records
 
 
-def _chain_state(db: Session) -> tuple[bool, str]:
-    latest = db.scalars(
+def _latest_chain_event(db: Session) -> AuditLog | None:
+    return db.scalars(
         select(AuditLog)
         .where(AuditLog.action_code.in_(("PROTOTYPE_CHAIN_TAMPER", "PROTOTYPE_CHAIN_RESTORE")))
         .order_by(AuditLog.occurred_at.desc())
         .limit(1)
     ).first()
+
+
+def _chain_state(db: Session) -> tuple[bool, str]:
+    latest = _latest_chain_event(db)
     if latest and latest.action_code == "PROTOTYPE_CHAIN_TAMPER":
         return False, "检测到模拟篡改，哈希链校验失败"
     evidences = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.asc())).all()
     verified = all(LocalEvidenceLedgerAdapter.verify(item)["matched"] for item in evidences)
     return verified, "哈希链完整" if verified else "哈希链存在异常"
+
+
+def _tamper_projection(db: Session) -> dict[str, Any] | None:
+    tamper = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.action_code == "PROTOTYPE_CHAIN_TAMPER")
+        .order_by(AuditLog.occurred_at.desc())
+        .limit(1)
+    ).first()
+    if tamper is None:
+        return None
+
+    details = tamper.details_json if isinstance(tamper.details_json, dict) else {}
+    evidence = None
+    affected_evidence_id = details.get("affected_evidence_id")
+    if affected_evidence_id:
+        evidence = db.get(BlockchainEvidence, str(affected_evidence_id))
+    if evidence is None:
+        evidence = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.desc())).first()
+
+    latest_chain_event = _latest_chain_event(db)
+    block = None
+    if evidence is not None:
+        block = {
+            "id": evidence.evidence_id,
+            "height": evidence.block_height,
+            "hash": evidence.evidence_hash,
+            "tx_hash": evidence.tx_hash,
+            "status": evidence.status,
+            "created_at": evidence.created_at.isoformat(),
+        }
+    return {
+        "event_id": tamper.log_id,
+        "active": bool(latest_chain_event and latest_chain_event.action_code == "PROTOTYPE_CHAIN_TAMPER"),
+        "actor_name": tamper.actor_name,
+        "actor_user_id": tamper.actor_user_id,
+        "actor_org_id": tamper.actor_org_id,
+        "occurred_at": tamper.occurred_at.isoformat(),
+        "trace_id": tamper.trace_id,
+        "target_type": tamper.target_type,
+        "target_id": tamper.target_id,
+        "block": block,
+        "note": "仅写入模拟篡改审计事件，未修改企业原始数据或存证内容",
+    }
 
 
 def _demo_dashboard_projection() -> dict[str, Any]:
@@ -983,7 +1037,7 @@ def audit(limit: int = Query(default=20, ge=1, le=200), user: User = Depends(req
     blocks = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.desc()).limit(limit)).all()
     ok, message = _chain_state(db)
     counts = {action: sum(1 for item in records if item["action"] == action) for action in ACTION_LABELS}
-    return {"records": records, "blocks": [{"id": item.evidence_id, "height": item.block_height, "hash": item.evidence_hash, "tx_hash": item.tx_hash, "status": item.status, "created_at": item.created_at.isoformat()} for item in blocks], "metrics": {"total": len(records), "denied": counts["deny"], "controlled": counts["aggregate"] + counts["compute_only"], "blocks": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0}, "chain": {"ok": ok, "message": message}}
+    return {"records": records, "blocks": [{"id": item.evidence_id, "height": item.block_height, "hash": item.evidence_hash, "tx_hash": item.tx_hash, "status": item.status, "created_at": item.created_at.isoformat()} for item in blocks], "metrics": {"total": len(records), "denied": counts["deny"], "controlled": counts["aggregate"] + counts["compute_only"], "blocks": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0}, "chain": {"ok": ok, "message": message}, "tamper": _tamper_projection(db)}
 
 
 @router.post("/audit/verify")
@@ -996,13 +1050,42 @@ def verify_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Sessi
 
 @router.post("/audit/tamper")
 def tamper_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
-    add_audit_log(db, action="PROTOTYPE_CHAIN_TAMPER", target_type="EVIDENCE_CHAIN", target_id="prototype", result="TAMPERED", user=user, details={"demo": True})
+    evidence = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.desc())).first()
+    event = add_audit_log(
+        db,
+        action="PROTOTYPE_CHAIN_TAMPER",
+        target_type="EVIDENCE_CHAIN",
+        target_id="prototype",
+        result="TAMPERED",
+        user=user,
+        details={
+            "demo": True,
+            "prototype_action": "tamper",
+            "affected_evidence_id": evidence.evidence_id if evidence else None,
+            "affected_block_height": evidence.block_height if evidence else None,
+        },
+    )
+    db.flush()
     db.commit()
-    return {"ok": True, "message": "已写入模拟篡改状态，验证链将显示异常"}
+    return {
+        "ok": True,
+        "event_id": event.log_id,
+        "affected_block": evidence.block_height if evidence else None,
+        "message": "已写入模拟篡改状态，验证链将显示异常",
+    }
 
 
 @router.post("/audit/restore")
 def restore_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
-    add_audit_log(db, action="PROTOTYPE_CHAIN_RESTORE", target_type="EVIDENCE_CHAIN", target_id="prototype", result="RESTORED", user=user, details={"demo": True})
+    event = add_audit_log(
+        db,
+        action="PROTOTYPE_CHAIN_RESTORE",
+        target_type="EVIDENCE_CHAIN",
+        target_id="prototype",
+        result="RESTORED",
+        user=user,
+        details={"demo": True, "prototype_action": "restore"},
+    )
+    db.flush()
     db.commit()
-    return {"ok": True, "message": "已恢复模拟状态，请重新验证链"}
+    return {"ok": True, "event_id": event.log_id, "message": "已恢复模拟状态，请重新验证链"}

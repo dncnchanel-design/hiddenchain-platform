@@ -1294,3 +1294,62 @@
 @media (max-width: 760px) {
   .trusted-main.prototype-container { width: calc(100% - 20px); padding: 12px 0 28px; }
 }
+
+.prototype-audit-actions button { display: inline-flex; align-items: center; gap: 4px; }
+.prototype-audit-stat { transition: border-color 160ms ease, background 160ms ease, color 160ms ease; }
+.prototype-audit-stat.is-tampered { border-color: #f1b7b7; color: var(--energy-danger); background: var(--energy-danger-soft); }
+.prototype-audit-stat.is-tampered b { color: var(--energy-danger); }
+.prototype-audit-stat.is-tampered small { color: var(--energy-danger); font-size: 10px; }
+.prototype-chain-status { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--energy-line); border-radius: 8px; color: var(--energy-secondary); background: #f8fafc; }
+.prototype-chain-status.is-ok { border-color: #b8e1d2; color: var(--energy-success); background: var(--energy-success-soft); }
+.prototype-chain-status.is-failed { border-color: #efb3b3; color: var(--energy-danger); background: var(--energy-danger-soft); }
+.prototype-chain-status-icon { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: currentColor; background: rgba(255,255,255,.76); }
+.prototype-chain-status-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.prototype-chain-status-copy strong { color: currentColor; font-size: 13px; }
+.prototype-chain-status-copy span { color: currentColor; font-size: 11px; }
+.prototype-chain-status-copy small { color: currentColor; font-size: 10px; }
+.prototype-chain-status-action { display: inline-flex; align-items: center; gap: 4px; flex: none; min-height: 30px; padding: 0 9px; border: 1px solid currentColor; border-radius: 6px; color: currentColor; background: rgba(255,255,255,.62); font-size: 11px; font-weight: 650; }
+.prototype-chain-status-action:hover { background: rgba(255,255,255,.94); }
+.prototype-chain-status-action:focus-visible { outline-color: currentColor; }
+.prototype-audit-item-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.prototype-audit-item-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 3px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+.prototype-audit-item-badge.is-danger { color: var(--energy-danger); background: #ffe0e0; }
+.prototype-audit-item-badge.is-restored { color: var(--energy-warning); background: var(--energy-warning-soft); }
+.prototype-audit-item.is-interactive { width: 100%; border: 1px solid transparent; border-radius: 8px; background: transparent; font: inherit; text-align: left; }
+.prototype-audit-item.is-interactive:hover { border-color: var(--energy-brand-border); background: var(--energy-brand-soft); }
+.prototype-audit-item.is-interactive:focus-visible { outline: 2px solid var(--energy-brand); outline-offset: 2px; }
+.prototype-audit-item.is-tampered { border: 1px solid #efb3b3; border-radius: 8px; padding: 11px 12px; color: #8f2828; background: var(--energy-danger-soft); }
+.prototype-audit-item.is-tampered:hover { border-color: var(--energy-danger); background: #ffe8e8; }
+.prototype-audit-item.is-tamper-history { border: 1px solid #ead9b5; border-radius: 8px; padding: 11px 12px; color: #79531a; background: #fffaf0; }
+.prototype-audit-item.is-tamper-history:hover { border-color: var(--energy-warning); background: var(--energy-warning-soft); }
+.prototype-audit-item.is-tampered small, .prototype-audit-item.is-tamper-history small { color: currentColor; opacity: .8; }
+.prototype-audit-item-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: currentColor; font-size: 10px; font-weight: 700; }
+.prototype-tamper-sheet { width: min(460px, calc(100vw - 16px)); }
+.prototype-tamper-sheet-toolbar { display: flex; justify-content: flex-end; padding: 10px 16px 0; background: #f7f9f9; }
+.prototype-tamper-sheet-toolbar button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; border: 0; color: var(--energy-muted); background: transparent; font-size: 11px; }
+.prototype-tamper-sheet-toolbar button:hover { color: var(--energy-brand); }
+.prototype-tamper-detail { min-height: 100%; padding: 16px; background: #f7f9f9; }
+.prototype-tamper-detail-state { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid var(--energy-line); border-radius: 8px; background: #fff; }
+.prototype-tamper-detail-state > span { display: grid; flex: none; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--energy-warning); background: var(--energy-warning-soft); }
+.prototype-tamper-detail.is-active .prototype-tamper-detail-state { border-color: #efb3b3; background: var(--energy-danger-soft); }
+.prototype-tamper-detail.is-active .prototype-tamper-detail-state > span { color: var(--energy-danger); background: #ffe0e0; }
+.prototype-tamper-detail.is-restored .prototype-tamper-detail-state > span { color: var(--energy-success); background: var(--energy-success-soft); }
+.prototype-tamper-detail-state > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.prototype-tamper-detail-state strong { color: var(--energy-ink); font-size: 13px; }
+.prototype-tamper-detail-state small { color: var(--energy-muted); font-size: 11px; line-height: 1.5; }
+.prototype-tamper-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 12px 0; overflow: hidden; border: 1px solid var(--energy-line-soft); border-radius: 8px; background: var(--energy-line-soft); }
+.prototype-tamper-detail-grid > div { min-width: 0; padding: 11px 12px; background: #fff; }
+.prototype-tamper-detail-grid dt { color: var(--energy-muted); font-size: 10px; }
+.prototype-tamper-detail-grid dd { min-width: 0; margin: 4px 0 0; overflow-wrap: anywhere; color: var(--energy-secondary); font-size: 11px; line-height: 1.45; }
+.prototype-tamper-detail-grid code { overflow-wrap: anywhere; color: var(--energy-secondary); font-size: 10px; }
+.prototype-tamper-hashes { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--energy-line); border-radius: 8px; background: #fff; }
+.prototype-tamper-hashes > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.prototype-tamper-hashes span { color: var(--energy-muted); font-size: 10px; }
+.prototype-tamper-hashes code { overflow-wrap: anywhere; color: var(--energy-secondary); font-size: 10px; line-height: 1.5; }
+.prototype-tamper-boundary { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 10px 11px; border: 1px solid #c8dded; border-radius: 8px; color: var(--energy-brand); background: var(--energy-brand-soft); font-size: 10px; line-height: 1.55; }
+.prototype-tamper-boundary svg { flex: none; margin-top: 1px; }
+@media (max-width: 760px) {
+  .prototype-chain-status { flex-wrap: wrap; }
+  .prototype-chain-status-action { margin-left: 42px; }
+  .prototype-tamper-detail-grid { grid-template-columns: 1fr; }
+}
