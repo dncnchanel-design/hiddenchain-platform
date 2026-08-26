@@ -527,7 +527,7 @@
 .prototype-card-icon { flex: none; color: #1768a0; }
 .prototype-empty { display: grid; min-height: 68px; place-items: center; color: #94a3b8; font-size: 12px; }
 .prototype-error { margin-top: 14px; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; background: #fff1f2; font-size: 12px; }
-.prototype-kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+.prototype-kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
 .prototype-kpi-card { position: relative; min-height: 112px; padding: 17px 18px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(15,23,42,.045); }
 .prototype-kpi-card::after { position: absolute; right: -25px; bottom: -28px; width: 90px; height: 90px; border: 12px solid #e8f5fc; border-radius: 50%; content: ""; }
 .prototype-kpi-card span { display: block; color: #64748b; font-size: 12px; }

@@ -448,7 +448,7 @@ export type PrototypeHeaderPayload = {
 };
 
 export type PrototypeDashboardPayload = {
-  kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number; no_domain_export: string };
+  kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number };
   map: { days: string[]; series: Record<string, number[]>; coal_days: number[]; coal_inventory: number[]; coal_consumption: number[] };
   gauge: { days: number; level: string; inventory: number };
   audit: PrototypeAuditRecord[];
