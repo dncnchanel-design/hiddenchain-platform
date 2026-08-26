@@ -89,6 +89,29 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
                 ).encode(),
             )
 
+            trend_payload = {**payload, "task_id": "TASK-20260823-0002", "function": "trend"}
+            trend_timestamp = str(int(datetime.now(UTC).timestamp()))
+            trend_nonce = "connector-trend-nonce-0001"
+            trend_envelope = {"timestamp": trend_timestamp, "nonce": trend_nonce, "payload": trend_payload}
+            trend_signature = platform_key.sign(
+                json.dumps(trend_envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+            )
+            trend_response = client.post(
+                "/compute",
+                json=trend_payload,
+                headers={
+                    "X-Request-Timestamp": trend_timestamp,
+                    "X-Request-Nonce": trend_nonce,
+                    "X-Request-Signature": base64.b64encode(trend_signature).decode(),
+                },
+            )
+            assert trend_response.status_code == 200, trend_response.text
+            trend_body = trend_response.json()
+            assert trend_body["result"]["方向"] in {"上升", "下降", "平稳"}
+            assert len(trend_body["trend"]) > 1
+            assert all(set(point) == {"date", "value"} for point in trend_body["trend"])
+            assert trend_body["privacy"]["raw_records_returned"] is False
+
             dashboard_payload = {
                 "request_id": "dashboard-test-0001",
                 "provider_org_id": "org-coal-t01",

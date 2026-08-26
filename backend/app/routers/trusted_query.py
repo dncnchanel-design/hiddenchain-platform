@@ -4,7 +4,10 @@ import base64
 import hashlib
 import hmac
 import json
+import math
+import re
 import secrets
+from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -264,11 +267,45 @@ def _manual_parse(question: str) -> TrustedSpaceQueryTranslation:
     function = _match(question, FUNCTION_TERMS) or "sum"
     if domain and resource and resource not in RESOURCE_CATALOG[domain]:
         resource = None
+    start_date, end_date = _manual_period(question)
     return TrustedSpaceQueryTranslation(
         energy_domain=domain,
         resource=resource,
         function=function if function in FUNCTION_LABELS else None,
+        start_date=start_date,
+        end_date=end_date,
     )
+
+
+def _manual_period(question: str) -> tuple[date | None, date | None]:
+    """Parse only explicit, deterministic periods for the offline fallback."""
+
+    today = utc_now().date()
+    full_date = re.search(r"(20\d{2})年(\d{1,2})月(\d{1,2})日?", question)
+    if full_date:
+        year, month, day = (int(value) for value in full_date.groups())
+        try:
+            parsed = date(year, month, day)
+        except ValueError:
+            return None, None
+        return parsed, parsed
+
+    month = re.search(r"(?:(20\d{2})年?)?(\d{1,2})月", question)
+    if month:
+        year = int(month.group(1) or today.year)
+        month_number = int(month.group(2))
+        if 1 <= month_number <= 12:
+            return date(year, month_number, 1), date(year, month_number, monthrange(year, month_number)[1])
+
+    if "上月" in question or "上个月" in question:
+        previous_month = today.replace(day=1) - timedelta(days=1)
+        return previous_month.replace(day=1), previous_month
+    relative_days = re.search(r"(?:近|最近)(\d{1,3})天", question)
+    if relative_days:
+        days = int(relative_days.group(1))
+        if days > 0:
+            return today - timedelta(days=days - 1), today
+    return None, None
 
 
 def _confirmation_claims(payload: ConfirmRequest, user: User) -> dict[str, Any]:
@@ -359,6 +396,31 @@ def _connector_failure(response: httpx.Response) -> tuple[int, Any]:
     if detail in (None, ""):
         return status_code, "企业连接器拒绝了计算任务"
     return status_code, detail
+
+
+def _validated_trend(value: Any) -> list[dict[str, Any]]:
+    """Keep only signed, finite date/value points from a connector response."""
+
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 366:
+        raise HTTPException(502, "企业连接器趋势结果格式无效")
+    points: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise HTTPException(502, "企业连接器趋势结果格式无效")
+        point_date = item.get("date")
+        point_value = item.get("value")
+        if (
+            not isinstance(point_date, str)
+            or not point_date.strip()
+            or isinstance(point_value, bool)
+            or not isinstance(point_value, (int, float))
+            or not math.isfinite(float(point_value))
+        ):
+            raise HTTPException(502, "企业连接器趋势结果格式无效")
+        points.append({"date": point_date, "value": float(point_value)})
+    return points
 
 
 def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageRequest, DataAsset]:
@@ -605,6 +667,7 @@ def parse_question(
         generated = translate_trusted_space_query(
             question=redact_query_text(question),
             context={
+                "today": utc_now().date().isoformat(),
                 "allowed_functions": [
                     {"id": code, "label": label}
                     for code, label in DEEPSEEK_FUNCTION_LABELS.items()
@@ -782,15 +845,18 @@ def execute_query(
         user=user,
     )
     if request_item.status == "SUCCEEDED" and request_item.result_json:
+        replayed_result = request_item.result_json
         return {
-            "task_id": request_item.result_json.get("task_id"),
+            "task_id": replayed_result.get("task_id"),
             "request_item_id": request_item.request_item_id,
             "authorization_scope": authorization.request_id,
-            "generated_at": request_item.result_json.get("generated_at"),
-            "result": request_item.result_json.get("result"),
-            "unit": request_item.result_json.get("unit"),
-            "resource_name": request_item.result_json.get("resource_name") or "未命名数据资源",
-            "function_name": request_item.result_json.get("function_name") or FUNCTION_LABELS[payload.function],
+            "generated_at": replayed_result.get("generated_at"),
+            "result": replayed_result.get("result"),
+            "unit": replayed_result.get("unit"),
+            "record_count": replayed_result.get("record_count"),
+            "trend": _validated_trend(replayed_result.get("trend")),
+            "resource_name": replayed_result.get("resource_name") or "未命名数据资源",
+            "function_name": replayed_result.get("function_name") or FUNCTION_LABELS[payload.function],
             "digital_signature": "已验证",
             "audit_recorded": True,
             "raw_records_returned": False,
@@ -852,6 +918,8 @@ def execute_query(
         status_code, detail = _connector_failure(response)
         raise HTTPException(status_code, detail)
     result = response.json()
+    if not isinstance(result, dict):
+        raise HTTPException(502, "企业连接器返回格式无效")
     if expected_public_key and result.get("public_key") != expected_public_key:
         raise HTTPException(502, "企业连接器签名公钥与登记信息不一致")
     if not expected_public_key and settings.app_env == "demo":
@@ -866,6 +934,12 @@ def execute_query(
         )
     except Exception as exc:
         raise HTTPException(502, "企业计算结果数字签名验证失败") from exc
+    privacy = result.get("privacy")
+    if result.get("raw_records_returned") is True or (
+        isinstance(privacy, dict) and privacy.get("raw_records_returned") is True
+    ):
+        raise HTTPException(502, "企业连接器返回了不允许交付的原始记录")
+    trend = _validated_trend(result.get("trend"))
     output_hash = sha256_json(signed_result)
     job = PrivacyComputeJob(
         job_id=new_id(),
@@ -925,6 +999,7 @@ def execute_query(
                 "result": result.get("result"),
                 "unit": result.get("unit"),
                 "record_count": result.get("record_count"),
+                "trend": trend,
                 "raw_records_returned": False,
             },
             visible_to_orgs_json=[user.org_id, authorization.provider_org_id],
@@ -938,6 +1013,8 @@ def execute_query(
         "generated_at": result.get("generated_at"),
         "result": result.get("result"),
         "unit": result.get("unit"),
+        "record_count": result.get("record_count"),
+        "trend": trend,
         "resource_name": result.get("resource_name") or "未命名数据资源",
         "function_name": result.get("function_name") or FUNCTION_LABELS[payload.function],
         "digital_signature": "已验证",

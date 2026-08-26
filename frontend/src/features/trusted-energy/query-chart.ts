@@ -32,6 +32,20 @@ function chartAriaLabel(result: ControlledQueryResult, model: Omit<QueryChartMod
 export function buildQueryChartModel(result: ControlledQueryResult): QueryChartModel | null {
   const raw = result.result;
 
+  const trend = (result.trend || []).filter(
+    (point) => point && typeof point.date === "string" && point.date && Number.isFinite(point.value),
+  );
+  if (trend.length > 1) {
+    const model = {
+      kind: "line" as const,
+      title: "受控趋势",
+      description: `${trend.length} 个主体连接器返回的日度汇总点，原始记录未返回`,
+      unit: result.unit,
+      data: trend.map((point) => ({ label: point.date, value: point.value })),
+    };
+    return { ...model, ariaLabel: chartAriaLabel(result, model) };
+  }
+
   if (typeof raw === "number" && Number.isFinite(raw)) {
     const model = {
       kind: result.function_name === "趋势" ? "line" as const : "bar" as const,

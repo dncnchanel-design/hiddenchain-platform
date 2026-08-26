@@ -559,6 +559,8 @@ export type ControlledQueryResult = {
   generated_at: string;
   result: number | string | Record<string, number | string>;
   unit: string;
+  record_count?: number;
+  trend?: Array<{ date: string; value: number }>;
   resource_name: string;
   function_name: string;
   digital_signature: string;

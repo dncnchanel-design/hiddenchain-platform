@@ -47,6 +47,23 @@ describe("buildQueryChartModel", () => {
     expect(model?.description).toContain("方向：上升");
   });
 
+  it("优先使用连接器签名返回的多点趋势", () => {
+    const model = buildQueryChartModel(result({
+      function_name: "趋势",
+      result: { 方向: "上升", 变化率: 8.2 },
+      trend: [
+        { date: "2026-08-01", value: 100 },
+        { date: "2026-08-02", value: 108.2 },
+      ],
+    }));
+    expect(model?.kind).toBe("line");
+    expect(model?.unit).toBe("吨");
+    expect(model?.data).toEqual([
+      { label: "2026-08-01", value: 100 },
+      { label: "2026-08-02", value: 108.2 },
+    ]);
+  });
+
   it("没有数值摘要时不渲染图表", () => {
     expect(buildQueryChartModel(result({ result: { 方向: "平稳" } }))).toBeNull();
   });

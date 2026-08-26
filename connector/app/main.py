@@ -302,6 +302,16 @@ def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str]:
     return rows, rows[0]["unit"]
 
 
+def _daily_trend(rows: list[sqlite3.Row], decimals: int) -> list[dict[str, Any]]:
+    grouped: dict[str, list[float]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["record_date"]), []).append(float(row["value"]))
+    return [
+        {"date": day, "value": round(statistics.fmean(values), decimals)}
+        for day, values in sorted(grouped.items())
+    ]
+
+
 def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
     values = [float(row["value"]) for row in rows]
     function = payload.function
@@ -326,9 +336,13 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
             raise HTTPException(422, "阈值判断必须填写阈值")
         return {"满足": sum(value >= payload.threshold for value in values), "不满足": sum(value < payload.threshold for value in values)}
     if function == "trend":
-        middle = max(1, len(values) // 2)
-        previous = statistics.fmean(values[:middle])
-        current = statistics.fmean(values[middle:])
+        points = _daily_trend(rows, payload.decimals)
+        if len(points) < 2:
+            raise HTTPException(422, "趋势分析至少需要两个日期的受控汇总")
+        point_values = [point["value"] for point in points]
+        middle = max(1, len(point_values) // 2)
+        previous = statistics.fmean(point_values[:middle])
+        current = statistics.fmean(point_values[middle:])
         return {"方向": "上升" if current > previous else "下降" if current < previous else "平稳", "变化率": 0 if previous == 0 else (current - previous) / abs(previous) * 100}
     if function == "group_by":
         field = payload.group_by or "region"
@@ -519,6 +533,8 @@ def compute(
         "privacy": {"minimum_group_size": MIN_GROUP_SIZE, "raw_records_returned": False, "decimals": decimals},
         "capability": "本地受控计算" if payload.function != "mpc_aggregation" else "本地计算份额",
     }
+    if payload.function == "trend":
+        envelope["trend"] = _daily_trend(rows, decimals)
     signature = PRIVATE_KEY.sign(_canonical(envelope))
     response = {
         **envelope,
