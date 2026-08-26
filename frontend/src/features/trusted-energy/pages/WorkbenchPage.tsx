@@ -273,13 +273,8 @@ export function WorkbenchPage() {
 
       <div className="prototype-dashboard-bottom">
         <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><Activity className="prototype-card-icon" size={18} strokeWidth={1.8} />策略命中分布</PrototypeCardTitle>{pieData.length ? <ActionPieChart values={pieData} /> : <div className="prototype-empty">暂无策略命中记录</div>}<div className="prototype-card-caption prototype-chart-caption">共 {totalActions} 次裁决</div></section>
-        <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><MonitorIcon /><span>连接器健康状态</span></PrototypeCardTitle><div className="prototype-status-list">{data.connectors.map((connector) => <div key={connector.name}><span>{connector.name}</span><b className={/未接入|不可用|异常/.test(connector.status) ? "is-danger" : ""}>{connector.status}</b></div>)}</div></section>
         <section className="prototype-card prototype-chart-card"><PrototypeCardTitle><UsersRound className="prototype-card-icon" size={18} strokeWidth={1.8} />跨主体协同轨迹</PrototypeCardTitle><div className="prototype-timeline">{data.timeline.length ? data.timeline.map((item) => <div key={item.id}><time>{formatTime(item.ts)}</time><span><b>{item.resource}</b> · {item.subject}</span></div>) : <div className="prototype-empty">暂无跨主体协同记录</div>}</div></section>
       </div>
     </>}
   </PrototypePageFrame>;
-}
-
-function MonitorIcon() {
-  return <ShieldCheck className="prototype-card-icon" size={18} strokeWidth={1.8} />;
 }
