@@ -13,13 +13,10 @@ import {
   Landmark,
   Link2,
   LoaderCircle,
-  Network,
   RefreshCw,
-  ScanLine,
   ShieldCheck,
   UserRound,
   Waves,
-  Zap,
 } from "lucide-react";
 import { useRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, Divider, IconButton, MetricBand, RemoteState, StatusBadge, SurfaceHeader } from "../components/ui-primitives";
@@ -27,8 +24,6 @@ import { PageFrame } from "../components/PageFrame";
 import { loadDidDocument, loadIdentity, loadIdentityDirectory, type DidDocumentPayload, type IdentityDirectoryItem } from "../trusted-space-api";
 import { ROLE_LABELS, labelForCode } from "../../../types";
 import { useTrustedSpaceContext } from "../trusted-space-context";
-
-const ENERGY_DOMAIN_ORDER = ["electricity", "coal", "heat", "gas", "oil"];
 
 function valueOrDash(value?: string | null) {
   return value || "暂无";
@@ -64,15 +59,6 @@ function identityGlyph(item: IdentityDirectoryItem) {
   return <UserRound size={20} />;
 }
 
-function domainGlyph(value: string) {
-  if (value === "electricity") return <Zap size={17} />;
-  if (value === "coal") return <Fuel size={17} />;
-  if (value === "heat") return <Flame size={17} />;
-  if (value === "gas") return <Waves size={17} />;
-  if (value === "oil") return <Fuel size={17} />;
-  return <Network size={17} />;
-}
-
 function capabilityTone(state?: string) {
   if (state === "BLOCKED") return "danger" as const;
   if (state === "DEMO" || state === "ADAPTER" || state === "NOT_CONFIGURED") return "warning" as const;
@@ -94,51 +80,6 @@ const permissionLabels: Record<string, string> = {
 
 async function copyValue(value?: string | null) {
   if (value && navigator.clipboard) await navigator.clipboard.writeText(value);
-}
-
-function IdentityTopology({ items }: { items: IdentityDirectoryItem[] }) {
-  const domains = Array.from(new Set(items.map((item) => item.energy_domain).filter((value): value is string => Boolean(value))))
-    .sort((left, right) => (ENERGY_DOMAIN_ORDER.indexOf(left) + 10) - (ENERGY_DOMAIN_ORDER.indexOf(right) + 10));
-  const regulators = items.filter((item) => item.org_type === "REGULATOR");
-  const domainGroups = domains.map((domain) => ({ domain, items: items.filter((item) => item.energy_domain === domain) }));
-
-  return <Card id="trusted-identity-topology" className="trusted-identity-architecture"><CardHeader><SurfaceHeader title="联邦式架构拓扑" description="各主体建设维护自己的数据域，统一底座只负责协同、裁决和留痕。" action={<ScanLine size={17} />} /></CardHeader><CardContent>
-    <div className="trusted-identity-topology" aria-label="参与主体与可信数据空间连接拓扑">
-      <div className="trusted-identity-topology-grid">
-        <article className="trusted-identity-node trusted-identity-node-regulator">
-          <span className="trusted-identity-node-kicker">数据使用方</span>
-          <div className="trusted-identity-node-title"><Landmark size={18} /><strong>监管方</strong></div>
-          <p>{regulators.length ? regulators.map((item) => item.org_name || item.org_id).join("、") : "当前没有登记监管主体"}</p>
-          <span className="trusted-identity-node-meta">{regulators.length} 个已登记主体 · 可发起跨能源查询</span>
-        </article>
-
-        <article className="trusted-identity-node trusted-identity-node-execution">
-          <span className="trusted-identity-node-kicker">可信智能执行层</span>
-          <div className="trusted-identity-node-title"><Network size={18} /><strong>受控协同底座</strong></div>
-          <div className="trusted-identity-layer-list"><span>请求解析</span><span>确定性策略裁决</span><span>结果审查与隐私计算</span><span>哈希链存证</span></div>
-          <span className="trusted-identity-node-meta">原始数据留在企业连接器内</span>
-        </article>
-
-        <div className="trusted-identity-domain-stack">
-          {domainGroups.map(({ domain, items: group }) => {
-            const enterprises = group.filter((item) => item.org_type !== "EXCHANGE");
-            const exchanges = group.filter((item) => item.org_type === "EXCHANGE");
-            return <article className="trusted-identity-node trusted-identity-node-domain" data-domain={domain} key={domain}>
-              <span className="trusted-identity-domain-icon">{domainGlyph(domain)}</span>
-              <div className="trusted-identity-domain-copy"><strong>{domainLabel(domain)}连接器域</strong><small>{group.length} 个主体 · 数据不出域</small><span>{enterprises.length} 个企业 · {exchanges.length} 个交易中心</span></div>
-              <Badge tone="success" dot>域内计算</Badge>
-            </article>;
-          })}
-          {!domainGroups.length && <div className="trusted-identity-domain-empty">暂无已登记能源域</div>}
-        </div>
-      </div>
-      <span className="trusted-identity-flow-line trusted-identity-flow-line-a" aria-hidden="true" />
-      <span className="trusted-identity-flow-line trusted-identity-flow-line-b" aria-hidden="true" />
-      <span className="trusted-identity-flow-particle trusted-identity-flow-particle-a" aria-hidden="true" />
-      <span className="trusted-identity-flow-particle trusted-identity-flow-particle-b" aria-hidden="true" />
-    </div>
-    <div className="trusted-identity-legend"><span><i className="trusted-dot trusted-dot-brand" />数据使用方发起请求</span><span><i className="trusted-dot trusted-dot-info" />可信执行层裁决</span><span><i className="trusted-dot trusted-dot-success" />连接器域内计算</span><span><i className="trusted-dot trusted-dot-audit" />全程可追溯审计</span></div>
-  </CardContent></Card>;
 }
 
 function DidDocumentDisclosure({ item }: { item: IdentityDirectoryItem }) {
@@ -220,14 +161,12 @@ export function IdentityPage() {
   const directoryRemote = useRemote(loadIdentityDirectory, []);
   const { context } = useTrustedSpaceContext();
   const identity = remote.data;
-  const directoryItems = directoryRemote.data?.items || [];
   return <PageFrame title="身份拓扑" action={<Button variant="secondary" onClick={() => Promise.all([remote.reload(), directoryRemote.reload()])} busy={remote.refreshing || directoryRemote.refreshing}><RefreshCw size={14} />刷新主体状态</Button>}>
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
     {identity && <>
       <div className="trusted-identity-layout">
         <nav className="trusted-identity-nav" aria-label="参与主体分区">
           <a className="is-active" href="#trusted-identity-subject"><UserRound size={14} />主体概览</a>
-          <a href="#trusted-identity-topology"><Network size={14} />身份拓扑</a>
           <a href="#trusted-identity-directory"><Building2 size={14} />主体注册表</a>
           <a href="#trusted-identity-did"><Fingerprint size={14} />DID 身份</a>
           <a href="#trusted-identity-connector"><Link2 size={14} />连接器绑定</a>
@@ -240,7 +179,6 @@ export function IdentityPage() {
             <div className="trusted-detail-side"><Card id="trusted-identity-did"><CardHeader><SurfaceHeader title="DID 身份" description={`来源：${labelForCode(identity.did.source_of_truth, "企业身份记录")}`} action={<Fingerprint size={17} />} /></CardHeader><CardContent><div className="trusted-did-value"><code>{valueOrDash(identity.did.did_id)}</code><IconButton label="复制 DID" onClick={() => copyValue(identity.did.did_id)}><Copy size={13} /></IconButton></div><dl className="trusted-definition-list"><div><dt>公钥指纹</dt><dd><code>{valueOrDash(identity.did.public_key_fingerprint)}</code></dd></div><div><dt>外部链地址</dt><dd><code>{valueOrDash(identity.did.chain_address)}</code></dd></div><div><dt>私钥位置</dt><dd><Badge tone="success">企业连接器密钥存储</Badge></dd></div></dl></CardContent></Card><Card id="trusted-identity-connector"><CardHeader><SurfaceHeader title="可信数据空间连接器" description={`来源：${labelForCode(identity.connector.source_of_truth, "数据连接记录")}`} action={<Link2 size={17} />} /></CardHeader><CardContent><dl className="trusted-definition-list"><div><dt>连接器类型</dt><dd>{labelForCode(identity.connector.code, "企业侧连接器")}</dd></div><div><dt>协议版本</dt><dd>{identity.connector.protocol_version}</dd></div><div><dt>已登记数据源</dt><dd>{identity.connector.source_count}</dd></div><div><dt>当前能力</dt><dd><Badge tone="warning" dot>{labelForCode(identity.connector.capability_state, "待配置")}</Badge></dd></div><div><dt>连接状态</dt><dd><StatusBadge value={identity.connector.readiness} /></dd></div></dl><span className="trusted-muted">连接器配置说明需在企业内网完成，不在平台侧提供下载动作。</span></CardContent></Card></div>
           </div>
 
-          <IdentityTopology items={directoryItems} />
           <IdentityDirectory remote={directoryRemote} />
 
           <Card id="trusted-identity-capabilities" className="trusted-capability-card"><CardHeader><SurfaceHeader title="可信能力矩阵" description="能力标签由后端返回；适配器、阻断和演示状态不会被包装成生产连接。" /></CardHeader><CardContent><div className="trusted-capability-table">{Object.entries(identity.capability_matrix).map(([key, item]) => <div className="trusted-capability-row" key={key}><span className="trusted-capability-name"><ShieldCheck size={15} />{capabilityLabel(key)}</span><Badge tone={capabilityTone(item.capability_state)}>{labelForCode(item.capability_state, "未配置")}</Badge><span className="trusted-muted">{item.readiness ? labelForCode(item.readiness, "已登记状态") : labelForCode(item.source_of_truth, "未登记来源")}</span><CheckCircle2 size={15} className={item.capability_state === "BLOCKED" ? "trusted-icon-muted" : "trusted-icon-success"} /></div>)}</div></CardContent></Card>
