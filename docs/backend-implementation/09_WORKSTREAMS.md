@@ -1,5 +1,15 @@
 # Workstreams and File Ownership
 
+## Current privacy-proof and evidence-anchor batch — 2026-08-26
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Connector non-export verification | Main agent; connector response envelope, backend attestation validator and trusted query/dashboard routes | Request-hash-bound Ed25519 result signature, aggregate-only scope, raw-field rejection and fail-closed tests | VERIFIED_LOCAL_AND_ONLINE |
+| Local privacy capability truthfulness | Main agent; Paillier, secret-sharing analysis, strategy catalog and Compute page | `LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST`, `APPLICATION_PROCESS`, plaintext visibility and `cross_domain_non_export_verified=false` are explicit | VERIFIED_LOCAL |
+| FISCO BCOS evidence adapter | Main agent; FISCO relay/JSON-RPC adapter, evidence outbox, formal evidence and status UI | External signer payload, `getTransactionReceipt` verification, no private key in platform; DEMO fallback when unconfigured | IMPLEMENTED_ADAPTER |
+| Verification | Main agent | Backend full pytest, connector tests, frontend 72 tests, changed-file lint, build, compileall, production guard and online smoke checks pass | VERIFIED_LOCAL_AND_RENDER |
+| Release/deployment | Main agent | GitHub `main` and `agent/deep-brand-green` plus Render `hiddenchain-platform-review` converge at `91967b2bf37ea8d16a1902f7cab465bb95f5f2a7` | PUBLISHED_REVIEW_TEST |
+
 ## Current target-site parity batch — 2026-08-25
 
 | Workstream | Execution boundary | Evidence | Status |

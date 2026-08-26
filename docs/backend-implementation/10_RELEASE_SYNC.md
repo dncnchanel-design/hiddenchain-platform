@@ -1,5 +1,29 @@
 # Release Synchronization
 
+## Current privacy-proof and evidence-anchor release — 2026-08-26
+
+```text
+LOCAL_CHANGE = connector-signed non-export verification; truthful single-host Paillier/secret-sharing labels; optional FISCO BCOS evidence anchor with external receipt verification
+LOCAL_VERIFICATION = PASS (backend full pytest; connector tests; frontend 72 tests; changed-file ESLint; TypeScript/Vite build; compileall; production guard; diff check)
+LOCAL_COMMIT_SHA = 91967b2bf37ea8d16a1902f7cab465bb95f5f2a7
+GITHUB_REPOSITORY = https://github.com/dncnchanel-design/hiddenchain-platform.git
+GITHUB_BRANCHES = main; agent/deep-brand-green
+GITHUB_PUSH = PASS (both branches point to LOCAL_COMMIT_SHA)
+RENDER_SERVICE = hiddenchain-platform-review
+RENDER_CLASSIFICATION = REVIEW_TEST_ONLY
+RENDER_SOURCE_BRANCH = main
+RENDER_DEPLOYMENT = PASS (automatic deployment completed)
+RENDER_DEPLOY_COMMIT = 91967b2bf37ea8d16a1902f7cab465bb95f5f2a7
+RENDER_HEALTH = PASS (live=UP; ready=READY; version=200)
+RENDER_URL = https://hiddenchain-platform-review.onrender.com
+ONLINE_SMOKE_TEST = PASS (login; trusted-execution/status; privacy/mpc/status; five connector health endpoints)
+ONLINE_CAPABILITY_BOUNDARY = connector signed software-level non-export proof; Paillier/secret-sharing remain LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST; FISCO BCOS not configured on Render, so evidence anchor remains LOCAL_HASH_ANCHOR_DEMO_V1
+SHA_CONVERGENCE = PASS (local=91967b2; GitHub main=91967b2; GitHub agent/deep-brand-green=91967b2; Render=91967b2)
+TRIPLE_SYNC = PASS_REVIEW_TEST_ONLY; PRODUCTION_BLOCKED
+```
+
+This release fixes the two identified honesty gaps without fabricating external infrastructure: the subject connector path now requires a request-bound signed aggregate-only claim before reporting `cross_domain_non_export_verified=true`, while the local Paillier/secret-sharing experiment explicitly reports raw-vector visibility and no cross-domain proof. FISCO BCOS is implemented as an external signer/JSON-RPC receipt adapter, but the Render review service has no node, relay or contract values configured and therefore correctly stays in local DEMO mode.
+
 ## Current Trusted Space authorization closure — 2026-08-24
 
 ```text

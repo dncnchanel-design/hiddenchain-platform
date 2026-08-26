@@ -1,5 +1,25 @@
 # Progress Ledger
 
+## Current privacy-proof and evidence-anchor batch — 2026-08-26
+
+### Completed in this batch
+
+- Added a request-bound, Ed25519-signed connector claim for aggregate-only results. The backend verifies the exact request hash, issuer, output scope, raw-data flags and forbidden raw-record fields before setting `cross_domain_non_export_verified=true`; invalid or legacy results fail closed.
+- Kept Paillier and additive secret-sharing analysis executable only within the existing single application process, and exposed the boundary in the catalog, compute result and UI instead of presenting it as cross-domain MPC or physical non-export protection.
+- Added an optional `FISCO_BCOS_EVIDENCE_ANCHOR_V1` adapter that submits through an external signer/relay and verifies FISCO `getTransactionReceipt`; absent complete node/relay/contract configuration, evidence remains explicitly `LOCAL_HASH_ANCHOR_DEMO_V1`.
+- Updated evidence, result and trusted-execution views to distinguish verified external receipts from local demo anchors, and documented the configuration contract without storing any chain private key.
+
+### Verification evidence
+
+- Backend: full pytest PASS on an isolated temporary database; connector tests PASS; compileall PASS; production guard PASS.
+- Frontend: 72 Vitest tests PASS; TypeScript/Vite production build PASS; changed-file ESLint PASS.
+- Release: commit `91967b2bf37ea8d16a1902f7cab465bb95f5f2a7` pushed to GitHub `main` and `agent/deep-brand-green`; Render review/test service deployed the same SHA.
+- Online: liveness/readiness, login, trusted execution status, privacy computation status and all five connector health endpoints PASS; three consecutive local/GitHub/Render SHA convergence checks PASS.
+
+### Release boundary
+
+- Render remains a review/test environment. It currently has no FISCO BCOS RPC, signer relay or contract configuration, so the online evidence backend correctly reports local DEMO anchoring. This is not production blockchain finality or a hardware-backed cross-domain privacy claim.
+
 ## Current target-site parity batch — 2026-08-25
 
 ### Completed in this batch
