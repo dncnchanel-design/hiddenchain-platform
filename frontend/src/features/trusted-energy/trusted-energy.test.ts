@@ -4,7 +4,7 @@ import { labelForCode } from "../../types";
 import { capabilityMatrix, DEMO_DATA_NOTICE, demoAssets, demoFixtureMetadata, trustedModuleChecklist, trustedViewRoutes } from "./trusted-energy.test-fixtures";
 
 describe("trusted energy console model", () => {
-  it("keeps the eight primary modules and reachable deep links", () => {
+  it("keeps the seven primary modules and reachable deep links", () => {
     expect(trustedModuleChecklist).toHaveLength(12);
     expect(trustedModuleChecklist.map((module) => module.key)).toEqual([
       "login", "workbench", "identity", "catalog", "asset", "apply", "contract", "ttc", "mpc", "results", "audit", "agent",
@@ -16,8 +16,11 @@ describe("trusted energy console model", () => {
       expect(route.label.length).toBeGreaterThan(1);
     }
     expect(routeForView("asset", "asset-power-output-001")).toBe(`${TRUSTED_BASE}/assets/asset-power-output-001`);
-    expect(navItems).toHaveLength(8);
+    expect(navItems).toHaveLength(7);
+    expect(navItems).not.toEqual(expect.arrayContaining([expect.objectContaining({ key: "identity" })]));
     expect(navItems).toEqual(expect.arrayContaining([expect.objectContaining({ key: "connector", menuCode: "connector", label: "数据连接" })]));
+    expect(routeForView("identity")).toBe(`${TRUSTED_BASE}/identity`);
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/identity`)).toBe(true);
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/upload`)).toBe(false);
     expect(routeForView("mpc", "com-20260518-001")).toBe(`${TRUSTED_BASE}/mpc/com-20260518-001`);
     expect(getTrustedView(`${TRUSTED_BASE}/results/res-20260518-001`)).toBe("results");
@@ -31,6 +34,7 @@ describe("trusted energy console model", () => {
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc/job-real`)).toBe(true);
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/unknown`)).toBe(false);
     expect(trustedMenuCodeForView("asset")).toBe("catalog");
+    expect(trustedMenuCodeForView("identity")).toBe("participants");
     expect(trustedMenuCodeForView("mpc")).toBe("compute");
   });
 

@@ -23,7 +23,6 @@ export const navItems = [
   { key: "authorizations" as const, menuCode: "authorization", label: "数据授权", icon: "FileSignature" },
   { key: "audit" as const, menuCode: "audit", label: "审计追溯", icon: "ScanSearch" },
   { key: "mpc" as const, menuCode: "compute", label: "隐私计算", icon: "Network" },
-  { key: "identity" as const, menuCode: "participants", label: "参与主体", icon: "Fingerprint" },
 ];
 
 export const primaryNavItems = navItems;
@@ -48,6 +47,7 @@ export function helpViewForTrustedView(view: TrustedViewKey): string {
 }
 
 export function trustedMenuCodeForView(view: TrustedViewKey): string {
+  if (view === "identity") return "participants";
   if (view === "asset") return "catalog";
   if (view === "connector") return "connector";
   if (view === "apply" || view === "authorizations") return "authorization";

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Cable, ChevronDown, Database, FileSignature, Fingerprint, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
+import { Cable, ChevronDown, Database, FileSignature, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { ROLE_LABELS, labelForCode } from "../../../types";
@@ -27,7 +27,6 @@ import { ForbiddenPage, NotFoundPage } from "../../../pages/StatusPages";
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
   Cable,
-  Fingerprint,
   Database,
   FileSignature,
   Network,
@@ -118,12 +117,13 @@ export function TrustedSpaceShell() {
         <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "主体状态正常" : "主体状态异常"}</span>
         <NotificationCenter />
         <details className="trusted-user-menu">
-          <summary aria-label="打开账号菜单">
+          <summary aria-label="打开主体中心和账号菜单">
             <span className="trusted-avatar"><UserRound size={15} /></span>
             <span className="trusted-user-copy"><strong>{subjectName}</strong><small>{roleLabel}</small></span>
             <ChevronDown size={13} aria-hidden="true" />
           </summary>
           <div className="trusted-user-menu-panel">
+            <Link className="trusted-subject-center-link" to={routeForView("identity")} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setNavigationOpen(false); }}><UserRound size={14} /><span><strong>主体中心</strong><small>身份与能力管理</small></span></Link>
             <div><span>账号</span><strong>{context.actor.username}</strong></div>
             <div><span>当前组织</span><strong>{subjectName}</strong></div>
             <div><span>当前角色</span><strong>{roleLabel}</strong></div>

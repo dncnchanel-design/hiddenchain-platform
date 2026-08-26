@@ -688,6 +688,11 @@
 .trusted-user-menu-panel > div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid #e8eef5; font-size: 12px; }
 .trusted-user-menu-panel > div span { color: #6b7c91; }
 .trusted-user-menu-panel > div strong { max-width: 160px; overflow: hidden; color: #203956; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.trusted-subject-center-link { min-height: 38px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 0 10px; border: 1px solid #c9d6e5; border-radius: 8px; color: #1768a0; background: #f8fcff; font-size: 12px; font-weight: 650; text-decoration: none; }
+.trusted-subject-center-link:hover { color: #125681; border-color: #8db6df; background: #f1f8fc; }
+.trusted-subject-center-link > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.trusted-subject-center-link strong { color: inherit; }
+.trusted-subject-center-link small { color: #718196; font-size: 10px; font-weight: 400; }
 .trusted-user-menu-panel > button { width: 100%; justify-content: center; margin-top: 12px; }
 .trusted-navigation-sheet { top: 0; left: 0; right: auto; width: min(340px, calc(100vw - 36px)); height: 100vh; max-height: 100vh; transform: none; border-radius: 0 12px 12px 0; padding: 20px 14px; overflow-y: auto; animation-name: trusted-navigation-sheet-in; }
 .trusted-drawer-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 18px; }
