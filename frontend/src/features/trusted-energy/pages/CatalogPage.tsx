@@ -74,7 +74,7 @@ export function CatalogPage() {
   const canGoPrevious = page > 1;
   const canGoNext = Boolean(payload && page * payload.page_size < payload.total);
 
-  return <PageFrame title="数据目录" action={<Badge tone="info"><SlidersHorizontal size={14} />筛选自动保存</Badge>}>
+  return <PageFrame title="数据目录" showHelp={false} action={<Badge tone="info"><SlidersHorizontal size={14} />筛选自动保存</Badge>}>
     <Card className="trusted-filter-card"><CardContent>
       <div className="trusted-filter-row">
         <label className="trusted-search-field"><Search size={16} /><Input ref={searchInputRef} value={searchText} onChange={(event) => updateFilter("q", event.target.value)} placeholder="搜索资产名称、提供方、标识…" aria-label="搜索数据资产" /></label>
