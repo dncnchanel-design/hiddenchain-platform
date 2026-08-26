@@ -1125,22 +1125,15 @@
 .prototype-role-focus-heading p { max-width: 680px; margin: 7px 0 0; color: #718196; font-size: 12px; line-height: 1.55; }
 .prototype-role-focus-action { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid #b9d5e7; border-radius: 7px; color: #1768a0; background: #f4faff; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .prototype-role-focus-action:hover { border-color: #00a3e0; color: #0b628f; background: #eef9ff; }
-.prototype-role-focus-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 15px; }
-.prototype-role-focus-card { display: flex; min-height: 78px; flex-direction: column; gap: 4px; padding: 12px 13px; border: 1px solid #e6eef4; border-left: 3px solid #8bcde9; border-radius: 8px; background: #fbfdff; }
-.prototype-role-focus-card.is-amber { border-left-color: #d89a32; }
-.prototype-role-focus-card.is-green { border-left-color: #29a982; }
-.prototype-role-focus-card span { color: #718196; font-size: 11px; }
-.prototype-role-focus-card strong { color: #10233f; font-size: 21px; line-height: 1.15; }
-.prototype-role-focus-card small { overflow: hidden; color: #9aabba; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .prototype-kpi-card { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto minmax(0,1fr); column-gap: 10px; align-items: start; min-height: 120px; padding: 15px 17px 14px; }
 .prototype-kpi-card::after { display: none; }
 .prototype-kpi-card::before { position: absolute; top: 0; right: 18px; left: 18px; height: 3px; border-radius: 0 0 3px 3px; background: #b8dff0; content: ""; }
 .prototype-kpi-card.is-success::before { background: #6ac7ad; }
 .prototype-kpi-label { min-width: 0; grid-column: 1; grid-row: 1; display: flex; align-items: flex-start; gap: 8px; }
-.prototype-kpi-label span { min-width: 0; flex: 1 1 auto; overflow: hidden; color: #52657c; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.prototype-kpi-label small { min-width: 0; max-width: 7em; flex: 0 1 7em; overflow: hidden; color: #9aabba; font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.prototype-kpi-label span { min-width: 0; flex: 1 1 auto; overflow: hidden; color: #52657c; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.prototype-kpi-label small { min-width: 0; max-width: 7em; flex: 0 1 7em; overflow: hidden; color: #9aabba; font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .prototype-kpi-icon { position: static; top: auto; right: auto; grid-column: 2; grid-row: 1; }
-.prototype-kpi-card strong { grid-column: 1 / -1; grid-row: 2; align-self: end; margin-top: 9px; font-size: 29px; }
+.prototype-kpi-card strong { grid-column: 1 / -1; grid-row: 2; align-self: end; margin-top: 9px; font-size: 32px; }
 .prototype-dashboard-layout { grid-template-columns: minmax(0, 1.86fr) minmax(352px, .94fr); gap: 16px; }
 .prototype-dashboard-map-card { min-height: 0; padding: 18px 18px 15px; }
 .prototype-dashboard-subline { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 9px; color: #718196; font-size: 11px; }
@@ -1242,7 +1235,6 @@
   .prototype-role-focus { padding: 14px; }
   .prototype-role-focus-heading { flex-direction: column; gap: 12px; }
   .prototype-role-focus-action { align-self: flex-start; }
-  .prototype-role-focus-grid { grid-template-columns: 1fr; }
   .prototype-dashboard-overview { gap: 10px; margin-bottom: 12px; }
   .prototype-dashboard-overview h2 { font-size: 21px; }
   .prototype-overview-facts { overflow-x: auto; }

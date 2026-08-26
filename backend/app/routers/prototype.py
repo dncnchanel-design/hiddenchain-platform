@@ -417,11 +417,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         map_title = "全域能源监管态势"
         map_subtitle = "电力负荷 · 电煤库存 · 跨主体协同，监管汇总视图"
         focus_title = "监管重点"
-        focus_items = [
-            {"label": "全域数据资源", "value": trusted_kpis["visible_assets"], "meta": "仅展示目录元数据", "tone": "blue"},
-            {"label": "审计任务", "value": trusted_kpis["audit_reports"], "meta": "待复核与已生成报告", "tone": "amber"},
-            {"label": "授权观察", "value": trusted_kpis["usage_requests"], "meta": "跨主体申请记录", "tone": "green"},
-        ]
         kpi_items = [
             {"label": "全域数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
             {"label": "审计任务", "value": trusted_kpis["audit_reports"], "meta": "报告与复核"},
@@ -439,11 +434,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         map_title = f"区域{energy_label}供需协同态势"
         map_subtitle = f"{energy_label}资源 · 交易批次 · 跨主体协同，交易中心视图"
         focus_title = "交易中心重点"
-        focus_items = [
-            {"label": f"{energy_label}数据资产", "value": trusted_kpis["visible_assets"], "meta": "当前能源域目录", "tone": "blue"},
-            {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "发起、执行与归档", "tone": "amber"},
-            {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "待复核证据", "tone": "green"},
-        ]
         kpi_items = [
             {"label": f"{energy_label}数据资产", "value": trusted_kpis["visible_assets"], "meta": "当前能源域目录"},
             {"label": "结算任务", "value": trusted_kpis["visible_tasks"], "meta": "发起、执行与归档"},
@@ -464,11 +454,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         title, subtitle, map_title, map_subtitle = ENTERPRISE_VIEW_COPY.get(user.role_code, default_copy)
         energy_label = DOMAIN_LABELS.get(domain, domain)
         focus_title = "本方业务重点"
-        focus_items = [
-            {"label": "本方数据资源", "value": trusted_kpis["visible_assets"], "meta": "只展示本方目录元数据", "tone": "blue"},
-            {"label": "待处理授权", "value": trusted_kpis["inbound_usage_requests"], "meta": "入站使用申请", "tone": "amber"},
-            {"label": "受控计算任务", "value": trusted_kpis["compute_jobs"], "meta": "不出域计算记录", "tone": "green"},
-        ]
         kpi_items = [
             {"label": "本方数据资源", "value": trusted_kpis["visible_assets"], "meta": "目录元数据"},
             {"label": "待处理授权", "value": trusted_kpis["inbound_usage_requests"], "meta": "入站申请"},
@@ -499,7 +484,6 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         "gauge_title": gauge_title,
         "gauge_unit": gauge_unit,
         "focus_title": focus_title,
-        "focus_items": focus_items,
         "kpis": kpi_items,
         "primary_action": primary_action,
         "data_scope": "role_scoped_aggregate_only",

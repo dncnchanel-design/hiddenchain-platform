@@ -232,11 +232,6 @@ function RoleFocusPanel({ view }: { view: PrototypeDashboardPayload["view"] }) {
       </div>
       <Link className="prototype-role-focus-action" to={view.primary_action.path}>{view.primary_action.label}<ArrowRight size={14} /></Link>
     </div>
-    <div className="prototype-role-focus-grid">
-      {view.focus_items.map((item) => <div className={`prototype-role-focus-card is-${item.tone}`} key={item.label}>
-        <span>{item.label}</span><strong>{item.value}</strong><small>{item.meta}</small>
-      </div>)}
-    </div>
   </section>;
 }
 
