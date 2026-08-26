@@ -15,7 +15,7 @@ import { IdentityPage } from "../pages/IdentityPage";
 import { CatalogPage } from "../pages/CatalogPage";
 import { AssetPassportPage } from "../pages/AssetPassportPage";
 import { ApplyPage } from "../pages/ApplyPage";
-import { StrategyCenterPage } from "../pages/StrategyCenterPage";
+import { AuthorizationsPage } from "../pages/AuthorizationsPage";
 import { ContractPage } from "../pages/ContractPage";
 import { TtcPage } from "../pages/TtcPage";
 import { MpcPage } from "../pages/MpcPage";
@@ -54,7 +54,7 @@ function renderView(view: TrustedViewKey) {
     case "identity": return <IdentityPage />;
     case "catalog": return <CatalogPage />;
     case "connector": return <ConnectorPage />;
-    case "authorizations": return <StrategyCenterPage />;
+    case "authorizations": return <AuthorizationsPage />;
     case "asset": return <AssetPassportPage />;
     case "apply": return <ApplyPage />;
     case "contract": return <ContractPage />;
