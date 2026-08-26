@@ -683,6 +683,11 @@ def verify_evidence(
     ):
         raise HTTPException(status_code=403, detail={"code": "EVIDENCE_SCOPE_DENIED", "message": "无权核验证据"})
     result = LocalEvidenceLedgerAdapter.verify(evidence)
+    external_receipt_verified = (
+        evidence.chain_code == "FISCO_BCOS_EVIDENCE_ANCHOR_V1"
+        and evidence.status in {"CONFIRMED", "FINALIZED", "PUBLISHED"}
+    )
+    result["external_receipt_verified"] = external_receipt_verified
     add_audit_log(
         db,
         action="VERIFY_CHAIN_EVIDENCE",
@@ -696,8 +701,12 @@ def verify_evidence(
     return {
         **result,
         "allowed_actions": ["view"],
-        "capability_state": "DEMO",
-        "source_of_truth": "blockchain_evidence/local_evidence_ledger",
+        "capability_state": "ADAPTER" if external_receipt_verified else "DEMO",
+        "source_of_truth": (
+            "blockchain_evidence/fisco_bcos_verified_receipt"
+            if external_receipt_verified
+            else "blockchain_evidence/local_evidence_ledger"
+        ),
     }
 
 

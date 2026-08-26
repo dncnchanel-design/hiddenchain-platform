@@ -8,15 +8,19 @@
 | 算法 | `CONTROLLED_SETTLEMENT_V1` | 按已签规则包计算与舍入 |
 | 执行环境 | `APPLICATION_PROCESS` | 无硬件隔离证明 |
 | 远程证明 | `NOT_PROVIDED` | 不得声明 TEE |
-| 证据后端 | `LOCAL_EVIDENCE_LEDGER_V1` | 数据库哈希台账，可做摘要一致性核验 |
-| 区块链交易 | 未配置 | 不得声明“已上链”或共识确认 |
+| 证据后端 | 未配置 FISCO 时为 `LOCAL_HASH_ANCHOR_DEMO_V1`；配置后为 `FISCO_BCOS_EVIDENCE_ANCHOR_V1` | 本地模式只做哈希台账；FISCO 模式必须核验外部交易回执 |
+| 区块链交易 | 当前 Render 未配置 | 当前环境不得声明“已上链”；只有外部回执核验成功的批次才显示外部发布 |
 | API 原始记录 | `false` | 当前 API 响应不返回 Vault 原始记录 |
-| 跨域不出域证明 | `false/NOT_PROVIDED` | 不得由 API 最小披露推断跨主体不出域 |
+| 跨域不出域证明 | 本地结算为 `false/NOT_PROVIDED`；连接器问数为 `SIGNED_CONNECTOR_NON_EXPORT` | 连接器路径可核验已登记连接器的软件声明，但不得夸大为 TEE/MPC/物理隔离 |
 | OPA | production 必须远程服务 | PDP 不可用时 fail-closed |
 
 ## 本地受控结算
 
 适配器从本机 Vault 读取参与方测试/接入数据，执行确定性规则、场景派生和电网约束校核，只把汇总结果、输入承诺、输出哈希和执行回执写入业务数据库。该边界可复算、可测试，但不是密码学多方计算。
+
+## 连接器不出域证明
+
+主体连接器对完整聚合结果签名，并在签名载荷中写入请求哈希、`CONNECTOR_LOCAL_DATA` 边界、`AGGREGATE_ONLY` 输出范围以及 `raw_data_exported=false`。平台先核验 Ed25519 签名，再核验这些字段与本次请求完全绑定；缺失、篡改或返回原始字段时 fail-closed。该证明回答“平台是否收到主体原始记录”，不回答“主体节点操作系统或运营方是否诚实”。
 
 ## 受控数据使用入口
 
@@ -42,13 +46,15 @@
 
 ## 外部候选方案
 
-策略目录可返回 PSI/MPC、TEE、秘密共享、同态加密、联邦学习等候选方案；受控数据使用入口会把其中与当前请求相关的候选方案带入执行回执，但统一标记：
+策略目录可返回 PSI/MPC、TEE、秘密共享、同态加密、联邦学习等候选方案；当前单主机实现会显式标记实验边界，不再用笼统的“可执行”覆盖跨域能力：
 
 ```json
 {
-  "implementation_status": "NOT_CONFIGURED",
-  "execution_capability": false,
-  "requires_external_runtime": true
+  "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
+  "execution_label": "本地实验可执行",
+  "execution_capability": true,
+  "cross_domain_non_export_verified": false,
+  "execution_boundary": "APPLICATION_PROCESS"
 }
 ```
 
@@ -58,7 +64,7 @@
 
 - MPC：至少两个独立主体节点、协议实现、密钥/份额管理、失败与串谋模型、可复现实验和安全评审。
 - TEE：受支持硬件、可信镜像度量、远程证明验证、证书链、重放防护和密钥释放策略。
-- 区块链：明确网络、节点与治理、合约、交易回执、确认策略和链故障处理。
+- 区块链：明确网络、节点与治理、合约、交易回执、确认策略和链故障处理；本项目通过外部签名中继提交，并由 FISCO JSON-RPC `getTransactionReceipt` 回读核验。
 - 跨域不出域：独立连接器/网关、数据面监测、传输与出站控制、日志及第三方可核验证明。
 
 接入前，产品验收结论对这些能力必须为 `NO`。

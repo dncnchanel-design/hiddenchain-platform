@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from ..models import SettlementTask, utc_now
 from ..security import sha256_json
-from ..trust_models import EvidenceBatch, EvidenceBatchItem, EvidenceOutbox, TtcAttempt
+from ..trust_models import BlockchainAnchor, EvidenceBatch, EvidenceBatchItem, EvidenceOutbox, TtcAttempt
 from .evidence_outbox import (
+    AnchorAdapter,
     EvidenceClass,
     EvidenceOutboxService,
     IdempotencyConflictError,
@@ -20,6 +21,7 @@ from .evidence_outbox import (
     merkle_root,
     verify_sealed_batch,
 )
+from .fisco_bcos import FiscoBcosAnchorAdapter
 
 
 @dataclass(frozen=True)
@@ -195,12 +197,30 @@ def _batch_outbox_payload(
     }
 
 
+def selected_anchor_adapter() -> AnchorAdapter:
+    """Select the configured external anchor, otherwise the explicit demo adapter."""
+
+    if FiscoBcosAnchorAdapter.is_configured():
+        return FiscoBcosAnchorAdapter()
+    return LocalHashAnchorAdapter()
+
+
+def selected_anchor_adapter_status() -> dict[str, Any]:
+    adapter = selected_anchor_adapter()
+    if isinstance(adapter, FiscoBcosAnchorAdapter):
+        return FiscoBcosAnchorAdapter.status(adapter.config)
+    return LocalHashAnchorAdapter.status()
+
+
 def process_local_demo_outbox(db: Session, *, limit: int = 25) -> list[dict[str, Any]]:
-    """Run the retry-safe worker once; caller owns commit/rollback."""
+    """Run the retry-safe worker once using the configured anchor adapter."""
+
+    anchor_adapter = selected_anchor_adapter()
+    adapter_status = selected_anchor_adapter_status()
 
     results = list(EvidenceOutboxService.process_pending(
         db,
-        LocalHashAnchorAdapter(),
+        anchor_adapter,
         limit=limit,
     ))
     for item in results:
@@ -214,7 +234,7 @@ def process_local_demo_outbox(db: Session, *, limit: int = 25) -> list[dict[str,
         follow_up = list(
             EvidenceOutboxService.process_pending(
                 db,
-                LocalHashAnchorAdapter(),
+                anchor_adapter,
                 limit=remaining,
             )
         )
@@ -227,7 +247,8 @@ def process_local_demo_outbox(db: Session, *, limit: int = 25) -> list[dict[str,
             batch = db.get(EvidenceBatch, record.batch_id)
             if batch is not None:
                 batch.status = (
-                    "ANCHORED_DEMO" if item.status == "PUBLISHED" else item.status
+                    "ANCHORED" if item.status == "PUBLISHED" and adapter_status["capability_label"] != "DEMO"
+                    else "ANCHORED_DEMO" if item.status == "PUBLISHED" else item.status
                 )
     return [
         {
@@ -236,7 +257,7 @@ def process_local_demo_outbox(db: Session, *, limit: int = 25) -> list[dict[str,
             "attempt_count": item.attempt_count,
             "transaction_hash": item.transaction_hash,
             "error_code": item.error_code,
-            "adapter_status": LocalHashAnchorAdapter.status(),
+            "adapter_status": adapter_status,
         }
         for item in results
     ]
@@ -256,6 +277,17 @@ def _reconcile_ttc_after_publication(
     task = db.get(SettlementTask, outbox.task_id)
     if batch is None or task is None or batch.batch_type != "FINAL_SETTLEMENT":
         return
+    anchor = db.scalar(select(BlockchainAnchor).where(BlockchainAnchor.batch_id == batch.batch_id))
+    external_anchor_verified = bool(
+        anchor
+        and anchor.adapter_code == FiscoBcosAnchorAdapter.adapter_code
+        and anchor.status in {"CONFIRMED", "FINALIZED", "PUBLISHED"}
+    )
+    anchor_message = (
+        "FISCO BCOS transaction receipt verified; external publication recorded"
+        if external_anchor_verified
+        else "DEMO anchor receipt persisted; no external consensus is claimed"
+    )
 
     # Imported lazily to keep the outbox primitive independently testable.
     from .trust_domain import TTCState, TtcStateMachine
@@ -273,7 +305,7 @@ def _reconcile_ttc_after_publication(
                 TTCState.EVIDENCE_ANCHOR,
                 actor_did,
                 "EVIDENCE_ROOT_PUBLISHED",
-                "DEMO anchor receipt persisted; no external consensus is claimed",
+                anchor_message,
                 trace_id=f"outbox-{outbox.outbox_id}",
             )
             state = TTCState.EVIDENCE_ANCHOR
@@ -284,7 +316,11 @@ def _reconcile_ttc_after_publication(
                 TTCState.ARCHIVED,
                 actor_did,
                 "TTC_ARCHIVED",
-                "Business result, audit gate, evidence root and DEMO anchor receipt are complete",
+                (
+                    "Business result, audit gate, evidence root and FISCO BCOS receipt are complete"
+                    if external_anchor_verified
+                    else "Business result, audit gate, evidence root and DEMO anchor receipt are complete"
+                ),
                 trace_id=f"archive-{outbox.outbox_id}",
             )
             attempt = latest_attempt(db, task.task_id)

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
 from ..models import TaskParticipant, User
-from ..services.formal_evidence import process_local_demo_outbox
+from ..services.formal_evidence import process_local_demo_outbox, selected_anchor_adapter_status
 from ..services.mpc import AdditiveSecretSharingMPC
 from ..trust_models import BlockchainAnchor, EvidenceBatch, EvidenceBatchItem, EvidenceOutbox
 
@@ -77,6 +77,13 @@ def list_evidence_batches(
                         "block_height": anchor.block_height,
                         "status": anchor.status,
                         "consensus_verified": False,
+                        "external_receipt_verified": (
+                            anchor.capability_label != "DEMO"
+                            and anchor.status in {"CONFIRMED", "FINALIZED", "PUBLISHED"}
+                        ),
+                        "external_publication": bool(
+                            (anchor.response_json or {}).get("external_publication")
+                        ),
                     }
                     if anchor
                     else None
@@ -123,7 +130,12 @@ def process_evidence_outbox(
     return {
         "processed": len(results),
         "results": results,
-        "worker_mode": "ON_DEMAND_LOCAL_DEMO",
+        "worker_mode": (
+            "ON_DEMAND_FISCO_BCOS"
+            if selected_anchor_adapter_status().get("capability_label") != "DEMO"
+            else "ON_DEMAND_LOCAL_DEMO"
+        ),
+        "anchor_adapter": selected_anchor_adapter_status(),
     }
 
 

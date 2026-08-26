@@ -129,6 +129,7 @@ export const STATUS_LABELS: Record<string, string> = {
   SUCCESS: "成功",
   SUCCEEDED: "已完成",
   CONFIRMED: "已确认",
+  VERIFIED: "已验证",
   AUDITED: "已审计",
   HEALTHY: "正常",
   RESOLVED: "已处理",
@@ -405,6 +406,14 @@ export const CAPABILITY_LABELS: Record<string, string> = {
   BLOCKED: "已阻断",
   NOT_CONFIGURED: "未配置",
   NOT_PROVIDED: "未提供",
+  VERIFIED: "已验证",
+  APPLICATION_PROCESS: "应用进程内",
+  SUBJECT_CONNECTOR: "主体连接器",
+  CONNECTOR_SIGNED: "连接器签名声明",
+  FISCO_BCOS_EVIDENCE_ANCHOR_V1: "FISCO BCOS 证据锚定",
+  FISCO_BCOS_3_JSON_RPC: "FISCO BCOS 3 JSON-RPC",
+  LOCAL_HASH_ANCHOR_DEMO_V1: "本地哈希演示锚定",
+  SIGNED_CONNECTOR_NON_EXPORT: "连接器签名不出域证明",
 };
 
 export const RECORD_TYPE_LABELS: Record<string, string> = {
@@ -442,6 +451,7 @@ export const SOURCE_OF_TRUTH_LABELS: Record<string, string> = {
   audit_logs_audit_reports: "审计日志与审计报告",
   "audit_logs/audit_reports": "审计日志与审计报告",
   "blockchain_evidence/local_evidence_ledger": "区块链证据与本地证据台账",
+  "blockchain_evidence/fisco_bcos_verified_receipt": "区块链证据与 FISCO BCOS 已核验回执",
   "settlement_results/signatures/blockchain_evidence": "结算结果、签名与区块链证据",
   organizations_users: "组织与用户记录",
   "organizations/users": "组织与用户记录",

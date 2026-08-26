@@ -452,6 +452,7 @@ def dashboard_metrics(
     x_platform_public_key: str | None = Header(default=None, alias="X-Platform-Public-Key"),
 ) -> dict[str, Any]:
     _verify_platform_request(payload, x_request_timestamp, x_request_nonce, x_request_signature, x_platform_public_key)
+    request_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
     trend, unit, record_count = _dashboard_series(payload)
     resource_name = next(name for resource, name, _unit in RESOURCE_DEFINITIONS[DOMAIN] if resource == payload.resource)
     envelope = {
@@ -471,6 +472,23 @@ def dashboard_metrics(
             "granularity": "day",
             "minimum_group_size": MIN_GROUP_SIZE,
             "raw_records_returned": False,
+            "raw_data_exported": False,
+            "execution_environment": "SUBJECT_CONNECTOR",
+            "attestation_status": "CONNECTOR_SIGNED",
+            "non_export_attestation": {
+                "status": "SIGNED",
+                "issuer": CONNECTOR_ID,
+                "boundary": "CONNECTOR_LOCAL_DATA",
+                "request_hash": request_hash,
+                "result_scope": "AGGREGATE_ONLY",
+                "raw_data_exported": False,
+            },
+        },
+        "privacy_verification": {
+            "mode": "SIGNED_CONNECTOR_NON_EXPORT",
+            "request_hash": request_hash,
+            "raw_data_exported": False,
+            "result_scope": "AGGREGATE_ONLY",
         },
         "raw_records_returned": False,
     }
@@ -494,7 +512,15 @@ def compute(
                 (payload.request_item_id,),
             ).fetchone()
         if prior is not None:
-            return json.loads(prior["result_json"])
+            cached = json.loads(prior["result_json"])
+            cached_privacy = cached.get("privacy") if isinstance(cached, dict) else None
+            cached_claim = (
+                cached_privacy.get("non_export_attestation")
+                if isinstance(cached_privacy, dict)
+                else None
+            )
+            if isinstance(cached_claim, dict) and cached_claim.get("request_hash") == request_hash:
+                return cached
     query_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
     now = int(datetime.now(UTC).timestamp())
     with _database() as connection:
@@ -530,7 +556,28 @@ def compute(
         "unit": unit,
         "record_count": len(rows),
         "generated_at": datetime.now(UTC).isoformat(),
-        "privacy": {"minimum_group_size": MIN_GROUP_SIZE, "raw_records_returned": False, "decimals": decimals},
+        "privacy": {
+            "minimum_group_size": MIN_GROUP_SIZE,
+            "raw_records_returned": False,
+            "raw_data_exported": False,
+            "decimals": decimals,
+            "execution_environment": "SUBJECT_CONNECTOR",
+            "attestation_status": "CONNECTOR_SIGNED",
+            "non_export_attestation": {
+                "status": "SIGNED",
+                "issuer": CONNECTOR_ID,
+                "boundary": "CONNECTOR_LOCAL_DATA",
+                "request_hash": request_hash,
+                "result_scope": "AGGREGATE_ONLY",
+                "raw_data_exported": False,
+            },
+        },
+        "privacy_verification": {
+            "mode": "SIGNED_CONNECTOR_NON_EXPORT",
+            "request_hash": request_hash,
+            "raw_data_exported": False,
+            "result_scope": "AGGREGATE_ONLY",
+        },
         "capability": "本地受控计算" if payload.function != "mpc_aggregation" else "本地计算份额",
     }
     if payload.function == "trend":

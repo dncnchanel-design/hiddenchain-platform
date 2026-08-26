@@ -166,6 +166,8 @@ def encrypted_sum(
         "aggregate_ciphertext_hash": hashlib.sha256(str(aggregate).encode()).hexdigest(),
         "participant_ids": list(participant_ids),
         "raw_values_exposed": False,
+        "plaintext_values_seen_by_runtime": True,
+        "cross_domain_non_export_verified": False,
     }
 
 
@@ -204,6 +206,9 @@ def encrypted_vector_sum(
         "ciphertext_hash": hashlib.sha256("".join(encrypted_hashes).encode()).hexdigest(),
         "participant_ids": list(participant_ids),
         "raw_values_exposed": False,
+        "plaintext_values_seen_by_runtime": True,
+        "ciphertext_aggregation_verified": True,
+        "cross_domain_non_export_verified": False,
     }
 
 

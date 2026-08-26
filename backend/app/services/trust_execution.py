@@ -16,11 +16,14 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import SessionLocal
-from ..models import DataUpload, DidIdentity, Signature, TrustedExecutionReview, User, utc_now
+from ..models import BlockchainEvidence, DataUpload, DidIdentity, Signature, TrustedExecutionReview, User, utc_now
 from ..security import sha256_json, sign_value
+from .evidence_outbox import AnchorRequest
+from .fisco_bcos import FiscoBcosAnchorAdapter
 from .adapters import LocalEvidenceLedgerAdapter
 from .common import add_audit_log, trace_id
 from .credentials import JsonLdCredentialAdapter
+from .formal_evidence import selected_anchor_adapter, selected_anchor_adapter_status
 from .lineage import emit_run_event, input_dataset
 from .vault import LocalDomainVault
 
@@ -1118,21 +1121,63 @@ class EvidenceAuditLogger:
     def _anchor(cls, task_id: str | None, payload: dict[str, Any]) -> dict[str, Any]:
         db = SessionLocal()
         try:
-            evidence = LocalEvidenceLedgerAdapter().anchor(
-                db,
-                task_id=task_id,
-                stage="TRUST_EXECUTION",
-                biz_type="TRUSTED_EXECUTION",
-                biz_id=str(payload["Request_ID"]),
-                payload=payload,
-            )
+            adapter = selected_anchor_adapter()
+            if isinstance(adapter, FiscoBcosAnchorAdapter):
+                evidence_hash = sha256_json(payload)
+                receipt = adapter.anchor(
+                    AnchorRequest(
+                        batch_id=str(payload["Request_ID"]),
+                        merkle_root=evidence_hash,
+                        payload_hash=evidence_hash,
+                        idempotency_key=f"TRUST_EXECUTION:{payload['Request_ID']}:{evidence_hash}",
+                        event_type="TRUST_EXECUTION_EVIDENCE",
+                        aggregate_type="TRUSTED_EXECUTION",
+                        aggregate_id=str(payload["Request_ID"]),
+                    )
+                )
+                if receipt.block_height is None:
+                    raise RuntimeError("FISCO receipt has no committed block height")
+                evidence = BlockchainEvidence(
+                    task_id=task_id,
+                    stage="TRUST_EXECUTION",
+                    biz_type="TRUSTED_EXECUTION",
+                    biz_id=str(payload["Request_ID"]),
+                    evidence_hash=evidence_hash,
+                    payload_json=payload,
+                    tx_hash=receipt.transaction_hash,
+                    block_height=receipt.block_height,
+                    chain_code=receipt.adapter_code,
+                    status=receipt.status,
+                )
+                db.add(evidence)
+                db.flush()
+                response = {
+                    "status": receipt.status,
+                    "evidence_id": evidence.evidence_id,
+                    "tx_hash": evidence.tx_hash,
+                    "block_height": evidence.block_height,
+                    "chain_code": evidence.chain_code,
+                    "external_receipt_verified": True,
+                }
+            else:
+                evidence = LocalEvidenceLedgerAdapter().anchor(
+                    db,
+                    task_id=task_id,
+                    stage="TRUST_EXECUTION",
+                    biz_type="TRUSTED_EXECUTION",
+                    biz_id=str(payload["Request_ID"]),
+                    payload=payload,
+                )
+                response = {
+                    "status": "CONFIRMED",
+                    "evidence_id": evidence.evidence_id,
+                    "tx_hash": evidence.tx_hash,
+                    "block_height": evidence.block_height,
+                    "chain_code": evidence.chain_code,
+                    "external_receipt_verified": False,
+                }
             db.commit()
-            return {
-                "status": "CONFIRMED",
-                "evidence_id": evidence.evidence_id,
-                "tx_hash": evidence.tx_hash,
-                "block_height": evidence.block_height,
-            }
+            return response
         except Exception as exc:
             db.rollback()
             return {"status": "FAILED", "error_type": type(exc).__name__}
@@ -1413,7 +1458,13 @@ class TrustworthyExecutionController:
                 "step": 8,
                 "code": "LOG",
                 "status": "QUEUED",
-                "details": {"destination": "LOCAL_EVIDENCE_LEDGER_V1"},
+                "details": {
+                    "destination": (
+                        selected_anchor_adapter_status().get("adapter_code")
+                        if selected_anchor_adapter_status().get("capability_label") != "DEMO"
+                        else LocalEvidenceLedgerAdapter.code
+                    )
+                },
             },
         ]
         payload = {
@@ -1709,9 +1760,11 @@ class TrustworthyExecutionController:
 
 
 def trusted_execution_status() -> dict[str, Any]:
+    anchor_adapter = selected_anchor_adapter_status()
     return {
         "controller": "TRUSTWORTHY_EXECUTION_CONTROLLER_V1",
         "availability": "TEST_FIXTURE_ONLY" if settings.app_env in {"development", "test"} else "NOT_CONFIGURED",
+        "anchor_adapter": anchor_adapter,
         "security_boundary": {
             "api_raw_records_returned": False,
             "cross_domain_non_export_verified": False,
@@ -1720,7 +1773,11 @@ def trusted_execution_status() -> dict[str, Any]:
         },
         "audit": {
             "asynchronous_evidence_recording": True,
-            "evidence_backend": LocalEvidenceLedgerAdapter.code,
+            "evidence_backend": (
+                anchor_adapter["adapter_code"]
+                if anchor_adapter.get("capability_label") != "DEMO"
+                else LocalEvidenceLedgerAdapter.code
+            ),
             "result_hash_required": True,
         },
         "workflow_steps": [

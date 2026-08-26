@@ -764,7 +764,10 @@ class AdaptivePrivacyRouter:
             "supporting": ["DIFFERENTIAL_PRIVACY_OUTPUT"],
             "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
             "execution_capability": True,
+            "execution_label": "本地实验可执行",
             "requires_external_runtime": False,
+            "cross_domain_non_export_verified": False,
+            "execution_boundary": "APPLICATION_PROCESS",
             "reason": "使用安全聚合只交换模型更新；当前编排仍在单主机实验运行时内。",
         },
         "MARKET_SETTLEMENT": {
@@ -773,7 +776,10 @@ class AdaptivePrivacyRouter:
             "supporting": ["DETERMINISTIC_RULE_ENGINE"],
             "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
             "execution_capability": True,
+            "execution_label": "本地实验可执行",
             "requires_external_runtime": False,
+            "cross_domain_non_export_verified": False,
+            "execution_boundary": "APPLICATION_PROCESS",
             "reason": "使用交换群幂协议完成集合交集；生产仍需独立主体节点和认证传输。",
         },
         "VPP_AGGREGATION": {
@@ -782,7 +788,10 @@ class AdaptivePrivacyRouter:
             "supporting": ["PAILLIER_HE", "DIFFERENTIAL_PRIVACY_OUTPUT"],
             "implementation_status": "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST",
             "execution_capability": True,
+            "execution_label": "本地实验可执行",
             "requires_external_runtime": False,
+            "cross_domain_non_export_verified": False,
+            "execution_boundary": "APPLICATION_PROCESS",
             "reason": "通过秘密分享和加法同态聚合负荷曲线，只释放聚合结果。",
         },
         "GRID_SECURITY_CHECK": {
@@ -791,7 +800,10 @@ class AdaptivePrivacyRouter:
             "supporting": ["POLICY_SANDBOX"],
             "implementation_status": "BLOCKED",
             "execution_capability": False,
+            "execution_label": "未接入（需外部TEE）",
             "requires_external_runtime": True,
+            "cross_domain_non_export_verified": False,
+            "execution_boundary": "EXTERNAL_TEE_REQUIRED",
             "reason": "缺少带远程证明和密钥释放的TEE运行时，保持阻断。",
         },
     }
@@ -818,11 +830,16 @@ class AdaptivePrivacyRouter:
             reasons.append("L4数据的对外结果增加差分隐私披露约束。")
         implementation_status = selected["implementation_status"]
         execution_capability = selected["execution_capability"]
+        execution_label = selected["execution_label"]
         requires_external_runtime = selected["requires_external_runtime"]
+        cross_domain_non_export_verified = selected["cross_domain_non_export_verified"]
+        execution_boundary = selected["execution_boundary"]
         if primary == "TEE_CONFIDENTIAL_COMPUTE":
             implementation_status = "BLOCKED"
             execution_capability = False
+            execution_label = "未接入（需外部TEE）"
             requires_external_runtime = True
+            execution_boundary = "EXTERNAL_TEE_REQUIRED"
         plan = {
             "scenario_code": scenario_code,
             "scenario_name": selected["name"],
@@ -835,7 +852,11 @@ class AdaptivePrivacyRouter:
             "raw_data_export": False,
             "implementation_status": implementation_status,
             "execution_capability": execution_capability,
+            "execution_label": execution_label,
             "requires_external_runtime": requires_external_runtime,
+            "cross_domain_non_export_verified": cross_domain_non_export_verified,
+            "execution_boundary": execution_boundary,
+            "attestation_status": "NOT_PROVIDED",
             "reason": " ".join(reasons),
         }
         plan["plan_hash"] = sha256_json(plan)
@@ -1250,7 +1271,13 @@ class LocalControlledComputeAdapter:
             "ciphertext_hash": encrypted_receipt["ciphertext_hash"],
             "raw_records_returned": False,
             "raw_data_exposed": False,
-            "raw_values_sent_to_aggregator": False,
+            "raw_values_seen_by_application_process": True,
+            "raw_values_sent_to_aggregator": True,
+            "ciphertext_only_transport": False,
+            "execution_environment": "APPLICATION_PROCESS",
+            "attestation_status": "NOT_PROVIDED",
+            "cross_domain_non_export_verified": False,
+            "ciphertext_aggregation_verified": True,
             "protocols_executed": [encrypted_receipt["algorithm_code"]],
             "secret_sharing": secret_sharing_controls,
         }
@@ -1285,6 +1312,7 @@ class LocalControlledComputeAdapter:
             "demand_response_potential_mw": round(max(peak - sum(aggregate) / 24, 0) * 0.35, 3),
             "raw_records_returned": False,
             "privacy_controls": privacy_controls,
+            "privacy_boundary": "单主机应用进程：Paillier 密文聚合已执行，但原始向量在同一进程内可见，不具备跨主体不出域证明",
             "compute_strategy": strategy or AdaptivePrivacyRouter.recommend(
                 "VPP_AGGREGATION",
                 sensitivity_level="L3",

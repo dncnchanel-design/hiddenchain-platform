@@ -36,6 +36,7 @@ from ..models import (
 from ..services.common import add_audit_log
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
+from ..services.privacy_attestation import PrivacyAttestationError, verify_signed_connector_non_export
 from ..security import canonical_json, sha256_json
 from ..schemas import TrustedSpaceQueryTranslation
 from ..services.local_data_boundary import matching_rule, rule_decision, subject_node_config
@@ -846,6 +847,9 @@ def execute_query(
     )
     if request_item.status == "SUCCEEDED" and request_item.result_json:
         replayed_result = request_item.result_json
+        replayed_privacy_verification = replayed_result.get("privacy_verification")
+        if not isinstance(replayed_privacy_verification, dict) or replayed_privacy_verification.get("status") != "VERIFIED":
+            raise HTTPException(502, "历史连接器结果缺少可验证的不出域证明")
         return {
             "task_id": replayed_result.get("_hiddenchain_task_id") or replayed_result.get("task_id"),
             "job_id": replayed_result.get("_hiddenchain_job_id"),
@@ -862,6 +866,7 @@ def execute_query(
             "audit_recorded": True,
             "raw_records_returned": False,
             "capability": replayed_result.get("capability", "本地受控计算"),
+            "privacy_verification": replayed_privacy_verification,
             "idempotent_replay": True,
         }
     metadata = asset.metadata_json or {}
@@ -941,8 +946,30 @@ def execute_query(
         isinstance(privacy, dict) and privacy.get("raw_records_returned") is True
     ):
         raise HTTPException(502, "企业连接器返回了不允许交付的原始记录")
+    try:
+        privacy_verification = verify_signed_connector_non_export(
+            signed_result,
+            connector_payload,
+        )
+    except PrivacyAttestationError as exc:
+        raise HTTPException(502, "企业连接器未提供可验证的不出域证明") from exc
     trend = _validated_trend(result.get("trend"))
     output_hash = sha256_json(signed_result)
+    privacy_guarantees = {
+        **(privacy if isinstance(privacy, dict) else {}),
+        "execution_environment": "SUBJECT_CONNECTOR",
+        "attestation_status": "CONNECTOR_SIGNED",
+        "connector_signature_verified": True,
+        "cross_domain_non_export_verified": True,
+        "privacy_verification": {
+            **privacy_verification,
+            "result_hash": output_hash,
+        },
+    }
+    privacy_verification = {
+        **privacy_verification,
+        "result_hash": output_hash,
+    }
     job_id = new_id()
     job = PrivacyComputeJob(
         job_id=job_id,
@@ -956,6 +983,11 @@ def execute_query(
             "connector_signature_verified": True,
             "signature_algorithm": "Ed25519",
             "raw_records_returned": False,
+            "raw_data_exported": False,
+            "execution_environment": "SUBJECT_CONNECTOR",
+            "attestation_status": "CONNECTOR_SIGNED",
+            "cross_domain_non_export_verified": True,
+            "privacy_verification": privacy_verification,
             "authorization_id": authorization.request_id,
             "applicant_org_id": user.org_id,
             "provider_org_id": authorization.provider_org_id,
@@ -964,7 +996,7 @@ def execute_query(
         },
         status="SUCCEEDED",
         progress=100,
-        privacy_guarantees_json=result.get("privacy", {}),
+        privacy_guarantees_json=privacy_guarantees,
     )
     db.add(job)
     add_audit_log(
@@ -980,7 +1012,10 @@ def execute_query(
             "function": payload.function,
             "result_hash": output_hash,
             "raw_records_returned": False,
+            "raw_data_exported": False,
             "signature_verified": True,
+            "cross_domain_non_export_verified": True,
+            "privacy_verification": privacy_verification,
             "trust_bootstrap": "DEMO_FIRST_USE" if not expected_public_key else "PRECONFIGURED_PUBLIC_KEY",
         },
     )
@@ -1008,6 +1043,8 @@ def execute_query(
                 "record_count": result.get("record_count"),
                 "trend": trend,
                 "raw_records_returned": False,
+                "raw_data_exported": False,
+                "privacy_verification": privacy_verification,
             },
             visible_to_orgs_json=[user.org_id, authorization.provider_org_id],
         )
@@ -1029,6 +1066,7 @@ def execute_query(
         "audit_recorded": True,
         "raw_records_returned": False,
         "capability": result.get("capability", "本地受控计算"),
+        "privacy_verification": privacy_verification,
         "idempotent_replay": False,
     }
 

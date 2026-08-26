@@ -174,6 +174,19 @@ class Settings:
         "SUBJECT_NODE_PUBLIC_KEYS_JSON", os.getenv("CONNECTOR_PUBLIC_KEYS_JSON", "{}")
     )
     connector_timeout_seconds: float = _float_env("CONNECTOR_TIMEOUT_SECONDS", 15.0)
+    # Optional external evidence anchor.  The platform verifies the receipt
+    # returned by the relay against FISCO BCOS JSON-RPC; it never stores a
+    # chain private key in the application process.
+    fisco_bcos_rpc_url: str = os.getenv("FISCO_BCOS_RPC_URL", "").rstrip("/")
+    fisco_bcos_relay_url: str = os.getenv("FISCO_BCOS_RELAY_URL", "").rstrip("/")
+    fisco_bcos_group_id: str = os.getenv("FISCO_BCOS_GROUP_ID", "group0")
+    fisco_bcos_node_id: str = os.getenv("FISCO_BCOS_NODE_ID", "")
+    fisco_bcos_contract_address: str = os.getenv("FISCO_BCOS_CONTRACT_ADDRESS", "")
+    fisco_bcos_timeout_seconds: float = _float_env("FISCO_BCOS_TIMEOUT_SECONDS", 10.0)
+    fisco_bcos_receipt_poll_attempts: int = _int_env("FISCO_BCOS_RECEIPT_POLL_ATTEMPTS", 10)
+    fisco_bcos_receipt_poll_interval_seconds: float = _float_env(
+        "FISCO_BCOS_RECEIPT_POLL_INTERVAL_SECONDS", 0.5
+    )
 
 
 settings = Settings()

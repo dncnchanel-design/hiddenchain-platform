@@ -55,9 +55,13 @@ def assert_production_database_clean(db: Session, settings: Settings) -> None:
             PrivacyComputeJob.adapter_code != "LOCAL_CONTROLLED_SETTLEMENT_V1"
         )
     ) or 0
+    supported_evidence_backends = {
+        "LOCAL_EVIDENCE_LEDGER_V1",
+        "FISCO_BCOS_EVIDENCE_ANCHOR_V1",
+    }
     unsupported_evidence_records = db.scalar(
         select(func.count(BlockchainEvidence.evidence_id)).where(
-            BlockchainEvidence.chain_code != "LOCAL_EVIDENCE_LEDGER_V1"
+            BlockchainEvidence.chain_code.not_in(supported_evidence_backends)
         )
     ) or 0
 

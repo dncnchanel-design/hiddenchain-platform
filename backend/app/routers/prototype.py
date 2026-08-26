@@ -27,6 +27,7 @@ from ..security import canonical_json, sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
 from ..services.local_data_boundary import subject_node_config
+from ..services.privacy_attestation import PrivacyAttestationError, verify_signed_connector_non_export
 from ..services.trust_space import workbench as trusted_workbench
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _connector_failure, _manual_parse, _platform_private_key, _platform_public_key
@@ -675,6 +676,13 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             raise ValueError("主体连接器返回了不匹配的能源域")
         if result.get("resource") != spec["resource"]:
             raise ValueError("主体连接器返回了不匹配的数据资源")
+        try:
+            privacy_verification = verify_signed_connector_non_export(
+                signed_result,
+                connector_payload,
+            )
+        except PrivacyAttestationError as exc:
+            raise ValueError("主体连接器未提供可验证的不出域证明") from exc
 
         trend: list[dict[str, Any]] = []
         raw_trend = result.get("trend")
@@ -708,6 +716,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             "trend": trend,
             "message": f"已接收 {latest['date']} 日度受控汇总",
             "raw_records_returned": False,
+            "privacy_verification": privacy_verification,
         }
     except Exception:
         return _empty_subject_metric(

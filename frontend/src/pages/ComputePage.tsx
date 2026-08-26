@@ -79,7 +79,8 @@ export function ComputePage() {
           { key: "scenario_code", label: "业务场景", minWidth: 170, render: (row) => SCENARIO_LABELS[row.scenario_code] || row.scenario_name || labelForCode(row.scenario_code, "已登记场景") },
           { key: "primary", label: "建议主要方式", minWidth: 180, render: (row) => strategyName(row.primary) },
           { key: "supporting", label: "建议辅助方式", minWidth: 240, render: (row) => (row.supporting || []).map((code: string) => strategyName(code)).join("、") || "—" },
-          { key: "implementation_status", label: "运行能力", minWidth: 90, render: (row) => <StatusTag value={row.implementation_status} label={row.execution_capability ? "可执行" : "未接入"} /> },
+          { key: "implementation_status", label: "运行能力", minWidth: 125, render: (row) => <StatusTag value={row.implementation_status} label={row.execution_label || (row.execution_capability ? "可执行" : "未接入")} /> },
+          { key: "cross_domain_non_export_verified", label: "跨域不出域证明", minWidth: 125, render: (row) => <StatusTag value={row.cross_domain_non_export_verified ? "VERIFIED" : "NOT_PROVIDED"} label={row.cross_domain_non_export_verified ? "已验证" : "未提供"} /> },
           { key: "sensitivity_level", label: "敏感等级", render: (row) => <StatusTag value={row.sensitivity_level} /> },
           { key: "latency_requirement", label: "时延要求", render: (row) => <StatusTag value={row.latency_requirement} /> },
           { key: "participant_count", label: "参与方", align: "right", render: (row) => row.participant_count === undefined ? "—" : `${row.participant_count} 方` },
@@ -193,6 +194,8 @@ function AnalysisDetail({ job, onClose }: { job: JsonRecord; onClose: () => void
          <div><span>实际协议</span><strong>{executedProtocols.length ? executedProtocols.join("、") : "—"}</strong></div>
          <div><span>秘密共享回执</span><strong>{secretSharing.aggregate_consistency_verified ? "两方聚合一致性已验证" : secretSharing.reason || "未执行"}</strong></div>
          <div><span>执行边界</span><strong>{result.privacy_boundary || "—"}</strong></div>
+         <div><span>原始向量在运行时</span><strong>{result.privacy_controls.raw_values_seen_by_application_process ? "可见（单主机实验）" : "未提供"}</strong></div>
+         <div><span>跨域不出域证明</span><strong>{result.privacy_controls.cross_domain_non_export_verified ? "已验证" : "未提供"}</strong></div>
          <div><span>噪声机制</span><strong>{labelForCode(differentialPrivacy.mechanism || result.privacy_controls.mechanism, "—")}</strong></div>
         <div><span>每小时预算</span><strong>{differentialPrivacy.epsilon_per_hour_release ?? result.privacy_controls.epsilon_per_hour_release ?? "—"}</strong></div>
         <div><span>边界约束</span><strong>{differentialPrivacy.bound_mw || result.privacy_controls.bound_mw ? `${differentialPrivacy.bound_mw || result.privacy_controls.bound_mw} MW` : "—"}</strong></div>

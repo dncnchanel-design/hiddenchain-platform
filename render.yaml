@@ -55,6 +55,22 @@ services:
         generateValue: true
       - key: PLATFORM_SIGNING_PRIVATE_KEY
         generateValue: true
+      - key: FISCO_BCOS_RPC_URL
+        sync: false
+      - key: FISCO_BCOS_RELAY_URL
+        sync: false
+      - key: FISCO_BCOS_GROUP_ID
+        value: group0
+      - key: FISCO_BCOS_NODE_ID
+        sync: false
+      - key: FISCO_BCOS_CONTRACT_ADDRESS
+        sync: false
+      - key: FISCO_BCOS_TIMEOUT_SECONDS
+        value: "10"
+      - key: FISCO_BCOS_RECEIPT_POLL_ATTEMPTS
+        value: "10"
+      - key: FISCO_BCOS_RECEIPT_POLL_INTERVAL_SECONDS
+        value: "0.5"
 
   - type: web
     name: hiddenchain-electricity-connector

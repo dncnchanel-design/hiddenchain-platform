@@ -2712,6 +2712,13 @@ def result_detail(db: Session, result_id: str, user: User) -> dict[str, Any] | N
                         "transaction_hash": item.transaction_hash,
                         "block_height": item.block_height,
                         "status": item.status,
+                        "external_receipt_verified": (
+                            item.capability_label != "DEMO"
+                            and item.status in {"CONFIRMED", "FINALIZED", "PUBLISHED"}
+                        ),
+                        "external_publication": bool(
+                            (item.response_json or {}).get("external_publication")
+                        ),
                         "anchored_at": _iso(item.anchored_at),
                     }
                     for item in anchors

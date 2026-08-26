@@ -35,7 +35,7 @@ from .services.rate_limit import limiter, rate_limit_status
 from .services.solar import PvlibSolarAdapter
 from .services.trust_execution import DynamicPolicyEngine
 from .services.tool_catalog import agent_tool_catalog_readiness, ensure_agent_tool_catalog
-from .services.evidence_outbox import LocalHashAnchorAdapter
+from .services.formal_evidence import selected_anchor_adapter_status
 from .services.mpc import AdditiveSecretSharingMPC
 from .version import VERSION, version_payload
 from .services.common import trace_id
@@ -380,7 +380,7 @@ def health() -> dict:
             ],
             "async_evidence_recording": "TRANSACTIONAL_OUTBOX_POST_COMMIT_WORKER",
             "evidence_backend": "MERKLE_BATCH_WITH_TRANSACTIONAL_OUTBOX_V1",
-            "anchor_adapter": LocalHashAnchorAdapter.status(),
+            "anchor_adapter": selected_anchor_adapter_status(),
             "legacy_evidence_backend": "LOCAL_EVIDENCE_LEDGER_V1",
             "data_boundary_statement": "Each execution must be evaluated from its recorded protocol and attestation.",
         },

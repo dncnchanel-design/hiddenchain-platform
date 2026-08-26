@@ -78,6 +78,10 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert body["resource_name"] == "煤炭库存"
             assert body["function_name"] == "平均值"
             assert body["privacy"]["raw_records_returned"] is False
+            assert body["privacy"]["raw_data_exported"] is False
+            assert body["privacy"]["non_export_attestation"]["status"] == "SIGNED"
+            assert body["privacy"]["non_export_attestation"]["request_hash"]
+            assert body["privacy_verification"]["mode"] == "SIGNED_CONNECTOR_NON_EXPORT"
             assert body["signature_algorithm"] == "Ed25519"
             connector_key.public_key().verify(
                 base64.b64decode(body["signature"]),
@@ -111,6 +115,7 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert len(trend_body["trend"]) > 1
             assert all(set(point) == {"date", "value"} for point in trend_body["trend"])
             assert trend_body["privacy"]["raw_records_returned"] is False
+            assert trend_body["privacy"]["non_export_attestation"]["status"] == "SIGNED"
 
             dashboard_payload = {
                 "request_id": "dashboard-test-0001",
@@ -147,6 +152,7 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert dashboard_body["trend"]
             assert isinstance(dashboard_body["latest"]["value"], (int, float))
             assert dashboard_body["raw_records_returned"] is False
+            assert dashboard_body["privacy_verification"]["mode"] == "SIGNED_CONNECTOR_NON_EXPORT"
             assert "raw_records" not in dashboard_body
             connector_key.public_key().verify(
                 base64.b64decode(dashboard_body["signature"]),

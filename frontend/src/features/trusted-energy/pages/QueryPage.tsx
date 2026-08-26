@@ -126,7 +126,7 @@ function QueryOutput({
         <div><span>结果单位</span><strong>{execution.unit || "—"}</strong></div>
       </div>
       {trend.length > 1 ? <QueryResultChart result={{ ...execution, trend }} /> : <div className="prototype-query-proof"><span>结果依据</span><strong>连接器已返回签名受控汇总，但没有足够的多日期数据绘制趋势图。</strong></div>}
-      <div className="prototype-query-proof"><span>可信留痕</span><strong>任务 {execution.task_id} · 连接器签名{execution.digital_signature} · 原始记录未返回</strong>{execution.job_id && <Link to={routeForView("mpc", execution.job_id)}>查看隐私计算任务</Link>}</div>
+      <div className="prototype-query-proof"><span>可信留痕</span><strong>任务 {execution.task_id} · 连接器签名{execution.digital_signature} · 原始记录未返回 · {execution.privacy_verification?.status === "VERIFIED" ? "签名不出域证明已验证" : "不出域证明未提供"}</strong>{execution.job_id && <Link to={routeForView("mpc", execution.job_id)}>查看隐私计算任务</Link>}</div>
     </> : !error && <div className="prototype-empty">解析完成后，请选择数据主体并确认授权，系统才会执行连接器计算。</div>}
     <div className="prototype-audit-id">{execution ? `受控任务 ${execution.task_id}` : `AI解析 ${aiLabel}`} · {identity.name || "当前主体"}</div>
   </section>;

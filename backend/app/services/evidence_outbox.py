@@ -220,6 +220,22 @@ def _require_hash(value: str, *, field: str) -> str:
     return value.lower()
 
 
+def _require_transaction_hash(value: str, *, field: str) -> str:
+    """Accept local SHA-256 receipts and FISCO BCOS 0x-prefixed tx hashes."""
+
+    if not isinstance(value, str):
+        raise EvidenceIntegrityError(f"{field} must be a transaction hash")
+    normalized = value.strip().lower()
+    digest = normalized[2:] if normalized.startswith("0x") else normalized
+    if len(digest) != 64:
+        raise EvidenceIntegrityError(f"{field} must be a 64-byte transaction hash")
+    try:
+        bytes.fromhex(digest)
+    except ValueError as exc:
+        raise EvidenceIntegrityError(f"{field} must be hexadecimal") from exc
+    return normalized
+
+
 def _require_text(value: str, *, field: str, max_length: int = 160) -> str:
     if not isinstance(value, str) or not value.strip():
         raise EvidenceIntegrityError(f"{field} must be a non-empty string")
@@ -467,6 +483,7 @@ class LocalHashAnchorAdapter:
             "consensus": False,
             "external_finality": False,
             "production_blockchain": False,
+            "external_publication": False,
             "limitations": [
                 "single-process deterministic hash receipt",
                 "no independent timestamp or consensus",
@@ -721,7 +738,7 @@ class EvidenceOutboxService:
                 raise EvidenceIntegrityError("anchor receipt capability label mismatch")
             if receipt_capability_label not in {"REAL", "LOCAL_REAL", "ADAPTER", "DEMO"}:
                 raise EvidenceIntegrityError("anchor receipt has an unsupported capability label")
-            transaction_hash = _require_hash(
+            transaction_hash = _require_transaction_hash(
                 receipt.transaction_hash, field="anchor transaction_hash"
             )
             if (

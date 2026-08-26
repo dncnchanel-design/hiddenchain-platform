@@ -220,6 +220,8 @@ export function TrustedExecutionPage() {
   const series = Array.isArray(resultBody.series) ? resultBody.series as JsonRecord[] : [];
   const canReview = ["EXCHANGE", "REGULATOR", "ADMIN"].includes(session?.user.role_code || "");
   const translatedInstruction = (translation?.translation || {}) as JsonRecord;
+  const anchorAdapter = (status.anchor_adapter || {}) as JsonRecord;
+  const anchorCapability = String(anchorAdapter.capability_label || "NOT_PROVIDED");
 
   return (
     <>
@@ -283,9 +285,9 @@ export function TrustedExecutionPage() {
             <BoundaryRow icon={LockKeyhole} label="原始数据接口返回" value={status.security_boundary?.api_raw_records_returned === false ? "否" : "未提供"} state={status.security_boundary?.api_raw_records_returned === false ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={Database} label="跨域不出域证明" value={status.security_boundary?.cross_domain_non_export_verified ? "已验证" : "未提供"} state={status.security_boundary?.cross_domain_non_export_verified ? "PASSED" : "NOT_PROVIDED"} />
             <BoundaryRow icon={ShieldCheck} label="结果反推检查" value={status.security_boundary?.anti_inference_check || "未提供"} state="PENDING" />
-            <BoundaryRow icon={Database} label="证据后端" value={status.audit?.evidence_backend || "—"} state="RECORDED" />
+            <BoundaryRow icon={Database} label="证据锚定后端" value={`${String(anchorAdapter.adapter_code || status.audit?.evidence_backend || "—")} · ${String(anchorAdapter.network_code || "未配置")}`} state={anchorCapability === "DEMO" ? "DEMO" : anchorCapability === "ADAPTER" ? "RECORDED" : "NOT_PROVIDED"} />
           </div>
-          <div className="trusted-execution-boundary-note"><strong>系统当前能证明什么？</strong><p>能证明请求经过身份、策略、计算、结果审查和本地摘要台账；不能把本地应用进程内的确定性计算表述为真实多方安全计算、可信执行环境、区块链共识或跨主体不出域证明。</p></div>
+          <div className="trusted-execution-boundary-note"><strong>系统当前能证明什么？</strong><p>{anchorCapability === "ADAPTER" ? "已配置外部证据锚定适配器；只有在 FISCO BCOS 交易回执核验成功后才记为外部发布，不能把单笔回执夸大为治理共识。" : "能证明请求经过身份、策略、计算、结果审查和本地摘要台账；当前未配置外部链节点，不能把本地应用进程内的确定性计算表述为真实多方安全计算、可信执行环境、区块链共识或跨主体不出域证明。"}</p></div>
         </Surface>
       </div>
 
@@ -296,7 +298,7 @@ export function TrustedExecutionPage() {
 }
 
 function BoundaryRow({ icon: Icon, label, value, state }: { icon: typeof Fingerprint; label: string; value: string; state: string }) {
-  return <div className="trusted-execution-boundary-row"><span className="trusted-execution-boundary-icon"><Icon size={16} /></span><div><strong>{label}</strong><small>{value}</small></div><StatusTag value={state} label={state === "PASSED" ? "已核验" : state === "RECORDED" ? "已记录" : state === "VALID" ? "有效" : "未提供"} /></div>;
+  return <div className="trusted-execution-boundary-row"><span className="trusted-execution-boundary-icon"><Icon size={16} /></span><div><strong>{label}</strong><small>{value}</small></div><StatusTag value={state} label={state === "PASSED" ? "已核验" : state === "RECORDED" ? "已记录" : state === "VALID" ? "有效" : state === "DEMO" ? "本地演示" : "未提供"} /></div>;
 }
 
 function TrustedExecutionResult({ result, resultStatus, resultBody, routing, policyHits, steps, series }: { result: JsonRecord; resultStatus: string; resultBody: JsonRecord; routing: JsonRecord; policyHits: JsonRecord[]; steps: JsonRecord[]; series: JsonRecord[] }) {

@@ -464,6 +464,7 @@ export type PrototypeDashboardPayload = {
     trend: Array<{ date: string; value: number }>;
     message: string;
     raw_records_returned: boolean;
+    privacy_verification?: Record<string, unknown>;
   };
   audit: PrototypeAuditRecord[];
   action_counts: Record<string, number>;
@@ -570,6 +571,17 @@ export type ControlledQueryResult = {
   audit_recorded: boolean;
   raw_records_returned: boolean;
   capability: string;
+  privacy_verification?: {
+    mode?: string;
+    status?: string;
+    issuer?: string;
+    boundary?: string;
+    request_hash?: string;
+    result_hash?: string;
+    result_scope?: string;
+    raw_records_returned?: boolean;
+    raw_data_exported?: boolean;
+  };
   idempotent_replay?: boolean;
 };
 
@@ -858,6 +870,8 @@ export type ResultEvidence = {
   block_height?: number | null;
   chain_code?: string | null;
   status?: string | null;
+  external_receipt_verified?: boolean;
+  external_publication?: boolean;
 };
 
 export type ResultSignature = {
@@ -902,6 +916,8 @@ export type ResultDetailPayload = CapabilityEnvelope & {
       transaction_hash?: string | null;
       block_height?: number | null;
       status?: string | null;
+      external_receipt_verified?: boolean;
+      external_publication?: boolean;
       anchored_at?: string | null;
     }>;
   }>;
@@ -1365,7 +1381,7 @@ export function confirmResult(resultId: string, body: { decision: "APPROVE" | "R
 }
 
 export function verifyEvidence(evidenceId: string, signal?: AbortSignal) {
-  return api<CapabilityEnvelope & { matched?: boolean; evidence_id?: string; expected_hash?: string; actual_hash?: string }>(`/trust-space/evidence/${encodeURIComponent(evidenceId)}/verify`, { signal, cache: "no-store", retry: 0 });
+  return api<CapabilityEnvelope & { matched?: boolean; evidence_id?: string; expected_hash?: string; actual_hash?: string; external_receipt_verified?: boolean }>(`/trust-space/evidence/${encodeURIComponent(evidenceId)}/verify`, { signal, cache: "no-store", retry: 0 });
 }
 
 export function loadAudit(params: { page?: number; pageSize?: number }, signal?: AbortSignal) {

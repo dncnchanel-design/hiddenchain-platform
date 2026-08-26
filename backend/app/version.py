@@ -53,9 +53,25 @@ CAPABILITIES: tuple[dict[str, str], ...] = (
 
 
 def version_payload() -> dict[str, object]:
+    capabilities = [dict(item) for item in CAPABILITIES]
+    try:
+        from .services.formal_evidence import selected_anchor_adapter_status
+
+        anchor = selected_anchor_adapter_status()
+        if anchor.get("capability_label") != "DEMO":
+            for item in capabilities:
+                if item["code"] == "BLOCKCHAIN_ANCHOR":
+                    item["implementation_status"] = str(anchor["capability_label"])
+                    item["boundary"] = (
+                        "external FISCO BCOS receipt verification; no consensus/finality claim"
+                    )
+                    break
+    except Exception:
+        # Version reporting must never make the health endpoint unavailable.
+        pass
     return {
         "service_version": VERSION,
         "api_contract_version": API_CONTRACT_VERSION,
         "build_sha": BUILD_SHA,
-        "capabilities": [dict(item) for item in CAPABILITIES],
+        "capabilities": capabilities,
     }
