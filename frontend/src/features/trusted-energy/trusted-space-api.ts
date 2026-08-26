@@ -473,7 +473,6 @@ export type PrototypeDashboardPayload = {
     gauge_title: string;
     gauge_unit: string;
     focus_title: string;
-    focus_items: Array<{ label: string; value: number | string; meta: string; tone: string }>;
     kpis: Array<{ label: string; value: number | string; meta: string }>;
     primary_action: { label: string; path: string };
     data_scope: string;
