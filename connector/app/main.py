@@ -563,6 +563,7 @@ def compute(
         "unit": unit,
         "record_count": len(rows),
         "generated_at": datetime.now(UTC).isoformat(),
+        "raw_records_returned": False,
         "privacy": {
             "minimum_group_size": MIN_GROUP_SIZE,
             "raw_records_returned": False,

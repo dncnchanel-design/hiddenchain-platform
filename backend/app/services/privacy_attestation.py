@@ -58,7 +58,14 @@ def verify_signed_connector_non_export(
     if not isinstance(nested_claim, Mapping) or not isinstance(top_level_claim, Mapping):
         raise PrivacyAttestationError("connector non-export attestation is missing")
 
-    if signed_result.get("raw_records_returned") is not False:
+    legacy_missing_raw_flag = (
+        "raw_records_returned" not in signed_result
+        and isinstance(privacy, Mapping)
+        and privacy.get("raw_records_returned") is False
+        and isinstance(top_level_claim, Mapping)
+        and top_level_claim.get("raw_data_exported") is False
+    )
+    if signed_result.get("raw_records_returned") is not False and not legacy_missing_raw_flag:
         raise PrivacyAttestationError("connector raw-records flag is not false")
     if privacy.get("raw_records_returned") is not False or privacy.get("raw_data_exported") is not False:
         raise PrivacyAttestationError("connector privacy boundary is not aggregate-only")

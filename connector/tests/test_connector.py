@@ -152,6 +152,7 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert subject_response.status_code == 200, subject_response.text
             subject_body = subject_response.json()
             expected_subject_hash = hashlib.sha256(module._canonical(subject_signed_payload)).hexdigest()
+            assert subject_body["raw_records_returned"] is False
             assert subject_body["privacy"]["non_export_attestation"]["request_hash"] == expected_subject_hash
             assert subject_body["privacy_verification"]["request_hash"] == expected_subject_hash
 

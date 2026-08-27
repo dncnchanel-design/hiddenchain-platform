@@ -124,3 +124,45 @@ def test_connector_attestation_accepts_legacy_null_subject_fields_during_rollout
 
     assert proof["status"] == "VERIFIED"
     assert proof["request_hash"] == sha256_json(canonical_payload)
+
+
+def test_connector_attestation_accepts_legacy_missing_top_level_raw_flag():
+    request_payload = {
+        "task_id": "TASK-20260827-0003",
+        "authorization_id": "AUTH-20260827-0003",
+        "resource": "inventory",
+        "function": "average",
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-02",
+        "region": None,
+        "hour": None,
+        "threshold": None,
+        "group_by": None,
+        "decimals": 2,
+    }
+    request_hash = sha256_json(request_payload)
+    result = {
+        "connector_id": "node-org-coal-t01",
+        "privacy": {
+            "raw_records_returned": False,
+            "raw_data_exported": False,
+            "non_export_attestation": {
+                "status": "SIGNED",
+                "issuer": "node-org-coal-t01",
+                "boundary": "CONNECTOR_LOCAL_DATA",
+                "request_hash": request_hash,
+                "result_scope": "AGGREGATE_ONLY",
+                "raw_data_exported": False,
+            },
+        },
+        "privacy_verification": {
+            "mode": "SIGNED_CONNECTOR_NON_EXPORT",
+            "request_hash": request_hash,
+            "result_scope": "AGGREGATE_ONLY",
+            "raw_data_exported": False,
+        },
+    }
+
+    proof = verify_signed_connector_non_export(result, request_payload)
+
+    assert proof["status"] == "VERIFIED"
