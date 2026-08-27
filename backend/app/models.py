@@ -84,6 +84,17 @@ class DidIdentity(Base, TimestampMixin):
     credential_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
+class DidLoginChallenge(Base):
+    __tablename__ = "did_login_challenges"
+    challenge: Mapped[str] = mapped_column(String(128), primary_key=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(String(512), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
 class DataUpload(Base, TimestampMixin):
     __tablename__ = "data_uploads"
     upload_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

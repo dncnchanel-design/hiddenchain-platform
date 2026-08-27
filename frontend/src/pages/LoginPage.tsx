@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
-import { Eye, EyeOff, Info, LockKeyhole, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Info, LockKeyhole, ShieldCheck, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getDefaultPath } from "../access";
 import { useAuth } from "../auth";
@@ -7,7 +7,7 @@ import { BrandMark, productFooterItems, useProductConfig } from "../branding";
 import { Button, Notice } from "../components/ui";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithDid } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -17,8 +17,6 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
   const [mode, setMode] = useState<"account" | "did">("account");
-  const [did, setDid] = useState("");
-  const [credential, setCredential] = useState("");
   const product = useProductConfig();
   const version = import.meta.env.VITE_APP_VERSION || "0.2.0";
   const footerItems = productFooterItems(product, version);
@@ -30,7 +28,16 @@ export function LoginPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (mode === "did") {
-      setError("去中心化身份认证尚未配置生产凭证，本次不会伪造登录结果。请切换账号密码登录，或由企业最高权限账号接入身份服务方。");
+      setBusy(true);
+      setError("");
+      try {
+        const session = await loginWithDid();
+        navigate(getDefaultPath(session), { replace: true });
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "DID 钱包登录失败，请重试");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     setBusy(true);
@@ -89,12 +96,11 @@ export function LoginPage() {
             <span className="login-help-text">忘记密码请联系所属企业最高权限账号</span>
           </div>
           </> : <div className="trusted-did-login-panel">
-            <label className="field"><span>选择主体身份标识</span><select value={did} onChange={(event) => setDid(event.target.value)}><option value="">未配置身份标识（由企业最高权限账号配置）</option></select></label>
-            <label className="field"><span>凭证引用</span><input value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="输入部署端提供的凭证引用" autoComplete="off" /></label>
-            <div className="trusted-did-notice"><ShieldCheck size={15} /><span>当前环境未接入去中心化身份服务方。提交后只会提示未配置，不会创建会话或模拟认证成功。</span></div>
+            <div className="trusted-did-wallet-card"><Wallet size={20} /><div><strong>使用浏览器钱包签名</strong><span>钱包会对一次性挑战签名，平台只验证签名，不会接触私钥。</span></div></div>
+            <div className="trusted-did-notice"><ShieldCheck size={15} /><span>请连接已登记到企业 DID 的钱包。签名只用于本次登录，不会发起转账或链上交易。</span></div>
           </div>}
           {error && <Notice tone="warning">{error}</Notice>}
-          <Button type="submit" variant="primary" busy={busy}>{mode === "did" ? "验证身份凭证" : "登录"}</Button>
+          <Button type="submit" variant="primary" busy={busy}>{mode === "did" ? "连接钱包并登录" : "登录"}</Button>
           <div className="login-form-divider" aria-hidden="true"><span>或</span></div>
           <Button type="button" variant="secondary" onClick={() => { setMode((value) => value === "account" ? "did" : "account"); setError(""); }}>
             {mode === "account" ? "使用 DID 身份认证" : "使用账号密码登录"}

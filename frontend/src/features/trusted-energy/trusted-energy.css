@@ -702,6 +702,10 @@
 .trusted-login-tabs button:hover { color: var(--energy-brand); background: var(--energy-brand-soft); }
 .trusted-login-tabs button.is-active { color: var(--energy-brand); border-bottom-color: var(--energy-brand); }
 .trusted-did-login-panel { display: flex; flex-direction: column; gap: 13px; }
+.trusted-did-wallet-card { display: flex; align-items: center; gap: 11px; padding: 14px; border: 1px solid var(--energy-line); border-radius: 4px; color: var(--energy-brand); background: #f8fbfc; }
+.trusted-did-wallet-card div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.trusted-did-wallet-card strong { font-size: 12px; }
+.trusted-did-wallet-card span { color: var(--energy-muted); font-size: 10px; line-height: 1.5; }
 .trusted-did-login-panel .field select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid var(--energy-line); border-radius: 3px; color: var(--energy-ink); background: #fff; }
 .trusted-did-notice { display: flex; gap: 7px; padding: 9px 10px; border: 1px solid #f0d59e; border-radius: 3px; color: var(--energy-warning); background: var(--energy-warning-soft); font-size: 10px; }
 .trusted-login-screen .login-security-note { color: var(--energy-muted); }

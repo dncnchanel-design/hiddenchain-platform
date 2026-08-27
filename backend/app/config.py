@@ -137,6 +137,8 @@ class Settings:
     rate_limit_enabled: bool = _bool_env("RATE_LIMIT_ENABLED", True)
     rate_limit_storage_uri: str = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
     auth_login_rate_limit: str = os.getenv("AUTH_LOGIN_RATE_LIMIT", "10/minute")
+    did_wallet_bindings_json: str = os.getenv("DID_WALLET_BINDINGS_JSON", "{}")
+    did_login_challenge_minutes: int = _int_env("DID_LOGIN_CHALLENGE_MINUTES", 5)
     # OpenTelemetry is opt-in; deployments can send traces to any
     # OTLP-compatible collector without changing application code.
     otel_enabled: bool = _bool_env("OTEL_ENABLED", False)

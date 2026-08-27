@@ -101,6 +101,7 @@ ASSISTANT_TABLE_NAMES = frozenset(
 )
 NOTIFICATION_TABLE_NAMES = frozenset({"user_notifications"})
 REVOKED_TOKEN_TABLE_NAMES = frozenset({"revoked_access_tokens"})
+DID_LOGIN_TABLE_NAMES = frozenset({"did_login_challenges"})
 LOCAL_DATA_BOUNDARY_TABLE_NAMES = frozenset(
     {
         "local_subject_nodes",
@@ -403,6 +404,10 @@ def _user_notifications(connection: Connection) -> None:
 
 def _revoked_access_tokens(connection: Connection) -> None:
     _create_revision_tables(connection, REVOKED_TOKEN_TABLE_NAMES)
+
+
+def _did_login_challenges(connection: Connection) -> None:
+    _create_revision_tables(connection, DID_LOGIN_TABLE_NAMES)
 
 
 LOCAL_DATA_BOUNDARY_INDEXES: tuple[str, ...] = (
@@ -970,6 +975,13 @@ MIGRATIONS: tuple[Migration, ...] = (
             "central-raw-data:never-required-by-trusted-query",
         ),
         checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260827_001",
+        "add one-time DID wallet login challenges",
+        _did_login_challenges,
+        revision_schema=tuple(f"table:{name}" for name in sorted(DID_LOGIN_TABLE_NAMES)),
+        checksum_helpers=(_create_revision_tables,),
     ),
 )
 

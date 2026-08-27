@@ -3,6 +3,7 @@ uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 pydantic==2.10.4
 PyJWT==2.13.0
+eth-account==0.13.7
 asgi-correlation-id==5.0.1
 slowapi==0.1.10
 python-multipart==0.0.32

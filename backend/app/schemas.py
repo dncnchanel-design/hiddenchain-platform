@@ -26,6 +26,16 @@ class LoginRequest(StrictModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class DidLoginChallengeRequest(StrictModel):
+    wallet_address: str = Field(min_length=42, max_length=42)
+
+
+class DidLoginVerifyRequest(StrictModel):
+    challenge: str = Field(min_length=20, max_length=128)
+    wallet_address: str = Field(min_length=42, max_length=42)
+    signature: str = Field(min_length=130, max_length=200)
+
+
 class DataUploadCreate(StrictModel):
     asset_type: Literal[
         "GENERATION_DATA",

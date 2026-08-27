@@ -84,7 +84,7 @@ def test_migration_upgrade_from_003_to_latest_is_idempotent(tmp_path):
     )
     try:
         # Build an honest database whose ledger stops after 20260821_003.
-        # The normal runner must then apply only 004 and 005.
+        # The normal runner must then apply every migration introduced after it.
         with isolated.begin() as connection:
             MIGRATION_METADATA.create_all(bind=connection)
             for migration in MIGRATIONS[:7]:
@@ -99,11 +99,11 @@ def test_migration_upgrade_from_003_to_latest_is_idempotent(tmp_path):
                 )
 
         assert migration_status(isolated)["current"] == "20260821_003"
-        assert apply_migrations(isolated) == ["20260821_004", "20260821_005", "20260823_001", "20260824_001", "20260824_002"]
+        assert apply_migrations(isolated) == [migration.version for migration in MIGRATIONS[7:]]
         assert apply_migrations(isolated) == []
         status = migration_status(isolated)
         assert status["status"] == "READY"
-        assert status["current"] == "20260824_002"
+        assert status["current"] == MIGRATIONS[-1].version
         columns = {item["name"] for item in inspect(isolated).get_columns("privacy_compute_jobs")}
         assert {"state_version", "action_code", "action_idempotency_key", "action_response_json", "cancelled_at"} <= columns
         index_names = {item["name"] for item in inspect(isolated).get_indexes("privacy_compute_jobs")}

@@ -53,6 +53,8 @@ services:
         generateValue: true
       - key: SIGNING_SECRET
         generateValue: true
+      - key: DID_WALLET_BINDINGS_JSON
+        sync: false
       - key: PLATFORM_SIGNING_PRIVATE_KEY
         generateValue: true
       - key: FISCO_BCOS_RPC_URL

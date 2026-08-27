@@ -51,6 +51,10 @@ pnpm build
 
 `development/test` 的固定账户与夹具只用于测试，入口 `/api/auth/test-users` 在 production 返回 404。
 
+## DID 钱包登录
+
+登录页的 DID 入口使用浏览器钱包签名一次性挑战值，后端恢复并校验钱包地址后创建现有会话；私钥不会上传到平台。只有登记到企业 DID 的钱包可以登录。部署时通过 `DID_WALLET_BINDINGS_JSON` 配置绑定，例如 `{"did:hiddenchain:org:org-generator-t01":"0x..."}`；该配置只包含公开钱包地址，不要把私钥提交到 GitHub。
+
 ## 生产构建
 
 ```bash

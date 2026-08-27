@@ -5,7 +5,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app.database import SessionLocal, engine
-from app.migrations import migration_status
+from app.migrations import MIGRATIONS, migration_status
 from app.models import (
     DataContract,
     DataSpaceAgreement,
@@ -50,7 +50,7 @@ def _etag(body: dict) -> dict[str, str]:
 
 
 def test_notifications_help_and_migration_contract(client, auth_headers):
-    assert migration_status(engine)["current"] == "20260824_002"
+    assert migration_status(engine)["current"] == MIGRATIONS[-1].version
     schema = client.get("/api/openapi.json").json()["paths"]
     for path in (
         "/api/trust-space/help",
