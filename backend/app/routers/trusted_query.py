@@ -965,7 +965,7 @@ def execute_query(
             connector_payload,
         )
     except PrivacyAttestationError as exc:
-        raise HTTPException(502, "企业连接器未提供可验证的不出域证明") from exc
+        raise HTTPException(502, f"企业连接器不出域证明校验失败：{exc}") from exc
     trend = _validated_trend(result.get("trend"))
     output_hash = sha256_json(signed_result)
     privacy_guarantees = {
