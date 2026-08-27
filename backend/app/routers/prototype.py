@@ -436,7 +436,7 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
         title = "全域能源监管总览"
         subtitle = "跨能源域态势监测、审计复核与风险处置"
         visual_title = "全域能源监管态势"
-        visual_subtitle = "仅展示已形成受控汇总的监管视角，不从主体目录推断业务数值"
+        visual_subtitle = "城市受控天数：截至所选日期，相关数据纳入受控监管的累计时长"
         visual_value_label = "区域监测值"
         visual_value_unit = "综合单位"
         visualization = "regional_map"
