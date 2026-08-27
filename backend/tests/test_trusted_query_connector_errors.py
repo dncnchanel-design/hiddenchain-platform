@@ -3,7 +3,11 @@ from __future__ import annotations
 import httpx
 
 from app.routers.trusted_query import _connector_failure
-from app.services.privacy_attestation import canonical_connector_request_payload
+from app.security import sha256_json
+from app.services.privacy_attestation import (
+    canonical_connector_request_payload,
+    verify_signed_connector_non_export,
+)
 
 
 def _response(status_code: int, content: bytes, content_type: str = "text/plain") -> httpx.Response:
@@ -72,3 +76,51 @@ def test_connector_request_canonicalization_omits_null_optional_subject_fields()
     assert normalized["request_item_id"] == payload["request_item_id"]
     assert normalized["provider_org_id"] == payload["provider_org_id"]
     assert normalized["region"] is None
+
+
+def test_connector_attestation_accepts_legacy_null_subject_fields_during_rollout():
+    payload = {
+        "task_id": "TASK-20260827-0002",
+        "authorization_id": "AUTH-20260827-0002",
+        "request_item_id": "ITEM-20260827-0002",
+        "provider_org_id": "org-retailer-t01",
+        "rule_version": None,
+        "resource": "load",
+        "function": "trend",
+        "start_date": "2026-06-01",
+        "end_date": "2026-06-30",
+        "region": None,
+        "hour": None,
+        "threshold": None,
+        "group_by": None,
+        "decimals": 2,
+    }
+    canonical_payload = canonical_connector_request_payload(payload)
+    legacy_hash = sha256_json({**canonical_payload, "rule_version": None})
+    result = {
+        "connector_id": "node-org-retailer-t01",
+        "raw_records_returned": False,
+        "privacy": {
+            "raw_records_returned": False,
+            "raw_data_exported": False,
+            "non_export_attestation": {
+                "status": "SIGNED",
+                "issuer": "node-org-retailer-t01",
+                "boundary": "CONNECTOR_LOCAL_DATA",
+                "request_hash": legacy_hash,
+                "result_scope": "AGGREGATE_ONLY",
+                "raw_data_exported": False,
+            },
+        },
+        "privacy_verification": {
+            "mode": "SIGNED_CONNECTOR_NON_EXPORT",
+            "request_hash": legacy_hash,
+            "result_scope": "AGGREGATE_ONLY",
+            "raw_data_exported": False,
+        },
+    }
+
+    proof = verify_signed_connector_non_export(result, canonical_payload)
+
+    assert proof["status"] == "VERIFIED"
+    assert proof["request_hash"] == sha256_json(canonical_payload)

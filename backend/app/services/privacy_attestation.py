@@ -37,7 +37,21 @@ def verify_signed_connector_non_export(
     connector asserted, not that the connector host is physically trustworthy.
     """
 
-    expected_request_hash = sha256_json(canonical_connector_request_payload(request_payload))
+    canonical_payload = canonical_connector_request_payload(request_payload)
+    expected_request_hash = sha256_json(canonical_payload)
+    # During a rolling deployment, an older connector may still hash the
+    # Pydantic-expanded request, which contains the optional subject fields as
+    # explicit nulls. It is the same semantic request, so accept that exact
+    # legacy representation while returning the canonical hash to callers.
+    legacy_payload = {
+        **canonical_payload,
+        **{
+            field: None
+            for field in ("request_item_id", "provider_org_id", "rule_version")
+            if field not in canonical_payload
+        },
+    }
+    accepted_request_hashes = {expected_request_hash, sha256_json(legacy_payload)}
     privacy = signed_result.get("privacy")
     nested_claim = privacy.get("non_export_attestation") if isinstance(privacy, Mapping) else None
     top_level_claim = signed_result.get("privacy_verification")
@@ -58,7 +72,10 @@ def verify_signed_connector_non_export(
         raise PrivacyAttestationError("connector non-export boundary is invalid")
     if nested_claim.get("result_scope") != "AGGREGATE_ONLY" or top_level_claim.get("result_scope") != "AGGREGATE_ONLY":
         raise PrivacyAttestationError("connector result scope is not aggregate-only")
-    if nested_claim.get("request_hash") != expected_request_hash or top_level_claim.get("request_hash") != expected_request_hash:
+    if (
+        nested_claim.get("request_hash") not in accepted_request_hashes
+        or top_level_claim.get("request_hash") not in accepted_request_hashes
+    ):
         raise PrivacyAttestationError("connector non-export attestation is bound to another request")
     if nested_claim.get("raw_data_exported") is not False or top_level_claim.get("raw_data_exported") is not False:
         raise PrivacyAttestationError("connector asserted raw-data export")
