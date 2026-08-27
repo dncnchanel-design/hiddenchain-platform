@@ -36,7 +36,11 @@ from ..models import (
 from ..services.common import add_audit_log
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
-from ..services.privacy_attestation import PrivacyAttestationError, verify_signed_connector_non_export
+from ..services.privacy_attestation import (
+    PrivacyAttestationError,
+    canonical_connector_request_payload,
+    verify_signed_connector_non_export,
+)
 from ..security import canonical_json, sha256_json
 from ..schemas import TrustedSpaceQueryTranslation
 from ..services.local_data_boundary import matching_rule, rule_decision, subject_node_config
@@ -386,7 +390,14 @@ def _platform_public_key(private_key: Ed25519PrivateKey) -> str:
 
 
 def _connector_failure(response: httpx.Response) -> tuple[int, Any]:
-    status_code = 503 if response.status_code >= 500 else response.status_code
+    # A connector's 401 is a node-to-node protocol failure, not the user's
+    # platform session. Keep it away from the frontend authentication path.
+    if response.status_code == 401:
+        status_code = 502
+    elif response.status_code >= 500:
+        status_code = 503
+    else:
+        status_code = response.status_code
     try:
         payload = response.json()
     except ValueError:
@@ -886,22 +897,24 @@ def execute_query(
         db.commit()
         raise HTTPException(503, "主体本地节点暂不可用，任务已进入待重试状态")
     task_id = f"TASK-{datetime.now(UTC).strftime('%Y%m%d')}-{secrets.token_hex(4).upper()}"
-    connector_payload = {
-        "task_id": task_id,
-        "authorization_id": authorization.request_id,
-        "request_item_id": request_item.request_item_id,
-        "provider_org_id": authorization.provider_org_id,
-        "rule_version": request_item.matched_rule_version,
-        "resource": payload.resource,
-        "function": payload.function,
-        "start_date": payload.start_date.isoformat(),
-        "end_date": payload.end_date.isoformat(),
-        "region": payload.region,
-        "hour": payload.hour,
-        "threshold": payload.threshold,
-        "group_by": payload.group_by,
-        "decimals": payload.decimals,
-    }
+    connector_payload = canonical_connector_request_payload(
+        {
+            "task_id": task_id,
+            "authorization_id": authorization.request_id,
+            "request_item_id": request_item.request_item_id,
+            "provider_org_id": authorization.provider_org_id,
+            "rule_version": request_item.matched_rule_version,
+            "resource": payload.resource,
+            "function": payload.function,
+            "start_date": payload.start_date.isoformat(),
+            "end_date": payload.end_date.isoformat(),
+            "region": payload.region,
+            "hour": payload.hour,
+            "threshold": payload.threshold,
+            "group_by": payload.group_by,
+            "decimals": payload.decimals,
+        }
+    )
     timestamp = str(int(datetime.now(UTC).timestamp()))
     nonce = secrets.token_urlsafe(24)
     signed_request = {"timestamp": timestamp, "nonce": nonce, "payload": connector_payload}

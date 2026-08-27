@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib
 import json
 from datetime import UTC, datetime
@@ -116,6 +117,43 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert all(set(point) == {"date", "value"} for point in trend_body["trend"])
             assert trend_body["privacy"]["raw_records_returned"] is False
             assert trend_body["privacy"]["non_export_attestation"]["status"] == "SIGNED"
+
+            subject_payload = {
+                **payload,
+                "task_id": "TASK-20260823-0003",
+                "request_item_id": "ITEM-20260823-0001",
+                "provider_org_id": "org-coal-t01",
+                "rule_version": None,
+            }
+            subject_signed_payload = {
+                key: value
+                for key, value in subject_payload.items()
+                if key != "rule_version"
+            }
+            subject_timestamp = str(int(datetime.now(UTC).timestamp()))
+            subject_nonce = "connector-subject-nonce-0001"
+            subject_envelope = {
+                "timestamp": subject_timestamp,
+                "nonce": subject_nonce,
+                "payload": subject_signed_payload,
+            }
+            subject_signature = platform_key.sign(
+                json.dumps(subject_envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+            )
+            subject_response = client.post(
+                "/compute",
+                json=subject_payload,
+                headers={
+                    "X-Request-Timestamp": subject_timestamp,
+                    "X-Request-Nonce": subject_nonce,
+                    "X-Request-Signature": base64.b64encode(subject_signature).decode(),
+                },
+            )
+            assert subject_response.status_code == 200, subject_response.text
+            subject_body = subject_response.json()
+            expected_subject_hash = hashlib.sha256(module._canonical(subject_signed_payload)).hexdigest()
+            assert subject_body["privacy"]["non_export_attestation"]["request_hash"] == expected_subject_hash
+            assert subject_body["privacy_verification"]["request_hash"] == expected_subject_hash
 
             dashboard_payload = {
                 "request_id": "dashboard-test-0001",

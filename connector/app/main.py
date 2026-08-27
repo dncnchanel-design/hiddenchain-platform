@@ -231,6 +231,16 @@ class DashboardRequest(BaseModel):
     decimals: int = Field(default=2, ge=0, le=6)
 
 
+def _canonical_request_payload(payload: BaseModel) -> dict[str, Any]:
+    """Normalize optional subject-bound fields before signing or hashing."""
+
+    signed_payload = payload.model_dump(mode="json")
+    for field_name in ("request_item_id", "provider_org_id", "rule_version"):
+        if signed_payload.get(field_name) is None:
+            signed_payload.pop(field_name, None)
+    return signed_payload
+
+
 def _verify_platform_request(payload: BaseModel, timestamp: str, nonce: str, signature: str, presented_public_key: str | None) -> None:
     provider_org_id = getattr(payload, "provider_org_id", None)
     if provider_org_id and not ORGANIZATION_ID:
@@ -256,12 +266,7 @@ def _verify_platform_request(payload: BaseModel, timestamp: str, nonce: str, sig
     now = int(datetime.now(UTC).timestamp())
     if abs(now - occurred_at) > NONCE_TTL_SECONDS:
         raise HTTPException(401, "请求已过期")
-    signed_payload = payload.model_dump(mode="json")
-    # Keep the legacy connector test/protocol compatible while making the
-    # subject-bound fields part of every new request when supplied.
-    for field_name in ("request_item_id", "provider_org_id", "rule_version"):
-        if signed_payload.get(field_name) is None:
-            signed_payload.pop(field_name, None)
+    signed_payload = _canonical_request_payload(payload)
     message = {"timestamp": timestamp, "nonce": nonce, "payload": signed_payload}
     try:
         public_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_text))
@@ -452,7 +457,8 @@ def dashboard_metrics(
     x_platform_public_key: str | None = Header(default=None, alias="X-Platform-Public-Key"),
 ) -> dict[str, Any]:
     _verify_platform_request(payload, x_request_timestamp, x_request_nonce, x_request_signature, x_platform_public_key)
-    request_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
+    request_payload = _canonical_request_payload(payload)
+    request_hash = hashlib.sha256(_canonical(request_payload)).hexdigest()
     trend, unit, record_count = _dashboard_series(payload)
     resource_name = next(name for resource, name, _unit in RESOURCE_DEFINITIONS[DOMAIN] if resource == payload.resource)
     envelope = {
@@ -504,7 +510,8 @@ def compute(
     x_platform_public_key: str | None = Header(default=None, alias="X-Platform-Public-Key"),
 ) -> dict[str, Any]:
     _verify_platform_request(payload, x_request_timestamp, x_request_nonce, x_request_signature, x_platform_public_key)
-    request_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
+    request_payload = _canonical_request_payload(payload)
+    request_hash = hashlib.sha256(_canonical(request_payload)).hexdigest()
     if payload.request_item_id:
         with _database() as connection:
             prior = connection.execute(
@@ -521,7 +528,7 @@ def compute(
             )
             if isinstance(cached_claim, dict) and cached_claim.get("request_hash") == request_hash:
                 return cached
-    query_hash = hashlib.sha256(_canonical(payload.model_dump(mode="json"))).hexdigest()
+    query_hash = hashlib.sha256(_canonical(request_payload)).hexdigest()
     now = int(datetime.now(UTC).timestamp())
     with _database() as connection:
         record = connection.execute("SELECT repeated_count FROM query_log WHERE query_hash = ?", (query_hash,)).fetchone()

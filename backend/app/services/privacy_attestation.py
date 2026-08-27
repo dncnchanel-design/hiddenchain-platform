@@ -9,6 +9,22 @@ class PrivacyAttestationError(ValueError):
     """Raised when a connector cannot prove the declared non-export boundary."""
 
 
+def canonical_connector_request_payload(request_payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the payload shape used by platform/connector signatures and hashes.
+
+    Subject-bound fields are optional for legacy connector calls. A missing
+    optional field is represented by Pydantic as ``None`` on the connector,
+    so both sides must omit it before signing or hashing.
+    """
+
+    optional_subject_fields = {"request_item_id", "provider_org_id", "rule_version"}
+    return {
+        key: value
+        for key, value in dict(request_payload).items()
+        if key not in optional_subject_fields or value is not None
+    }
+
+
 def verify_signed_connector_non_export(
     signed_result: Mapping[str, Any],
     request_payload: Mapping[str, Any],
@@ -21,7 +37,7 @@ def verify_signed_connector_non_export(
     connector asserted, not that the connector host is physically trustworthy.
     """
 
-    expected_request_hash = sha256_json(dict(request_payload))
+    expected_request_hash = sha256_json(canonical_connector_request_payload(request_payload))
     privacy = signed_result.get("privacy")
     nested_claim = privacy.get("non_export_attestation") if isinstance(privacy, Mapping) else None
     top_level_claim = signed_result.get("privacy_verification")
