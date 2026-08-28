@@ -49,7 +49,7 @@ export function QueryResultChart({ result }: { result: ControlledQueryResult }) 
       : {
           animation: !reduceMotion,
           aria: { enabled: true },
-          grid: { top: 20, right: 18, bottom: labels.length > 6 ? 58 : 38, left: 56, containLabel: true },
+          grid: { top: 30, right: 18, bottom: labels.length > 6 ? 58 : 38, left: 56, containLabel: true },
           tooltip: { trigger: "axis", axisPointer: { type: model.kind === "line" ? "line" : "shadow" }, valueFormatter: (value) => `${value} ${model.unit}` },
           xAxis: { type: "category", data: labels, axisTick: { alignWithLabel: true }, axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, fontSize: 11, interval: 0, rotate: labels.length > 6 ? 35 : 0 } },
           yAxis: { type: "value", name: model.unit, nameTextStyle: { color: muted, fontSize: 11 }, axisLabel: { color: muted, fontSize: 11 }, splitLine: { lineStyle: { color: line, type: "dashed" } } },
