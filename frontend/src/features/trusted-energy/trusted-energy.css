@@ -1047,8 +1047,7 @@
 .trusted-login-tabs button { min-height: 42px; color: #66778d; font-size: 13px; }
 .trusted-login-tabs button:hover { color: #1768a0; background: #f1f8fc; }
 .trusted-login-tabs button.is-active { color: #1768a0; border-bottom-color: #00a3e0; }
-.trusted-login-form .field input, .trusted-login-form .field select { min-height: 42px; border-color: #c8d5e4; border-radius: 8px; }
-.trusted-demo-account select { width: 100%; padding: 0 10px; color: #2f4561; background: #f8fbfe; }
+.trusted-login-form .field input { min-height: 42px; border-color: #c8d5e4; border-radius: 8px; }
 .trusted-login-screen .button-primary { background: #1768a0; border-color: #1768a0; }
 .trusted-login-screen .button-primary:hover { background: #125681; border-color: #125681; }
 .trusted-login-screen .login-footer { color: #c5d9e7; background: rgba(5,25,44,.28); border-top-color: rgba(255,255,255,.13); }

@@ -75,7 +75,6 @@ export function LoginPage() {
           </div>
 
           {mode === "account" ? <>
-          {product.demoAccounts.length > 0 && <label className="field trusted-demo-account"><span>演示身份</span><select defaultValue="" onChange={(event) => { if (!event.target.value) return; const account = product.demoAccounts[Number(event.target.value)]; if (account) { setUsername(account.username); setPassword(account.password); } }}><option value="">请选择企业或机构</option>{product.demoAccounts.map((account, index) => <option key={account.label} value={index}>{account.label}</option>)}</select></label>}
           <label className="field">
             <span>账号</span>
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required minLength={3} maxLength={64} autoFocus />
