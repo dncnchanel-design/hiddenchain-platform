@@ -24,6 +24,7 @@ ENERGY_SUBJECT_ROLES = frozenset(
 RULE_AUTO = "AUTO_CALL"
 RULE_APPROVAL = "ENTERPRISE_APPROVAL"
 RULE_FORBIDDEN = "FORBIDDEN"
+CLOSED_USAGE_DOMAIN_PAIR = frozenset({"electricity", "oil"})
 
 
 def has_permission(user: User, permission: str) -> bool:
@@ -31,9 +32,39 @@ def has_permission(user: User, permission: str) -> bool:
 
 
 def can_view_subject_metadata(user: User, owner_org_id: str) -> bool:
-    """Catalog metadata is public to REGULATOR, values are not."""
+    """Catalog metadata is public to a regulator and the owning subject."""
 
     return user.role_code == "REGULATOR" or user.org_id == owner_org_id
+
+
+def same_energy_domain_metadata_visible(
+    user: User,
+    owner_org_id: str,
+    *,
+    viewer_energy_domain: str | None,
+    owner_energy_domain: str | None,
+) -> bool:
+    """Allow business users to discover metadata within their own energy domain."""
+
+    if can_view_subject_metadata(user, owner_org_id):
+        return True
+    return bool(
+        user.role_code in ENERGY_SUBJECT_ROLES
+        and viewer_energy_domain
+        and owner_energy_domain
+        and viewer_energy_domain == owner_energy_domain
+    )
+
+
+def usage_domain_pair_is_closed(
+    applicant_energy_domain: str | None,
+    provider_energy_domain: str | None,
+) -> bool:
+    """Keep the electricity/oil application channel closed for business users."""
+
+    if not applicant_energy_domain or not provider_energy_domain:
+        return False
+    return frozenset({applicant_energy_domain, provider_energy_domain}) == CLOSED_USAGE_DOMAIN_PAIR
 
 
 def can_view_subject_value(user: User, provider_org_id: str, *, authorized: bool = False) -> bool:

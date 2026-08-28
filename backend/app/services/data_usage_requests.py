@@ -20,6 +20,7 @@ from ..models import (
 from ..schemas import DataUsageRequestCreate
 from ..security import sha256_json
 from .common import add_audit_log, trace_id
+from .local_data_boundary import usage_domain_pair_is_closed
 from .notifications import publish_access_request_decision, publish_access_request_submitted
 from .trust_domain import TrustDomainError, verify_active_identity
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion
@@ -505,6 +506,15 @@ def create_request(
 
     applicant = _org(db, user.org_id, label="申请方")
     provider = _org(db, asset.owner_org_id, label="提供方")
+    if user.role_code != "REGULATOR" and usage_domain_pair_is_closed(
+        applicant.energy_domain,
+        provider.energy_domain,
+    ):
+        _raise(
+            403,
+            "CROSS_ENERGY_APPLICATION_DISABLED",
+            "电力与石油之间暂不开放数据申请通道",
+        )
     applicant_did = _active_identity(db, applicant.org_id)
     provider_did = _active_identity(db, provider.org_id)
     request_id = new_id()

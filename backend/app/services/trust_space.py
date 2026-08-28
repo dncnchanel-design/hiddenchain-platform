@@ -34,7 +34,11 @@ from ..services.adapters import DataSpaceConnectorAdapter
 from ..services.credentials import JsonLdCredentialAdapter
 from ..services.common import add_audit_log
 from ..services.data_usage_requests import DataUsageRequestStatus, duration_policy_for_version
-from ..services.local_data_boundary import can_view_subject_metadata, can_view_subject_value
+from ..services.local_data_boundary import (
+    can_view_subject_value,
+    same_energy_domain_metadata_visible,
+    usage_domain_pair_is_closed,
+)
 from ..services.notifications import (
     publish_computation_action,
     publish_contract_event,
@@ -398,10 +402,30 @@ def _asset_visible_in_energy_scope(
 ) -> bool:
     if user.role_code == "ADMIN":
         return False
-    # A domain is a classification label, not a tenancy boundary. REGULATOR
-    # gets metadata for every subject; every other business user gets only its
-    # own subject metadata unless a future scoped evidence grant says otherwise.
-    return can_view_subject_metadata(user, asset.owner_org_id)
+    owner_domain = _asset_energy_domain(asset, sources)
+    viewer_domain = organization.energy_domain if organization else None
+    return same_energy_domain_metadata_visible(
+        user,
+        asset.owner_org_id,
+        viewer_energy_domain=viewer_domain,
+        owner_energy_domain=owner_domain,
+    )
+
+
+def _asset_request_allowed(
+    asset: DataAsset,
+    user: User,
+    organization: Organization | None,
+    sources: dict[str, DataSource],
+) -> bool:
+    if user.role_code not in APPLICANT_ROLES or asset.owner_org_id == user.org_id:
+        return False
+    viewer_domain = organization.energy_domain if organization else None
+    owner_domain = _asset_energy_domain(asset, sources)
+    return user.role_code == "REGULATOR" or not usage_domain_pair_is_closed(
+        viewer_domain,
+        owner_domain,
+    )
 
 
 def _asset_visible_in_energy_aggregate(
@@ -1209,7 +1233,12 @@ def _asset_item(
         .order_by(DataAssetVersion.version_no.desc())
     )
     source = sources.get(asset.source_id)
-    can_request = user.role_code in APPLICANT_ROLES and asset.owner_org_id != user.org_id
+    can_request = _asset_request_allowed(
+        asset,
+        user,
+        organizations.get(user.org_id),
+        sources,
+    )
     can_review = (
         user.role_code in PROVIDER_ROLES
         and asset.owner_org_id == user.org_id
@@ -1223,7 +1252,7 @@ def _asset_item(
         "classification": asset.classification,
         "sensitivity_level": asset.sensitivity_level,
         "status": asset.status,
-        "domain": (asset.metadata_json or {}).get("domain") or (source.security_domain if source else None),
+        "domain": _asset_energy_domain(asset, sources) or None,
         "metadata": asset.metadata_json,
         "provider": {
             "org_id": asset.owner_org_id,
@@ -1285,7 +1314,7 @@ def catalog(
             continue
         source = sources.get(asset.source_id)
         metadata = asset.metadata_json or {}
-        asset_domain = str(metadata.get("domain") or (source.security_domain if source else ""))
+        asset_domain = _asset_energy_domain(asset, sources)
         provider_name = organizations.get(asset.owner_org_id).org_name if organizations.get(asset.owner_org_id) else ""
         haystack = " ".join(
             [asset.asset_id, asset.asset_code, asset.asset_name, asset.asset_type, provider_name]
@@ -1402,7 +1431,12 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
     latest = version_items[0] if version_items else None
     passport = latest.get("passport") if latest else None
     duration_policy = duration_policy_for_version(db, versions[0]) if versions else None
-    can_request = user.role_code in APPLICANT_ROLES and asset.owner_org_id != user.org_id
+    can_request = _asset_request_allowed(
+        asset,
+        user,
+        organizations.get(user.org_id),
+        sources,
+    )
     can_review = (
         user.role_code in PROVIDER_ROLES
         and asset.owner_org_id == user.org_id
@@ -1417,7 +1451,7 @@ def asset_detail(db: Session, asset_id: str, user: User) -> dict[str, Any] | Non
             "classification": asset.classification,
             "sensitivity_level": asset.sensitivity_level,
             "status": asset.status,
-            "domain": (asset.metadata_json or {}).get("domain") or (source.security_domain if source else None),
+            "domain": _asset_energy_domain(asset, sources) or None,
             "metadata": asset.metadata_json,
             "provider": {
                 "org_id": asset.owner_org_id,

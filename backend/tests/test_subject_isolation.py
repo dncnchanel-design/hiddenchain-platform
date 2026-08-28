@@ -17,7 +17,7 @@ def _asset_id(owner_org_id: str) -> str:
         return asset.asset_id
 
 
-def test_each_subject_has_own_catalog_and_regulator_has_metadata_catalog(client, auth_headers):
+def test_each_subject_has_same_energy_catalog_and_regulator_has_metadata_catalog(client, auth_headers):
     generator = client.get(
         "/api/trust-space/catalog?page=1&page_size=100",
         headers=auth_headers["generator"],
@@ -26,18 +26,32 @@ def test_each_subject_has_own_catalog_and_regulator_has_metadata_catalog(client,
         "/api/trust-space/catalog?page=1&page_size=100",
         headers=auth_headers["retailer"],
     )
+    exchange = client.get(
+        "/api/trust-space/catalog?page=1&page_size=100",
+        headers=auth_headers["exchange"],
+    )
     regulator = client.get(
         "/api/trust-space/catalog?page=1&page_size=100",
         headers=auth_headers["regulator"],
     )
-    assert generator.status_code == retailer.status_code == regulator.status_code == 200
+    assert generator.status_code == retailer.status_code == exchange.status_code == regulator.status_code == 200
+    electricity_subjects = {"org-generator-t01", "org-retailer-t01", "org-exchange-t01"}
     assert {
         item["provider"]["org_id"] for item in generator.json()["items"]
-    } == {"org-generator-t01"}
+    } == electricity_subjects
     assert {
         item["provider"]["org_id"] for item in retailer.json()["items"]
-    } == {"org-retailer-t01"}
-    assert regulator.json()["total"] > generator.json()["total"]
+    } == electricity_subjects
+    assert {
+        item["provider"]["org_id"] for item in exchange.json()["items"]
+    } == electricity_subjects
+    assert all(item["domain"] == "electricity" for item in exchange.json()["items"])
+    assert all(
+        item["actions"]["can_request_usage"]
+        for item in exchange.json()["items"]
+        if item["provider"]["org_id"] != "org-exchange-t01"
+    )
+    assert regulator.json()["total"] >= generator.json()["total"]
     assert regulator.json()["items"]
 
     generator_asset = _asset_id("org-generator-t01")
@@ -45,7 +59,14 @@ def test_each_subject_has_own_catalog_and_regulator_has_metadata_catalog(client,
     assert client.get(
         f"/api/trust-space/assets/{retailer_asset}",
         headers=auth_headers["generator"],
-    ).status_code == 404
+    ).status_code == 200
+
+    oil = client.get(
+        "/api/trust-space/catalog?domain=oil&page=1&page_size=100",
+        headers=auth_headers["exchange"],
+    )
+    assert oil.status_code == 200
+    assert oil.json()["items"] == []
     assert client.get(
         f"/api/trust-space/assets/{generator_asset}",
         headers=auth_headers["regulator"],

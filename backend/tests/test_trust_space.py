@@ -114,7 +114,9 @@ def test_catalog_filters_pagination_and_provider_visibility(client, auth_headers
     assert generator.status_code == 200
     generator_items = generator.json()["items"]
     assert generator_items
-    assert all(item["provider"]["org_id"] == "org-generator-t01" for item in generator_items)
+    assert {
+        item["provider"]["org_id"] for item in generator_items
+    } == {"org-generator-t01", "org-retailer-t01", "org-exchange-t01"}
 
     no_match = client.get(
         "/api/trust-space/catalog?q=asset-that-does-not-exist",
@@ -193,13 +195,15 @@ def test_asset_detail_uses_real_id_and_enforces_visibility(client, auth_headers)
         f"/api/trust-space/assets/{retailer_asset.asset_id}",
         headers=auth_headers["exchange"],
     )
-    assert exchange_detail.status_code == 404
+    assert exchange_detail.status_code == 200, exchange_detail.text
+    assert exchange_detail.json()["access_control"]["cross_energy"] is False
+    assert exchange_detail.json()["access_control"]["provider_decision_required"] is True
 
     cross_scope = client.get(
         f"/api/trust-space/assets/{retailer_asset.asset_id}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 404
+    assert cross_scope.status_code == 200, cross_scope.text
     unknown = client.get(
         "/api/trust-space/assets/asset-does-not-exist",
         headers=auth_headers["exchange"],

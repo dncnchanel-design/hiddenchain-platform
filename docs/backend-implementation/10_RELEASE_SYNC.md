@@ -319,3 +319,18 @@ PRODUCTION_STATUS = NOT_RELEASED（Render 为公开演示/评审环境；企业�
 ```
 
 本条记录只描述已验证的代码负载和评审环境证据；不宣称外部 TEE、跨域 MPC 节点、区块链共识或正式生产基础设施已经部署。
+
+## 2026-08-28 同能源域申请边界调整
+
+```text
+LOCAL_VERIFICATION = PASS（后端全量 pytest；前端 TypeScript；72 项测试；Vite 生产构建）
+SAME_ENERGY_DISCOVERY = PASS（企业/交易中心可发现同能源域目录元数据；原始值仍由主体连接器保管）
+ELECTRICITY_OIL_APPLICATION = CLOSED_FOR_BUSINESS_USERS（接口错误码 CROSS_ENERGY_APPLICATION_DISABLED）
+REGULATOR_CROSS_ENERGY_EXCEPTION = PRESERVED
+SETTLEMENT_GATE = PRESERVED（提供方授权、数据承诺、受控使用门禁）
+GITHUB_SYNC = PENDING
+RENDER_SYNC = PENDING
+PRODUCTION_STATUS = NOT_RELEASED
+```
+
+本条只记录本地代码与测试结果；GitHub 和 Render 将在本次发布提交完成后核验。

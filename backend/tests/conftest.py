@@ -60,6 +60,7 @@ def auth_headers(client):
     return {
         "generator": login("generator", "generator123"),
         "retailer": login("retailer", "retailer123"),
+        "oil": login("oil", "oil123"),
         "heat": login("heat", "heat123"),
         "exchange": login("exchange", "exchange123"),
         "regulator": login("regulator", "regulator123"),

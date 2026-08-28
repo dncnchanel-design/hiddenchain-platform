@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models import AuditLog, DataContract, DataSpaceAgreement, DataUsageRequest, utc_now
-from app.trust_models import DataAsset, DataAssetVersion
+from app.security import sha256_json
+from app.trust_models import DataAsset, DataAssetVersion, DataSource
 
 
 def _asset_reference() -> dict[str, str]:
@@ -23,6 +24,54 @@ def _asset_reference() -> dict[str, str]:
             .order_by(DataAssetVersion.version_no.desc())
         )
         assert version is not None
+        return {"asset_id": asset.asset_id, "asset_version_id": version.version_id}
+
+
+def _oil_asset_reference() -> dict[str, str]:
+    with SessionLocal() as db:
+        source = DataSource(
+            source_id="source-test-oil",
+            source_code="TEST-OIL-SOURCE",
+            source_name="测试石油数据连接",
+            owner_org_id="org-oil-t01",
+            source_type="TEST",
+            connector_type="LOCAL_ADAPTER",
+            security_domain="oil",
+            capability_label="LOCAL_REAL",
+            status="ACTIVE",
+        )
+        db.add(source)
+        db.flush()
+        asset = DataAsset(
+            asset_id="asset-test-oil",
+            source_id=source.source_id,
+            owner_org_id="org-oil-t01",
+            asset_code="TEST-OIL-INVENTORY",
+            asset_name="测试石油库存",
+            asset_type="OIL_DATA",
+            classification="ENERGY_BUSINESS_DATA",
+            sensitivity_level="L3",
+            status="ACTIVE",
+            metadata_json={"domain": "oil", "resource_id": "inventory"},
+        )
+        db.add(asset)
+        db.flush()
+        version = DataAssetVersion(
+            version_id="version-test-oil",
+            asset_id=asset.asset_id,
+            version_no=1,
+            schema_version="v1.0",
+            schema_json={"asset_type": "OIL_DATA"},
+            data_ref="local://test-oil/asset-test-oil",
+            data_hash=sha256_json({"asset_id": asset.asset_id}),
+            commitment=sha256_json({"asset_id": asset.asset_id, "commitment": True}),
+            record_count=1,
+            immutable_hash=sha256_json({"asset_id": asset.asset_id, "version": 1}),
+            status="ACTIVE",
+        )
+        db.add(version)
+        asset.current_version_id = version.version_id
+        db.commit()
         return {"asset_id": asset.asset_id, "asset_version_id": version.version_id}
 
 
@@ -122,6 +171,40 @@ def test_cross_energy_requests_are_provider_gated_for_enterprise_and_regulator(
     )
     assert not_whitelisted.status_code == 422
     assert not_whitelisted.json()["detail"]["code"] == "REGULATORY_PURPOSE_NOT_WHITELISTED"
+
+
+def test_electricity_and_oil_application_channel_is_closed(client, auth_headers):
+    electricity_to_oil = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["exchange"], "Idempotency-Key": "electricity-oil-001"},
+        json={
+            **_oil_asset_reference(),
+            "purpose": "CONTROLLED_OTHER",
+            "usage_mode": "MPC_AGGREGATE",
+            "requested_scope": {"output_mode": "AGGREGATE_ONLY", "max_uses": 1},
+            "requested_fields": ["summary"],
+            "duration_days": 7,
+            "terms": {"output_mode": "AGGREGATE_ONLY", "raw_data_export": False},
+        },
+    )
+    assert electricity_to_oil.status_code == 403
+    assert electricity_to_oil.json()["detail"]["code"] == "CROSS_ENERGY_APPLICATION_DISABLED"
+
+    oil_to_electricity = client.post(
+        "/api/data/access-requests",
+        headers={**auth_headers["oil"], "Idempotency-Key": "oil-electricity-001"},
+        json={
+            **_asset_reference(),
+            "purpose": "CONTROLLED_OTHER",
+            "usage_mode": "MPC_AGGREGATE",
+            "requested_scope": {"output_mode": "AGGREGATE_ONLY", "max_uses": 1},
+            "requested_fields": ["summary"],
+            "duration_days": 7,
+            "terms": {"output_mode": "AGGREGATE_ONLY", "raw_data_export": False},
+        },
+    )
+    assert oil_to_electricity.status_code == 403
+    assert oil_to_electricity.json()["detail"]["code"] == "CROSS_ENERGY_APPLICATION_DISABLED"
 
 
 def test_regulatory_request_preserves_whitelist_terms_and_masked_output(client, auth_headers):

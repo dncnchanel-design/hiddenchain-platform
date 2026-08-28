@@ -212,7 +212,7 @@ def test_trusted_space_golden_path_multi_role(client, auth_headers):
         f"/api/trust-space/assets/{retailer_asset['asset_id']}",
         headers=auth_headers["generator"],
     )
-    assert cross_scope.status_code == 404
+    assert cross_scope.status_code == 200, cross_scope.text
 
     request_payload = {
         **reference,

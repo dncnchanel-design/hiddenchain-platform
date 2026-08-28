@@ -190,3 +190,12 @@ This entry records the current application flow and hosted review/test synchroni
 | Render 评审环境 | `hiddenchain-platform-review.onrender.com` | `/api/health/live` 200、`/api/health/ready` READY、`/api/version` 匹配；身份目录/DID文档/跨域权限冒烟通过 | LIVE_REVIEW_TEST |
 
 Render 仍是公开演示/评审环境，不代表生产部署；企业交付后自行部署到内网。
+
+## Current energy-domain application boundary — 2026-08-28
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Same-domain discovery | Enterprise and exchange users can discover metadata from other subjects in the same energy domain; raw values remain connector-local | `same_energy_domain_metadata_visible`, catalog/detail regression tests | VERIFIED_LOCAL |
+| Electricity/oil application channel | Business users cannot create electricity↔oil access requests; regulator exception remains explicit | `usage_domain_pair_is_closed`, `CROSS_ENERGY_APPLICATION_DISABLED` regression test | VERIFIED_LOCAL |
+| Approval to controlled settlement | Approved usage continues to require provider authorization, data commitment and usage-control gates before controlled execution | Existing settlement workflow gates plus full backend regression | VERIFIED_LOCAL |
+| GitHub and Render release | Main agent retains commit, push and Render deployment ownership | User requested synchronization after local verification | PENDING |
