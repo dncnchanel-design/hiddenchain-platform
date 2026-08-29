@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { BadgeCheck, Blocks, Check, Copy, Hash, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, prepareIdempotencyKey, shortHash, type IdempotencyKeyRecord } from "../../../api";
-import { useRemote } from "../../../hooks";
+import { useRemote, useScopedRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, MetricBand, RemoteState, StatusBadge, SurfaceHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { confirmResult, loadResult, loadResults, verifyEvidence, type ResultDetailPayload, type ResultListPayload } from "../trusted-space-api";
@@ -29,9 +29,10 @@ export function ResultsEvidencePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const resultId = trustedEntityId(location.pathname, "results");
+  const requestedTaskId = searchParams.get("task_id")?.trim() || "";
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
-  const listRemote = useRemote<ResultListPayload | null>((signal) => resultId ? Promise.resolve(null) : loadResults({ page, pageSize: 12 }, signal), [resultId, page]);
-  const detailRemote = useRemote<ResultDetailPayload | null>((signal) => resultId ? loadResult(resultId, signal) : Promise.resolve(null), [resultId]);
+  const listRemote = useRemote<ResultListPayload | null>((signal) => resultId ? Promise.resolve(null) : loadResults({ page, pageSize: 12, taskId: requestedTaskId || undefined }, signal), [resultId, page, requestedTaskId]);
+  const detailRemote = useScopedRemote<ResultDetailPayload | null>(resultId || "", (signal) => resultId ? loadResult(resultId, signal) : Promise.resolve(null));
   const detail = detailRemote.data;
   const [decision, setDecision] = useState<"APPROVE" | "REJECT">("APPROVE");
   const [opinion, setOpinion] = useState("");
@@ -107,19 +108,21 @@ export function ResultsEvidencePage() {
   }
 
   if (!resultId) {
+    const listItems = listRemote.data?.items || [];
     const canGoPrevious = page > 1;
     const canGoNext = Boolean(listRemote.data && page * listRemote.data.page_size < listRemote.data.total);
     return <PageFrame title="计算结果与存证" description="从当前主体可见的真实结果列表进入摘要、签名与证据详情。" action={<Button variant="secondary" onClick={listRemote.reload} busy={listRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
       {listRemote.loading && !listRemote.data && <RemoteState loading />}
       {listRemote.error && !listRemote.data && <RemoteState error={listRemote.error} onRetry={() => void listRemote.reload()} />}
-      {listRemote.data && !listRemote.data.items.length && <RemoteState empty emptyLabel="当前主体暂无可见计算结果" />}
-      {listRemote.data && listRemote.data.items.length > 0 && <Card><CardHeader><SurfaceHeader title="结果列表" description="结果编号、哈希和确认状态来自后端结果记录" action={<Badge tone="info">第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 条</Badge>} /></CardHeader><CardContent className="trusted-table-wrap"><Table><TableHeader><TableRow><TableHead>结果编号</TableHead><TableHead>任务</TableHead><TableHead>结果范围</TableHead><TableHead>结果哈希</TableHead><TableHead>状态</TableHead><TableHead>动作</TableHead></TableRow></TableHeader><TableBody>{listRemote.data.items.map((item) => <TableRow key={item.result_id}><TableCell><code>{item.result_id}</code></TableCell><TableCell><code>{item.task_id}</code></TableCell><TableCell>{RESULT_SCOPE_LABELS[item.result_scope || ""] || labelForCode(item.result_scope, "—")}</TableCell><TableCell><code>{shortHash(item.result_hash)}</code></TableCell><TableCell><StatusBadge value={resultStatus(item.confirm_status)} /></TableCell><TableCell><Button variant="link" size="sm" onClick={() => navigate(routeForView("results", item.result_id))}>查看结果</Button></TableCell></TableRow>)}</TableBody></Table><div className="trusted-step-footer" aria-label="结果列表分页"><span>第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 条</span><div><Button variant="secondary" size="sm" disabled={!canGoPrevious || listRemote.loading} onClick={() => updatePage(page - 1)}>上一页</Button><Button variant="secondary" size="sm" disabled={!canGoNext || listRemote.loading} onClick={() => updatePage(page + 1)}>下一页</Button></div></div></CardContent></Card>}
+      {listRemote.data && !listItems.length && <RemoteState empty emptyLabel={requestedTaskId ? `任务 ${requestedTaskId} 暂无可见计算结果` : "当前主体暂无可见计算结果"} />}
+      {listRemote.data && listItems.length > 0 && <Card><CardHeader><SurfaceHeader title="结果列表" description={requestedTaskId ? `仅显示任务 ${requestedTaskId} 的可见结果` : "结果编号、哈希和确认状态来自后端结果记录"} action={<Badge tone="info">第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 条</Badge>} /></CardHeader><CardContent className="trusted-table-wrap"><Table><TableHeader><TableRow><TableHead>结果编号</TableHead><TableHead>任务</TableHead><TableHead>结果范围</TableHead><TableHead>结果哈希</TableHead><TableHead>状态</TableHead><TableHead>动作</TableHead></TableRow></TableHeader><TableBody>{listItems.map((item) => <TableRow key={item.result_id}><TableCell><code>{item.result_id}</code></TableCell><TableCell><code>{item.task_id}</code></TableCell><TableCell>{RESULT_SCOPE_LABELS[item.result_scope || ""] || labelForCode(item.result_scope, "—")}</TableCell><TableCell><code>{shortHash(item.result_hash)}</code></TableCell><TableCell><StatusBadge value={resultStatus(item.confirm_status)} /></TableCell><TableCell><Button variant="link" size="sm" onClick={() => navigate(routeForView("results", item.result_id))}>查看结果</Button></TableCell></TableRow>)}</TableBody></Table><div className="trusted-step-footer" aria-label="结果列表分页"><span>第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 条</span><div><Button variant="secondary" size="sm" disabled={!canGoPrevious || listRemote.loading} onClick={() => updatePage(page - 1)}>上一页</Button><Button variant="secondary" size="sm" disabled={!canGoNext || listRemote.loading} onClick={() => updatePage(page + 1)}>下一页</Button></div></div></CardContent></Card>}
     </PageFrame>;
   }
 
   return <PageFrame title="计算结果与存证" description={detail ? `结果 ${detail.result.result_id} 的摘要、签名和证据记录来自真实后端。` : "读取真实结果与存证记录。"} back={routeForView("results")} action={<><>{detail && <StatusBadge value={resultStatus(detail.result.confirm_status)} />}</><Button variant="secondary" onClick={detailRemote.reload} busy={detailRemote.refreshing}><RefreshCw size={14} />刷新</Button></>}>
     {detailRemote.loading && !detail && <RemoteState loading />}
     {detailRemote.error && !detail && <RemoteState error={detailRemote.error} onRetry={() => void detailRemote.reload()} />}
+    {detail && detailRemote.refreshError && <RemoteState error={detailRemote.refreshError} onRetry={() => void detailRemote.reload()} />}
     {detail && <>
       <div className="trusted-result-notice"><Badge tone={detail.capability_state === "DEMO" ? "warning" : "info"}>{capabilityLabel(detail.capability_state)}</Badge><span>{labelForCode(detail.source_of_truth, "结算结果、签名与区块链证据" )}。未返回的链上字段不会由前端补造。</span></div>
       {copyState && <p className="trusted-inline-status" role="status" aria-live="polite">{copyState}</p>}

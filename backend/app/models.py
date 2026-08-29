@@ -365,6 +365,70 @@ class LocalSubjectNode(Base, TimestampMixin):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
+class ConnectorIngestionTicket(Base, TimestampMixin):
+    """Short-lived, metadata-only authorization for a browser-to-node upload."""
+
+    __tablename__ = "connector_ingestion_tickets"
+
+    ticket_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    node_id: Mapped[str | None] = mapped_column(
+        ForeignKey("local_subject_nodes.node_id"), index=True
+    )
+    connector_id: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    energy_domain: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    resource_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    classification: Mapped[str] = mapped_column(String(8), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    file_format: Mapped[str] = mapped_column(String(16), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False)
+    max_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    claims_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="ISSUED", nullable=False, index=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ConnectorIngestionReceipt(Base, TimestampMixin):
+    """Verified connector receipt; never contains uploaded records or bytes."""
+
+    __tablename__ = "connector_ingestion_receipts"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", name="uq_connector_ingestion_receipt_ticket"),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    ticket_id: Mapped[str] = mapped_column(
+        ForeignKey("connector_ingestion_tickets.ticket_id"), index=True
+    )
+    connector_id: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    energy_domain: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    resource_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    local_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    audit_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    audit_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    node_signature: Mapped[str] = mapped_column(Text, nullable=False)
+    signed_payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("data_assets.asset_id"), index=True)
+    asset_version_id: Mapped[str] = mapped_column(
+        ForeignKey("data_asset_versions.version_id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(24), default="VERIFIED", nullable=False, index=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+
 class AccessRule(Base, TimestampMixin):
     """Versioned rule decided by the data-owning subject."""
 
@@ -438,6 +502,61 @@ class DataRequestItem(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class TrustedQueryTask(Base, TimestampMixin):
+    """Durable, subject-scoped execution state for one trusted query."""
+
+    __tablename__ = "trusted_query_tasks"
+    __table_args__ = (
+        UniqueConstraint(
+            "applicant_org_id",
+            "applicant_user_id",
+            "operation_namespace",
+            "idempotency_key",
+            name="uq_trusted_query_task_scoped_idempotency",
+        ),
+    )
+
+    task_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    applicant_user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    applicant_org_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.org_id"), index=True
+    )
+    operation_namespace: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    canonical_payload_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    authorization_id: Mapped[str] = mapped_column(
+        ForeignKey("data_usage_requests.request_id"), index=True
+    )
+    provider_org_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.org_id"), index=True
+    )
+    asset_id: Mapped[str] = mapped_column(ForeignKey("data_assets.asset_id"), index=True)
+    asset_version_id: Mapped[str] = mapped_column(
+        ForeignKey("data_asset_versions.version_id"), index=True
+    )
+    request_item_id: Mapped[str] = mapped_column(
+        ForeignKey("data_request_items.request_item_id"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), default="QUEUED", nullable=False, index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(96), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    result_hash: Mapped[str | None] = mapped_column(String(128))
+    failure_code: Mapped[str | None] = mapped_column(String(96))
+    failure_summary: Mapped[str | None] = mapped_column(String(255))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class ExecutionReceipt(Base, TimestampMixin):
     """Central, scope-limited receipt; the local node keeps the full audit."""
 
@@ -458,6 +577,14 @@ class ExecutionReceipt(Base, TimestampMixin):
     visible_to_orgs_json: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="CONFIRMED", nullable=False, index=True)
     executed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    audit_sequence: Mapped[int | None] = mapped_column(Integer)
+    previous_audit_hash: Mapped[str | None] = mapped_column(String(64))
+    connector_audit_hash: Mapped[str | None] = mapped_column(String(64))
+    # Keep the legacy physical column for in-place upgrades.  The value proves
+    # only the signed event pointer, never continuity of the connector's chain.
+    audit_event_verified: Mapped[bool | None] = mapped_column(
+        "audit_chain_verified", Boolean
+    )
 
 
 class EvidenceProjection(Base, TimestampMixin):
@@ -749,6 +876,34 @@ class UserNotification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False, index=True)
 
 
+class NotificationOutbox(Base, TimestampMixin):
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        UniqueConstraint("recipient_user_id", "dedupe_key", name="uq_notification_outbox_recipient_dedupe"),
+    )
+
+    outbox_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    recipient_user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), index=True)
+    recipient_org_id: Mapped[str] = mapped_column(ForeignKey("organizations.org_id"), index=True)
+    notification_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    entity_id: Mapped[str | None] = mapped_column(String(96), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="INFO", nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="PENDING", nullable=False, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(96), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    last_error: Mapped[str | None] = mapped_column(String(255))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class AuditReport(Base, TimestampMixin):
     __tablename__ = "audit_reports"
     report_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -767,6 +922,7 @@ class AuditReport(Base, TimestampMixin):
 
 class AnomalyEvent(Base, TimestampMixin):
     __tablename__ = "anomaly_events"
+    __table_args__ = (UniqueConstraint("dedupe_key", name="uq_anomaly_events_dedupe"),)
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     task_id: Mapped[str | None] = mapped_column(String(36), index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -776,6 +932,14 @@ class AnomalyEvent(Base, TimestampMixin):
     evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="OPEN", nullable=False)
     resolution: Mapped[str | None] = mapped_column(Text)
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_by_user_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    disposition: Mapped[str | None] = mapped_column(String(24))
+    resolution_idempotency_key: Mapped[str | None] = mapped_column(String(160), index=True)
+    resolution_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    resolution_response_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
 
 class PrivacyAnalysisJob(Base, TimestampMixin):

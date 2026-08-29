@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Check, ClipboardList, FileClock, ListChecks, Logs, ShieldCheck } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, formatDate, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
-import { useRemote } from "../../../hooks";
+import { commandPollingRetryDelay, MAX_CONSECUTIVE_POLLING_FAILURES, shouldRetryCommandPolling, shouldStopCommandPolling, useRemote, useScopedRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, Dialog, DialogContent, DialogTitle, Input, Progress, RemoteState, Select, StatusBadge, SurfaceHeader, Timeline } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { loadTtc, loadTtcEvents, loadTtcList, transitionTtc, type TtcDetailPayload, type TtcEvent, type TtcListPayload } from "../trusted-space-api";
@@ -44,13 +44,14 @@ export function TtcPage() {
     [routeTaskId, listPage, listStatus],
   );
   const selectedTaskId = routeTaskId;
-  const remote = useRemote<TtcDetailPayload | null>((signal) => selectedTaskId ? loadTtc(selectedTaskId, signal) : Promise.resolve(null), [selectedTaskId]);
+  const remote = useScopedRemote<TtcDetailPayload | null>(selectedTaskId || "", (signal) => selectedTaskId ? loadTtc(selectedTaskId, signal) : Promise.resolve(null));
   const detail = remote.data;
   const listPayload = listRemote.data;
   const listItems = listPayload?.items ?? [];
   const [logsOpen, setLogsOpen] = useState(false);
   const [logRetryNonce, setLogRetryNonce] = useState(0);
-  const [logItems, setLogItems] = useState<TtcEvent[]>([]);
+  const [logState, setLogState] = useState<{ taskId: string; items: TtcEvent[] }>({ taskId: "", items: [] });
+  const logItems = logState.taskId === selectedTaskId ? logState.items : [];
   const [logError, setLogError] = useState("");
   const [logLoading, setLogLoading] = useState(false);
   const cursorRef = useRef<string | undefined>(undefined);
@@ -62,36 +63,68 @@ export function TtcPage() {
   useEffect(() => {
     if (!logsOpen || !selectedTaskId) return undefined;
     let active = true;
+    let inFlight = false;
+    let consecutiveFailures = 0;
     let timer: number | undefined;
     const controller = new AbortController();
     cursorRef.current = undefined;
-    const poll = async () => {
+    const clearTimer = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+    };
+    const schedule = (delay: number) => {
       if (!active) return;
+      clearTimer();
+      timer = window.setTimeout(() => void poll(), delay);
+    };
+    const poll = async () => {
+      if (!active || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
       setLogLoading(true);
       try {
         const payload = await loadTtcEvents(selectedTaskId, { cursor: cursorRef.current, limit: 50 }, controller.signal);
         if (!active) return;
-        setLogItems((previous) => {
+        setLogState((current) => {
+          const previous = current.taskId === selectedTaskId ? current.items : [];
           const known = new Set(previous.map((item) => item.event_id));
-          return [...previous, ...payload.items.filter((item) => !known.has(item.event_id))];
+          return { taskId: selectedTaskId, items: [...previous, ...payload.items.filter((item) => !known.has(item.event_id))] };
         });
         const offset = Number(cursorRef.current || 0) || 0;
         cursorRef.current = payload.next_cursor || String(offset + payload.items.length);
+        consecutiveFailures = 0;
         setLogError("");
-        timer = window.setTimeout(() => void poll(), 1_500);
+        schedule(1_500);
       } catch (error) {
         if (!active || (error instanceof DOMException && error.name === "AbortError") ) return;
-        setLogError(error instanceof ApiError ? error.message : "实时日志读取失败");
-        timer = window.setTimeout(() => void poll(), 4_000);
+        const message = error instanceof ApiError ? error.message : "实时日志读取失败";
+        const status = error instanceof ApiError ? error.status : null;
+        if (shouldStopCommandPolling(status) || !shouldRetryCommandPolling(status)) {
+          setLogError(`${message}；自动轮询已停止。`);
+          return;
+        }
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLLING_FAILURES) {
+          setLogError(`${message}；有限重试已用完，请手动重试。`);
+          return;
+        }
+        setLogError(message);
+        schedule(commandPollingRetryDelay(consecutiveFailures));
       } finally {
+        inFlight = false;
         if (active) setLogLoading(false);
       }
     };
+    const handleVisibility = () => {
+      clearTimer();
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     void poll();
     return () => {
       active = false;
       controller.abort();
-      if (timer !== undefined) window.clearTimeout(timer);
+      clearTimer();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [logRetryNonce, logsOpen, selectedTaskId]);
 
@@ -140,6 +173,7 @@ export function TtcPage() {
     </>}
     {routeTaskId && remote.loading && !detail && <RemoteState loading />}
     {routeTaskId && remote.error && !detail && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
+    {detail && remote.refreshError && <RemoteState error={remote.refreshError} onRetry={() => void remote.reload()} />}
     {detail && <>
       <Card className="trusted-task-banner"><CardContent><div><small>任务编号</small><strong><code>{detail.task.task_id}</code></strong></div><div><small>任务名称</small><strong>{detail.task.task_name}</strong></div><div><small>当前状态</small><strong>{stateLabel(detail.task.ttc_state)}</strong></div><div><small>当前尝试</small><strong>{detail.task.current_attempt ?? "—"}</strong></div><div><small>状态版本</small><strong><code>V{detail.task.state_version}</code></strong></div><div><small>能力来源</small><Badge tone="warning">{labelForCode(detail.source_of_truth, "结算任务记录")}</Badge></div></CardContent></Card>
       <Card className="trusted-state-card"><CardHeader><SurfaceHeader title="状态轨迹" description="只展示后端持久化的状态转移，不补造未发生节点" action={<Badge tone="info" dot>{stateLabel(detail.task.ttc_state)}</Badge>} /></CardHeader><CardContent>{timeline.length ? <div className="trusted-state-tracker">{timeline.map((event, index) => <div className={`trusted-state-node trusted-state-${event.state}`} key={event.id}><span className="trusted-state-marker">{event.state === "done" ? <Check size={13} /> : <Activity size={13} />}</span><strong>{event.label}</strong><small>{event.time}</small>{index < timeline.length - 1 && <i className="trusted-state-connector" />}</div>)}</div> : <RemoteState empty emptyLabel="暂无状态转移记录" />}</CardContent></Card>

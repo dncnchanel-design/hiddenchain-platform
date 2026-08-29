@@ -6,7 +6,7 @@
 
 1. 确认 `APP_ENV`、数据库、OPA 和密钥均属于目标环境。
 2. 以项目本地工具执行构建、生产门禁与测试；不全局安装依赖。
-3. 启动时应用会按序执行 `20260820_001` 至 `20260820_004` 迁移。迁移账本未应用、有待执行版本、出现未知版本或 checksum 不匹配时，就绪检查不应通过。
+3. 启动时应用会按迁移账本顺序执行代码中全部已登记版本；当前应用到的版本以 `/api/health/ready` 返回的迁移状态为准。迁移账本未应用、有待执行版本、出现未知版本或 checksum 不匹配时，就绪检查不应通过。
 4. 不得把 `LEGACY_UNMIGRATED` 任务作为新 TTC 继续执行；需经明确业务处置新建 TTC/Attempt，不补造历史转移、快照或证据。
 
 ## 健康与版本检查
@@ -44,6 +44,6 @@ Outbox 错误按指数退避进入 `RETRY_WAIT`；载荷/完整性错误或达�
 
 ## 部署边界
 
-`render.yaml` 是 Free plan review/test 单服务：`APP_ENV=test`、SQLite、`TEST_FIXTURE_SEED=true` 且 `OPA_LOCAL_FALLBACK=true`。其数据持久性、弹性、隔离、密钥管理和外部可信运行时均不满足生产门禁，不得标注为 production。
+`render.yaml` 定义一个平台与七个主体连接器，共八个 Free plan 公开 review 服务。平台使用 `APP_ENV=demo`、SQLite、`TEST_FIXTURE_SEED=false`，仅显式开启 demo 目录/业务种子与 OPA 本地回退；七个连接器显式开启确定性合成数据。其数据持久性、弹性、隔离、密钥管理和外部可信运行时均不满足生产门禁，不得标注为 production。
 
 外部 PostgreSQL、Redis、MinIO、Milvus、EDC 节点、TEE 证明和链网络均需独立部署、凭证和验收证据。未提供时保持 `BLOCKED`/`ADAPTER`/`DEMO`。

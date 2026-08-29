@@ -360,3 +360,4 @@ class PrivacyAnalysisCreate(StrictModel):
 
 class AnomalyResolve(StrictModel):
     resolution: str = Field(min_length=2, max_length=500)
+    disposition: Literal["ACK", "IGNORE", "REWORK"] = "ACK"

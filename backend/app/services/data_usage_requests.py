@@ -21,7 +21,7 @@ from ..schemas import DataUsageRequestCreate
 from ..security import sha256_json
 from .common import add_audit_log, trace_id
 from .local_data_boundary import usage_domain_pair_is_closed
-from .notifications import publish_access_request_decision, publish_access_request_submitted
+from .notifications import process_notification_outbox_best_effort, publish_access_request_decision, publish_access_request_submitted
 from .trust_domain import TrustDomainError, verify_active_identity
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion
 
@@ -563,13 +563,14 @@ def create_request(
             "capability_label": "LOCAL_REAL",
         },
     )
+    publish_access_request_submitted(db, request)
     try:
         db.commit()
     except Exception:
         db.rollback()
         raise
     db.refresh(request)
-    publish_access_request_submitted(db, request)
+    process_notification_outbox_best_effort(db)
     return request, False
 
 
@@ -620,10 +621,10 @@ def list_requests(
         if _mark_expired(db, item):
             expired_items.append(item)
     if expired_items:
-        db.commit()
         for item in expired_items:
-            db.refresh(item)
             publish_access_request_decision(db, item, action="expire")
+        db.commit()
+        process_notification_outbox_best_effort(db)
     return records, int(total)
 
 
@@ -635,9 +636,10 @@ def get_request(db: Session, request_id: str, user: User) -> DataUsageRequest:
         _raise(403, "REQUEST_SCOPE_DENIED", "当前角色不能查看该申请")
     expired = _mark_expired(db, request)
     if expired:
+        publish_access_request_decision(db, request, action="expire")
         db.commit()
         db.refresh(request)
-        publish_access_request_decision(db, request, action="expire")
+        process_notification_outbox_best_effort(db)
     return request
 
 
@@ -822,17 +824,13 @@ def transition_request(
             "external_anchor": "BLOCKED",
         },
     )
+    if action in {"approve", "reject", "revoke"}:
+        publish_access_request_decision(db, request, action=action, actor_user_id=user.user_id)
     try:
         db.commit()
     except Exception:
         db.rollback()
         raise
     db.refresh(request)
-    if action in {"approve", "reject", "revoke"}:
-        publish_access_request_decision(
-            db,
-            request,
-            action=action,
-            actor_user_id=user.user_id,
-        )
+    process_notification_outbox_best_effort(db)
     return request, False

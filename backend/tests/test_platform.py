@@ -31,38 +31,53 @@ def test_login_response_never_exposes_password_hash(client):
     assert "password" not in str(payload["user"]).lower()
 
 
-def test_login_menu_contract_covers_the_settlement_workflow(client, auth_headers):
+def test_login_menu_contract_exposes_only_trusted_space_or_admin_modules(client, auth_headers):
     def login_menus(role: str) -> set[tuple[str, str]]:
         response = client.get("/api/auth/me", headers=auth_headers[role])
         assert response.status_code == 200, response.text
         return {(item["code"], item["path"]) for item in response.json()["menus"]}
 
-    exchange_menus = login_menus("exchange")
-    assert {
-        ("workbench", "/workbench"),
-        ("data-space", "/data-space"),
-        ("compute", "/compute"),
-        ("settlements", "/settlements"),
-        ("results", "/results"),
-        ("evidence", "/evidence"),
-        ("rules", "/rules"),
-        ("audit", "/audit"),
-        ("reports", "/reports"),
-        ("anomalies", "/anomalies"),
-        ("trusted-execution", "/trusted-execution"),
-    } <= exchange_menus
+    common = {
+        ("overview", "/trusted-space/workbench"),
+        ("query", "/trusted-space/query"),
+        ("catalog", "/trusted-space/catalog"),
+        ("authorization", "/trusted-space/authorizations"),
+        ("compute", "/trusted-space/mpc"),
+        ("participants", "/trusted-space/identity"),
+    }
+    legacy_paths = {
+        "/workbench", "/data-space", "/rules", "/compute", "/settlements",
+        "/results", "/evidence", "/audit", "/reports", "/anomalies",
+        "/trusted-execution",
+    }
+    primary_codes = {"overview", "query", "catalog", "connector", "authorization", "audit", "compute"}
+    seen_primary_codes: set[str] = set()
 
-    generator_menus = login_menus("generator")
-    retailer_menus = login_menus("retailer")
-    for menus in (generator_menus, retailer_menus):
-        assert {("settlements", "/settlements"), ("results", "/results"), ("evidence", "/evidence")} <= menus
-        assert not {("rules", "/rules"), ("audit", "/audit"), ("reports", "/reports")} & menus
+    for actor in ("generator", "retailer", "exchange", "regulator"):
+        menus = login_menus(actor)
+        assert common <= menus
+        assert not ({path for _, path in menus} & legacy_paths)
+        assert {code for code, _ in menus} <= primary_codes | {"participants"}
+        seen_primary_codes.update(code for code, _ in menus if code != "participants")
+
+    assert seen_primary_codes == primary_codes
+
+    exchange_menus = login_menus("exchange")
+    assert ("connector", "/trusted-space/connector") in exchange_menus
+    assert ("audit", "/trusted-space/audit") not in exchange_menus
 
     regulator_menus = login_menus("regulator")
-    assert {("audit", "/audit"), ("reports", "/reports"), ("evidence", "/evidence")} <= regulator_menus
+    assert ("connector", "/trusted-space/connector") not in regulator_menus
+    assert ("audit", "/trusted-space/audit") in regulator_menus
 
     admin_menus = login_menus("admin")
-    assert {("overview", "/overview"), ("system", "/system"), ("agents", "/agents"), ("metrics", "/metrics"), ("logs", "/logs")} <= admin_menus
+    assert admin_menus == {
+        ("overview", "/overview"),
+        ("system", "/system"),
+        ("agents", "/agents"),
+        ("metrics", "/metrics"),
+        ("logs", "/logs"),
+    }
 
 
 def test_role_and_data_domain_boundaries(client, auth_headers):
@@ -311,7 +326,7 @@ def test_prototype_dashboard_is_role_and_energy_domain_specific(client, auth_hea
     assert generator_view["role_code"] != retailer_view["role_code"]
     assert generator_view["title"] != retailer_view["title"]
     assert exchange_view["kind"] == "exchange"
-    assert exchange_view["primary_action"]["path"] == "/settlements/new"
+    assert exchange_view["primary_action"]["path"] == "/trusted-space/mpc/new"
     assert regulator_view["kind"] == "regulator"
     assert regulator_view["energy_domain"] == "all"
     assert regulator_view["primary_action"]["path"] == "/trusted-space/audit"
@@ -369,6 +384,56 @@ def test_prototype_audit_tamper_exposes_actor_and_affected_block(client, auth_he
     assert recovered_payload["chain"]["ok"] is True
     assert recovered_payload["tamper"]["active"] is False
     assert recovered_payload["tamper"]["event_id"] == tamper["event_id"]
+
+
+def test_prototype_demo_routes_are_present_but_central_upload_is_retired(client, auth_headers):
+    paths = client.get("/api/openapi.json").json()["paths"]
+    assert {
+        "/api/prototype/query",
+        "/api/prototype/connector/sample.csv",
+        "/api/prototype/connector/{connector}/resources/upload",
+        "/api/prototype/policy",
+        "/api/prototype/policy/rules",
+        "/api/prototype/audit/tamper",
+        "/api/prototype/audit/restore",
+    } <= set(paths)
+
+    upload_operation = paths[
+        "/api/prototype/connector/{connector}/resources/upload"
+    ]["post"]
+    assert "requestBody" not in upload_operation
+
+    response = client.post(
+        "/api/prototype/connector/power/resources/upload",
+        headers={
+            **auth_headers["generator"],
+            "Content-Type": "multipart/form-data; boundary=malformed",
+        },
+        content=b"this body must not be parsed",
+    )
+    assert response.status_code == 410, response.text
+
+
+def test_prototype_audit_operations_are_regulator_only(client, auth_headers):
+    assert client.get(
+        "/api/prototype/audit", headers=auth_headers["generator"]
+    ).status_code == 403
+    assert client.post(
+        "/api/prototype/audit/verify", headers=auth_headers["generator"]
+    ).status_code == 403
+    assert client.post(
+        "/api/prototype/audit/tamper", headers=auth_headers["generator"]
+    ).status_code == 403
+    assert client.post(
+        "/api/prototype/audit/restore", headers=auth_headers["generator"]
+    ).status_code == 403
+
+    assert client.get(
+        "/api/prototype/audit", headers=auth_headers["regulator"]
+    ).status_code == 200
+    assert client.post(
+        "/api/prototype/audit/verify", headers=auth_headers["regulator"]
+    ).status_code == 200
 
 
 def test_data_space_catalog_and_protocol_are_visible(client, auth_headers):
@@ -644,7 +709,11 @@ def test_anomaly_injection_and_resolution_persist_audit_target(client, auth_head
 
     resolved = client.post(
         f"/api/anomalies/{event['event_id']}/resolve",
-        headers=auth_headers["regulator"],
+        headers={
+            **auth_headers["regulator"],
+            "If-Match": '"1"',
+            "Idempotency-Key": f"resolve-{event['event_id']}",
+        },
         json={"resolution": "已完成测试处置"},
     )
     assert resolved.status_code == 200, resolved.text

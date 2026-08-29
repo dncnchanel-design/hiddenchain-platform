@@ -4,30 +4,33 @@ import base64
 import hashlib
 import hmac
 import json
-import math
 import re
 import secrets
 from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..dependencies import get_current_user
 from ..models import (
+    AnomalyEvent,
     DataRequestBatch,
     DataRequestItem,
     DataUsageRequest,
     ExecutionReceipt,
     PrivacyComputeJob,
+    TrustedQueryTask,
     DidIdentity,
     User,
     new_id,
@@ -37,9 +40,18 @@ from ..services.common import add_audit_log
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
 from ..services.privacy_attestation import (
+    ConnectorAuditError,
     PrivacyAttestationError,
     canonical_connector_request_payload,
+    verify_connector_audit_pointer,
     verify_signed_connector_non_export,
+)
+from ..services.trusted_query_results import (
+    FUNCTION_LABELS,
+    TrustedQueryProjectionError,
+    build_trusted_query_public_result,
+    validated_aggregate_result,
+    validated_trend,
 )
 from ..security import canonical_json, sha256_json
 from ..schemas import TrustedSpaceQueryTranslation
@@ -48,6 +60,23 @@ from ..trust_models import DataAsset, DataAssetVersion
 
 
 router = APIRouter(prefix="/trust-space/query", tags=["trusted-query"])
+
+QUERY_OPERATION_NAMESPACE = "TRUSTED_QUERY_EXECUTE_V1"
+QUERY_TASK_RUNNABLE_STATUSES = frozenset({"QUEUED", "PENDING_RETRY"})
+QUERY_TASK_MAX_ATTEMPTS = 3
+TRUSTED_QUERY_RECEIPT_SCHEMA = "TRUSTED_QUERY_RECEIPT_V2"
+
+
+class TrustedQueryExecutionError(RuntimeError):
+    def __init__(self, code: str, summary: str, *, retryable: bool) -> None:
+        super().__init__(code)
+        self.code = code
+        self.summary = summary
+        self.retryable = retryable
+
+
+class TrustedQueryLeaseLost(RuntimeError):
+    pass
 
 DOMAIN_TERMS = {
     "electricity": ("电力", "发电", "售电", "用电"),
@@ -91,23 +120,6 @@ FUNCTION_TERMS = {
     "mpc_aggregation": ("MPC", "多方聚合"),
     "sum": ("总量", "合计", "求和"),
 }
-FUNCTION_LABELS = {
-    "sum": "求和",
-    "average": "平均值",
-    "max": "最大值",
-    "min": "最小值",
-    "count": "计数",
-    "median": "中位数",
-    "growth_rate": "增长率",
-    "yoy": "同比",
-    "mom": "环比",
-    "group_by": "分组汇总",
-    "threshold": "阈值判断",
-    "trend": "趋势",
-    "psi": "PSI",
-    "mpc_aggregation": "MPC 聚合",
-}
-
 DEEPSEEK_FUNCTION_LABELS = {
     "sum": "求和",
     "average": "平均值",
@@ -412,27 +424,18 @@ def _connector_failure(response: httpx.Response) -> tuple[int, Any]:
 
 def _validated_trend(value: Any) -> list[dict[str, Any]]:
     """Keep only signed, finite date/value points from a connector response."""
+    try:
+        return validated_trend(value)
+    except TrustedQueryProjectionError as exc:
+        raise HTTPException(502, "企业连接器趋势结果格式无效") from exc
 
-    if value is None:
-        return []
-    if not isinstance(value, list) or len(value) > 366:
-        raise HTTPException(502, "企业连接器趋势结果格式无效")
-    points: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise HTTPException(502, "企业连接器趋势结果格式无效")
-        point_date = item.get("date")
-        point_value = item.get("value")
-        if (
-            not isinstance(point_date, str)
-            or not point_date.strip()
-            or isinstance(point_value, bool)
-            or not isinstance(point_value, (int, float))
-            or not math.isfinite(float(point_value))
-        ):
-            raise HTTPException(502, "企业连接器趋势结果格式无效")
-        points.append({"date": point_date, "value": float(point_value)})
-    return points
+
+def _validated_aggregate_result(value: Any) -> Any:
+    """Accept only compact aggregate values, never row-shaped result arrays."""
+    try:
+        return validated_aggregate_result(value)
+    except TrustedQueryProjectionError as exc:
+        raise HTTPException(502, "企业连接器聚合结果格式无效") from exc
 
 
 def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageRequest, DataAsset]:
@@ -592,16 +595,28 @@ def _request_item(
     asset: DataAsset,
     payload: ExecuteRequest,
     user: User,
+    execution_key: str,
 ) -> DataRequestItem:
     """Bind a query to one provider-scoped item and make retries idempotent."""
 
-    existing = db.scalar(
-        select(DataRequestItem).where(
-            DataRequestItem.authorization_id == authorization.request_id,
-            DataRequestItem.provider_org_id == authorization.provider_org_id,
+    batch_key = f"trusted-query:{sha256_json({'scope': execution_key})[:64]}"
+    batch = db.scalar(
+        select(DataRequestBatch).where(
+            DataRequestBatch.applicant_org_id == user.org_id,
+            DataRequestBatch.idempotency_key == batch_key,
         )
     )
-    if existing is not None:
+    if batch is not None:
+        if batch.applicant_user_id != user.user_id:
+            raise HTTPException(409, "查询幂等范围与当前账号不一致")
+        existing = db.scalar(
+            select(DataRequestItem).where(
+                DataRequestItem.batch_id == batch.batch_id,
+                DataRequestItem.provider_org_id == authorization.provider_org_id,
+            )
+        )
+        if existing is None:
+            raise HTTPException(409, "查询幂等记录不完整，无法安全重放")
         if existing.status in {"REVOKED", "REJECTED", "FAILED"}:
             raise HTTPException(403, "该主体请求项已拒绝或撤销，不能继续调用")
         return existing
@@ -613,6 +628,11 @@ def _request_item(
         "end_date": payload.end_date.isoformat(),
         "region": payload.region,
         "function": payload.function,
+        "hour": payload.hour,
+        "threshold": payload.threshold,
+        "group_by": payload.group_by,
+        "decimals": payload.decimals,
+        "duration_days": max(1, (payload.end_date - payload.start_date).days + 1),
         "output_mode": "AGGREGATE_ONLY",
         "raw_data_export": False,
     }
@@ -644,7 +664,7 @@ def _request_item(
         allow_partial=False,
         status="EXECUTING",
         confirmation_hash=confirmation_hash,
-        idempotency_key=f"authorization:{authorization.request_id}",
+        idempotency_key=batch_key,
     )
     item = DataRequestItem(
         request_item_id=new_id(),
@@ -656,7 +676,7 @@ def _request_item(
         matched_rule_version=f"v{rule.version_no}" if rule else None,
         scope_json=requested_scope,
         status="READY",
-        idempotency_key=f"authorization:{authorization.request_id}",
+        idempotency_key=batch_key,
     )
     db.add(batch)
     db.add(item)
@@ -814,9 +834,106 @@ def confirm_query(
     }
 
 
-@router.post("/execute")
+def _canonical_execute_payload(payload: ExecuteRequest) -> dict[str, Any]:
+    return {
+        "authorization_id": payload.authorization_id,
+        "provider_org_id": payload.provider_org_id,
+        "energy_domain": payload.energy_domain,
+        "resource": payload.resource,
+        "function": payload.function,
+        "start_date": payload.start_date.isoformat(),
+        "end_date": payload.end_date.isoformat(),
+        "region": payload.region,
+        "hour": payload.hour,
+        "threshold": payload.threshold,
+        "group_by": payload.group_by,
+        "decimals": payload.decimals,
+    }
+
+
+def _query_task_matches_fingerprint(
+    task: TrustedQueryTask,
+    request_fingerprint: str,
+) -> bool:
+    if task.request_fingerprint == request_fingerprint:
+        return True
+    legacy_payload = dict(task.canonical_payload_json or {})
+    if "confirmation_token_hash" not in legacy_payload:
+        return False
+    legacy_payload.pop("confirmation_token_hash", None)
+    return sha256_json(legacy_payload) == request_fingerprint
+
+
+def _query_task_url(task_id: str) -> str:
+    return f"{settings.api_prefix}{router.prefix}/tasks/{task_id}"
+
+
+def _query_task_status_payload(
+    task: TrustedQueryTask,
+    *,
+    idempotent_replay: bool = False,
+) -> dict[str, Any]:
+    return {
+        "task_id": task.task_id,
+        "status": task.status,
+        "status_url": _query_task_url(task.task_id),
+        "result_url": (
+            f"{_query_task_url(task.task_id)}/result"
+            if task.status == "SUCCEEDED"
+            else None
+        ),
+        "attempt": task.attempt,
+        "max_attempts": task.max_attempts,
+        "failure_code": task.failure_code,
+        "failure_summary": task.failure_summary,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "idempotent_replay": idempotent_replay,
+    }
+
+
+def _scoped_query_task(
+    db: Session,
+    *,
+    task_id: str,
+    user: User,
+) -> TrustedQueryTask:
+    if "VIEW_COMPUTE_RESULT" not in set(user.permissions_json or []):
+        raise HTTPException(403, "当前账号没有查看计算结果的权限")
+    task = db.scalar(
+        select(TrustedQueryTask).where(
+            TrustedQueryTask.task_id == task_id,
+            TrustedQueryTask.applicant_org_id == user.org_id,
+            TrustedQueryTask.applicant_user_id == user.user_id,
+        )
+    )
+    if task is None:
+        raise HTTPException(404, "未找到可信查询任务")
+    return task
+
+
+def _query_task_is_due(task: TrustedQueryTask, *, now: datetime | None = None) -> bool:
+    current = now or utc_now()
+    if task.status in QUERY_TASK_RUNNABLE_STATUSES:
+        return task.next_attempt_at is None or task.next_attempt_at <= current
+    return bool(
+        task.status == "RUNNING"
+        and task.lease_expires_at is not None
+        and task.lease_expires_at <= current
+    )
+
+
+@router.post("/execute", status_code=202)
 def execute_query(
     payload: ExecuteRequest,
+    background_tasks: BackgroundTasks,
+    idempotency_key: str = Header(
+        ...,
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=160,
+    ),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -831,6 +948,9 @@ def execute_query(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
+    scoped_key = idempotency_key.strip()
+    if not scoped_key:
+        raise HTTPException(422, "Idempotency-Key 不能为空")
     authorization, asset = _resolve_authorization(
         db,
         authorization_id=payload.authorization_id,
@@ -846,83 +966,578 @@ def execute_query(
     payload.authorization_id = authorization.request_id
     payload.provider_org_id = authorization.provider_org_id
     _verify_confirmation_token(payload.confirmation_token, payload, user)
-    if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
+    submitted_payload = _canonical_execute_payload(payload)
+    request_fingerprint = sha256_json(submitted_payload)
+    existing = db.scalar(
+        select(TrustedQueryTask).where(
+            TrustedQueryTask.applicant_org_id == user.org_id,
+            TrustedQueryTask.applicant_user_id == user.user_id,
+            TrustedQueryTask.operation_namespace == QUERY_OPERATION_NAMESPACE,
+            TrustedQueryTask.idempotency_key == scoped_key,
+        )
+    )
+    if existing is not None:
+        if not _query_task_matches_fingerprint(existing, request_fingerprint):
+            raise HTTPException(409, "该幂等键已绑定另一组查询条件")
+        response = _query_task_status_payload(existing, idempotent_replay=True)
+        if _query_task_is_due(existing):
+            background_tasks.add_task(run_trusted_query_task, existing.task_id)
+        return response
+    if authorization.provider_org_id != payload.provider_org_id:
         raise HTTPException(403, "执行主体与授权主体不一致")
-    payload.provider_org_id = authorization.provider_org_id
+    if asset.status != "ACTIVE":
+        raise HTTPException(409, "授权对应的数据资源当前不可用")
+    version = db.get(DataAssetVersion, authorization.asset_version_id)
+    if version is None or version.asset_id != asset.asset_id or version.status != "ACTIVE":
+        raise HTTPException(409, "授权对应的数据版本当前不可用")
+    if asset.current_version_id != version.version_id:
+        raise HTTPException(409, "授权数据版本已变化，请重新确认")
+
+    execution_scope_key = sha256_json(
+        {
+            "organization_id": user.org_id,
+            "user_id": user.user_id,
+            "operation": QUERY_OPERATION_NAMESPACE,
+            "idempotency_key": scoped_key,
+        }
+    )
     request_item = _request_item(
         db,
         authorization=authorization,
         asset=asset,
         payload=payload,
         user=user,
+        execution_key=execution_scope_key,
     )
-    if request_item.status == "SUCCEEDED" and request_item.result_json:
-        replayed_result = request_item.result_json
-        replayed_privacy_verification = replayed_result.get("privacy_verification")
-        if not isinstance(replayed_privacy_verification, dict) or replayed_privacy_verification.get("status") != "VERIFIED":
-            raise HTTPException(502, "历史连接器结果缺少可验证的不出域证明")
-        return {
-            "task_id": replayed_result.get("_hiddenchain_task_id") or replayed_result.get("task_id"),
-            "job_id": replayed_result.get("_hiddenchain_job_id"),
+    task = TrustedQueryTask(
+        task_id=new_id(),
+        applicant_user_id=user.user_id,
+        applicant_org_id=user.org_id,
+        operation_namespace=QUERY_OPERATION_NAMESPACE,
+        idempotency_key=scoped_key,
+        request_fingerprint=request_fingerprint,
+        canonical_payload_json=submitted_payload,
+        authorization_id=authorization.request_id,
+        provider_org_id=authorization.provider_org_id,
+        asset_id=asset.asset_id,
+        asset_version_id=version.version_id,
+        request_item_id=request_item.request_item_id,
+        status="QUEUED",
+        attempt=0,
+        max_attempts=QUERY_TASK_MAX_ATTEMPTS,
+        next_attempt_at=utc_now(),
+    )
+    db.add(task)
+    add_audit_log(
+        db,
+        action="TRUSTED_QUERY_QUEUED",
+        target_type="TRUSTED_QUERY_TASK",
+        target_id=task.task_id,
+        result="QUEUED",
+        user=user,
+        details={
+            "authorization_id": authorization.request_id,
             "request_item_id": request_item.request_item_id,
-            "authorization_scope": authorization.request_id,
-            "generated_at": replayed_result.get("generated_at"),
-            "result": replayed_result.get("result"),
-            "unit": replayed_result.get("unit"),
-            "record_count": replayed_result.get("record_count"),
-            "trend": _validated_trend(replayed_result.get("trend")),
-            "resource_name": replayed_result.get("resource_name") or "未命名数据资源",
-            "function_name": replayed_result.get("function_name") or FUNCTION_LABELS[payload.function],
-            "digital_signature": "已验证",
-            "audit_recorded": True,
-            "raw_records_returned": False,
-            "capability": replayed_result.get("capability", "本地受控计算"),
-            "privacy_verification": replayed_privacy_verification,
-            "idempotent_replay": True,
-        }
-    metadata = asset.metadata_json or {}
-    authorized_domain = str(metadata.get("domain") or "")
-    authorized_resource = str(metadata.get("resource_id") or "")
-    if authorized_domain and authorized_domain != payload.energy_domain:
-        raise HTTPException(403, "计算能源范围超出企业批准的授权")
-    if authorized_resource and authorized_resource != payload.resource:
-        raise HTTPException(403, "计算数据资源超出企业批准的授权")
-    node = subject_node_config(db, authorization.provider_org_id)
-    endpoint = node.get("endpoint") if node else None
-    expected_public_key = node.get("public_key") if node else None
-    if not endpoint:
-        request_item.status = "PENDING_RETRY"
-        request_item.failure_code = "SUBJECT_NODE_OFFLINE"
-        request_item.failure_detail = "主体本地节点未配置或暂不可用，平台未读取中央缓存"
+            "provider_org_id": authorization.provider_org_id,
+            "energy_domain": payload.energy_domain,
+            "resource": payload.resource,
+            "function": payload.function,
+            "request_fingerprint": request_fingerprint,
+            "raw_data_accessed": False,
+        },
+    )
+    try:
         db.commit()
-        raise HTTPException(503, "主体本地节点暂不可用，任务已进入待重试状态")
-    task_id = f"TASK-{datetime.now(UTC).strftime('%Y%m%d')}-{secrets.token_hex(4).upper()}"
-    connector_payload = canonical_connector_request_payload(
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(
+            select(TrustedQueryTask).where(
+                TrustedQueryTask.applicant_org_id == user.org_id,
+                TrustedQueryTask.applicant_user_id == user.user_id,
+                TrustedQueryTask.operation_namespace == QUERY_OPERATION_NAMESPACE,
+                TrustedQueryTask.idempotency_key == scoped_key,
+            )
+        )
+        if existing is None:
+            raise HTTPException(409, "查询任务并发创建冲突，请使用同一幂等键重试")
+        if not _query_task_matches_fingerprint(existing, request_fingerprint):
+            raise HTTPException(409, "该幂等键已绑定另一组查询条件")
+        response = _query_task_status_payload(existing, idempotent_replay=True)
+        if _query_task_is_due(existing):
+            background_tasks.add_task(run_trusted_query_task, existing.task_id)
+        return response
+
+    response = _query_task_status_payload(task)
+    background_tasks.add_task(run_trusted_query_task, task.task_id)
+    return response
+
+
+def _claim_query_task(
+    db: Session,
+    *,
+    task_id: str,
+    lease_owner: str,
+) -> TrustedQueryTask | None:
+    now = utc_now()
+    due = or_(
+        and_(
+            TrustedQueryTask.status.in_(tuple(QUERY_TASK_RUNNABLE_STATUSES)),
+            or_(
+                TrustedQueryTask.next_attempt_at.is_(None),
+                TrustedQueryTask.next_attempt_at <= now,
+            ),
+        ),
+        and_(
+            TrustedQueryTask.status == "RUNNING",
+            TrustedQueryTask.lease_expires_at.is_not(None),
+            TrustedQueryTask.lease_expires_at <= now,
+        ),
+    )
+    exhausted = db.scalar(
+        select(TrustedQueryTask).where(
+            TrustedQueryTask.task_id == task_id,
+            due,
+            TrustedQueryTask.attempt >= TrustedQueryTask.max_attempts,
+        )
+    )
+    if exhausted is not None:
+        _persist_fenced_query_task_failure(
+            db,
+            task=exhausted,
+            expected_status=exhausted.status,
+            expected_lease_owner=exhausted.lease_owner,
+            error=TrustedQueryExecutionError(
+                "RETRY_LIMIT_EXHAUSTED",
+                "可信查询重试次数已用尽",
+                retryable=False,
+            ),
+            expired_before=now if exhausted.status == "RUNNING" else None,
+        )
+        return None
+    lease_seconds = max(60.0, float(settings.connector_timeout_seconds) + 30.0)
+    claimed = db.execute(
+        update(TrustedQueryTask)
+        .where(
+            TrustedQueryTask.task_id == task_id,
+            due,
+            TrustedQueryTask.attempt < TrustedQueryTask.max_attempts,
+        )
+        .values(
+            status="RUNNING",
+            attempt=TrustedQueryTask.attempt + 1,
+            lease_owner=lease_owner,
+            lease_expires_at=now + timedelta(seconds=lease_seconds),
+            heartbeat_at=now,
+            next_attempt_at=None,
+            started_at=func.coalesce(TrustedQueryTask.started_at, now),
+            failure_code=None,
+            failure_summary=None,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if claimed.rowcount != 1:
+        return None
+    return db.get(TrustedQueryTask, task_id)
+
+
+def _heartbeat_query_task(
+    db: Session,
+    *,
+    task_id: str,
+    lease_owner: str,
+) -> TrustedQueryTask:
+    now = utc_now()
+    lease_seconds = max(60.0, float(settings.connector_timeout_seconds) + 30.0)
+    refreshed = db.execute(
+        update(TrustedQueryTask)
+        .where(
+            TrustedQueryTask.task_id == task_id,
+            TrustedQueryTask.status == "RUNNING",
+            TrustedQueryTask.lease_owner == lease_owner,
+        )
+        .values(
+            heartbeat_at=now,
+            lease_expires_at=now + timedelta(seconds=lease_seconds),
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if refreshed.rowcount != 1:
+        raise TrustedQueryLeaseLost(task_id)
+    task = db.get(TrustedQueryTask, task_id)
+    if task is None:
+        raise TrustedQueryLeaseLost(task_id)
+    return task
+
+
+def _revalidate_query_dispatch(
+    db: Session,
+    *,
+    task: TrustedQueryTask,
+) -> tuple[User, DataUsageRequest, DataAsset, DataAssetVersion, DataRequestItem]:
+    user = db.get(User, task.applicant_user_id)
+    if (
+        user is None
+        or user.status != "ACTIVE"
+        or user.org_id != task.applicant_org_id
+        or "CREATE_COMPUTE_TASK" not in set(user.permissions_json or [])
+    ):
+        raise TrustedQueryExecutionError(
+            "USER_ACCESS_REVOKED",
+            "发起账号已停用或执行权限已撤销",
+            retryable=False,
+        )
+    authorization = db.get(DataUsageRequest, task.authorization_id)
+    if authorization is None:
+        raise TrustedQueryExecutionError(
+            "AUTHORIZATION_NOT_FOUND",
+            "可信查询授权记录不存在",
+            retryable=False,
+        )
+    if (
+        authorization.applicant_org_id != task.applicant_org_id
+        or authorization.provider_org_id != task.provider_org_id
+        or authorization.asset_id != task.asset_id
+        or authorization.asset_version_id != task.asset_version_id
+    ):
+        raise TrustedQueryExecutionError(
+            "AUTHORIZATION_SCOPE_CHANGED",
+            "可信查询授权范围已变化",
+            retryable=False,
+        )
+    if authorization.status != "APPROVED":
+        raise TrustedQueryExecutionError(
+            "AUTHORIZATION_REVOKED",
+            "可信查询授权已撤销或不再有效",
+            retryable=False,
+        )
+    if authorization.expires_at <= utc_now():
+        raise TrustedQueryExecutionError(
+            "AUTHORIZATION_EXPIRED",
+            "可信查询授权已过期",
+            retryable=False,
+        )
+    asset = db.get(DataAsset, task.asset_id)
+    if asset is None or asset.status != "ACTIVE" or asset.owner_org_id != task.provider_org_id:
+        raise TrustedQueryExecutionError(
+            "DATA_ASSET_UNAVAILABLE",
+            "授权数据资源当前不可用",
+            retryable=False,
+        )
+    payload = task.canonical_payload_json or {}
+    metadata = asset.metadata_json or {}
+    if (
+        str(metadata.get("domain") or "") != str(payload.get("energy_domain") or "")
+        or str(metadata.get("resource_id") or "") != str(payload.get("resource") or "")
+    ):
+        raise TrustedQueryExecutionError(
+            "DATA_ASSET_SCOPE_CHANGED",
+            "授权数据资源范围已变化",
+            retryable=False,
+        )
+    version = db.get(DataAssetVersion, task.asset_version_id)
+    if (
+        version is None
+        or version.asset_id != asset.asset_id
+        or version.status != "ACTIVE"
+    ):
+        raise TrustedQueryExecutionError(
+            "DATA_VERSION_CHANGED",
+            "任务绑定的数据版本已失效或不再属于授权资源",
+            retryable=False,
+        )
+    now = utc_now()
+    if (
+        version.effective_from is not None
+        and version.effective_from > now
+        or version.effective_until is not None
+        and version.effective_until <= now
+    ):
+        raise TrustedQueryExecutionError(
+            "DATA_VERSION_UNAVAILABLE",
+            "授权数据版本不在有效期内",
+            retryable=False,
+        )
+    request_item = db.get(DataRequestItem, task.request_item_id)
+    if (
+        request_item is None
+        or request_item.authorization_id != authorization.request_id
+        or request_item.provider_org_id != authorization.provider_org_id
+        or request_item.asset_id != asset.asset_id
+    ):
+        raise TrustedQueryExecutionError(
+            "REQUEST_ITEM_SCOPE_CHANGED",
+            "主体请求项范围已变化",
+            retryable=False,
+        )
+    if request_item.status in {"REVOKED", "REJECTED"}:
+        raise TrustedQueryExecutionError(
+            "REQUEST_ITEM_REVOKED",
+            "主体请求项已撤销或拒绝",
+            retryable=False,
+        )
+    requested_scope = {
+        "start_date": payload.get("start_date"),
+        "end_date": payload.get("end_date"),
+        "region": payload.get("region"),
+        "function": payload.get("function"),
+        "hour": payload.get("hour"),
+        "threshold": payload.get("threshold"),
+        "group_by": payload.get("group_by"),
+        "decimals": payload.get("decimals"),
+        "duration_days": max(
+            1,
+            (
+                date.fromisoformat(str(payload["end_date"]))
+                - date.fromisoformat(str(payload["start_date"]))
+            ).days
+            + 1,
+        ),
+        "output_mode": "AGGREGATE_ONLY",
+        "raw_data_export": False,
+    }
+    current_rule = matching_rule(
+        db,
+        owner_org_id=authorization.provider_org_id,
+        resource_id=str(payload.get("resource") or ""),
+        function_code=str(payload.get("function") or ""),
+        requested_scope=requested_scope,
+    )
+    if request_item.matched_rule_id is not None:
+        if (
+            current_rule is None
+            or current_rule.rule_id != request_item.matched_rule_id
+            or f"v{current_rule.version_no}" != request_item.matched_rule_version
+        ):
+            raise TrustedQueryExecutionError(
+                "ACCESS_RULE_CHANGED",
+                "主体访问规则已变化",
+                retryable=False,
+            )
+    if rule_decision(current_rule) == "FORBIDDEN":
+        raise TrustedQueryExecutionError(
+            "ACCESS_RULE_REVOKED",
+            "主体访问规则不再允许该查询",
+            retryable=False,
+        )
+    if (
+        (authorization.terms_json or {}).get("authorization_source")
+        == "SUBJECT_APPROVED_RULE"
+        and rule_decision(current_rule) != "AUTO_CALL"
+    ):
+        raise TrustedQueryExecutionError(
+            "ACCESS_RULE_CHANGED",
+            "主体自动调用规则已变化",
+            retryable=False,
+        )
+    return user, authorization, asset, version, request_item
+
+
+def _connector_query_payload(
+    task: TrustedQueryTask,
+    authorization: DataUsageRequest,
+    version: DataAssetVersion,
+    request_item: DataRequestItem,
+) -> dict[str, Any]:
+    data_ref = str(version.data_ref or "")
+    data_hash = str(version.data_hash or "")
+    if (
+        isinstance(version.version_no, bool)
+        or not isinstance(version.version_no, int)
+        or version.version_no < 1
+        or not data_ref.startswith("connector://")
+        or len(data_hash) != 64
+        or any(character not in "0123456789abcdef" for character in data_hash)
+    ):
+        raise TrustedQueryExecutionError(
+            "DATA_VERSION_BINDING_INVALID",
+            "中央授权数据版本缺少可验证的连接器绑定",
+            retryable=False,
+        )
+    payload = task.canonical_payload_json or {}
+    return canonical_connector_request_payload(
         {
-            "task_id": task_id,
+            "task_id": task.task_id,
             "authorization_id": authorization.request_id,
             "request_item_id": request_item.request_item_id,
             "provider_org_id": authorization.provider_org_id,
             "rule_version": request_item.matched_rule_version,
-            "resource": payload.resource,
-            "function": payload.function,
-            "start_date": payload.start_date.isoformat(),
-            "end_date": payload.end_date.isoformat(),
-            "region": payload.region,
-            "hour": payload.hour,
-            "threshold": payload.threshold,
-            "group_by": payload.group_by,
-            "decimals": payload.decimals,
+            "dataset_version": version.version_no,
+            "dataset_local_ref": data_ref,
+            "dataset_content_hash": data_hash,
+            "resource": payload.get("resource"),
+            "function": payload.get("function"),
+            "start_date": payload.get("start_date"),
+            "end_date": payload.get("end_date"),
+            "region": payload.get("region"),
+            "hour": payload.get("hour"),
+            "threshold": payload.get("threshold"),
+            "group_by": payload.get("group_by"),
+            "decimals": payload.get("decimals"),
         }
     )
+
+
+def _discover_connector_public_key(
+    *,
+    endpoint: str,
+    node: dict[str, Any],
+    provider_org_id: str,
+    energy_domain: str,
+) -> str:
+    if settings.app_env not in {"demo", "development", "test"}:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_KEY_NOT_REGISTERED",
+            "企业连接器公钥未登记",
+            retryable=False,
+        )
+    parsed = urlparse(endpoint)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_DISCOVERY_ENDPOINT_INVALID",
+            "企业连接器公钥发现端点无效",
+            retryable=False,
+        )
+
+    def load_json(path: str) -> dict[str, Any]:
+        try:
+            response = httpx.get(
+                f"{endpoint.rstrip('/')}{path}",
+                timeout=settings.connector_timeout_seconds,
+            )
+        except httpx.HTTPError as exc:
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_DISCOVERY_UNAVAILABLE",
+                "企业连接器身份发现暂不可用，任务将在稍后重试",
+                retryable=True,
+            ) from exc
+        if response.status_code >= 400:
+            retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_DISCOVERY_UNAVAILABLE"
+                if retryable
+                else "CONNECTOR_DISCOVERY_REJECTED",
+                (
+                    "企业连接器身份发现暂不可用，任务将在稍后重试"
+                    if retryable
+                    else "企业连接器拒绝了身份发现请求"
+                ),
+                retryable=retryable,
+            )
+        try:
+            value = response.json()
+        except ValueError as exc:
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_IDENTITY_INVALID",
+                "企业连接器身份信息无效",
+                retryable=False,
+            ) from exc
+        if not isinstance(value, dict):
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_IDENTITY_INVALID",
+                "企业连接器身份信息无效",
+                retryable=False,
+            )
+        return value
+
+    health = load_json("/health")
+    if (
+        health.get("organization_id") != provider_org_id
+        or health.get("energy_domain") != energy_domain
+    ):
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_IDENTITY_MISMATCH",
+            "企业连接器身份与授权主体不一致",
+            retryable=False,
+        )
+    connector_id = str(health.get("connector_id") or "")
+    if not connector_id:
+        catalog = load_json("/catalog")
+        if (
+            catalog.get("organization_id") != provider_org_id
+            or catalog.get("energy_domain") != energy_domain
+        ):
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_IDENTITY_MISMATCH",
+                "企业连接器目录身份与授权主体不一致",
+                retryable=False,
+            )
+        connector_id = str(catalog.get("connector_id") or "")
+    if not connector_id or connector_id != str(node.get("node_code") or ""):
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_IDENTITY_MISMATCH",
+            "企业连接器标识与登记节点不一致",
+            retryable=False,
+        )
+    public_key = str(health.get("public_key") or "")
+    try:
+        key_bytes = base64.b64decode(public_key, validate=True)
+        Ed25519PublicKey.from_public_bytes(key_bytes)
+    except Exception as exc:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_IDENTITY_INVALID",
+            "企业连接器身份公钥无效",
+            retryable=False,
+        ) from exc
+    return public_key
+
+
+def _execute_claimed_query_task(
+    db: Session,
+    *,
+    task_id: str,
+    lease_owner: str,
+) -> None:
+    task = db.get(TrustedQueryTask, task_id)
+    if task is None or task.status != "RUNNING" or task.lease_owner != lease_owner:
+        raise TrustedQueryLeaseLost(task_id)
+    user, authorization, asset, version, request_item = _revalidate_query_dispatch(
+        db,
+        task=task,
+    )
+    node = subject_node_config(db, authorization.provider_org_id)
+    endpoint = node.get("endpoint") if node else None
+    expected_public_key = node.get("public_key") if node else None
+    if not endpoint:
+        raise TrustedQueryExecutionError(
+            "SUBJECT_NODE_OFFLINE",
+            "主体本地节点暂不可用，任务将在稍后重试",
+            retryable=True,
+        )
+    trust_bootstrap = "PRECONFIGURED_PUBLIC_KEY"
+    if not expected_public_key:
+        expected_public_key = _discover_connector_public_key(
+            endpoint=str(endpoint),
+            node=node or {},
+            provider_org_id=authorization.provider_org_id,
+            energy_domain=str((task.canonical_payload_json or {}).get("energy_domain") or ""),
+        )
+        trust_bootstrap = "VERIFIED_HEALTH_DISCOVERY"
+    task = _heartbeat_query_task(db, task_id=task_id, lease_owner=lease_owner)
+    connector_payload = _connector_query_payload(task, authorization, version, request_item)
     timestamp = str(int(datetime.now(UTC).timestamp()))
     nonce = secrets.token_urlsafe(24)
     signed_request = {"timestamp": timestamp, "nonce": nonce, "payload": connector_payload}
-    platform_private_key = _platform_private_key()
+    try:
+        platform_private_key = _platform_private_key()
+    except HTTPException as exc:
+        raise TrustedQueryExecutionError(
+            "PLATFORM_SIGNING_UNAVAILABLE",
+            "平台请求签名能力暂不可用",
+            retryable=True,
+        ) from exc
     signature = platform_private_key.sign(canonical_json(signed_request).encode())
     try:
         response = httpx.post(
-            f"{endpoint.rstrip('/')}/compute",
+            f"{str(endpoint).rstrip('/')}/compute",
             json=connector_payload,
             headers={
                 "X-Request-Timestamp": timestamp,
@@ -933,155 +1548,531 @@ def execute_query(
             timeout=settings.connector_timeout_seconds,
         )
     except httpx.HTTPError as exc:
-        raise HTTPException(503, "企业连接器暂时离线，任务未读取任何缓存数据") from exc
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_TEMPORARILY_UNAVAILABLE",
+            "企业连接器暂时不可用，任务将在稍后重试",
+            retryable=True,
+        ) from exc
     if response.status_code >= 400:
-        status_code, detail = _connector_failure(response)
-        raise HTTPException(status_code, detail)
-    result = response.json()
+        retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_TEMPORARY_FAILURE" if retryable else "CONNECTOR_REQUEST_REJECTED",
+            (
+                "企业连接器暂时不可用，任务将在稍后重试"
+                if retryable
+                else "企业连接器拒绝了受控计算请求"
+            ),
+            retryable=retryable,
+        )
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_RESPONSE_INVALID",
+            "企业连接器返回格式无效",
+            retryable=False,
+        ) from exc
     if not isinstance(result, dict):
-        raise HTTPException(502, "企业连接器返回格式无效")
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_RESPONSE_INVALID",
+            "企业连接器返回格式无效",
+            retryable=False,
+        )
     if expected_public_key and result.get("public_key") != expected_public_key:
-        raise HTTPException(502, "企业连接器签名公钥与登记信息不一致")
-    if not expected_public_key and settings.app_env == "demo":
-        expected_public_key = str(result.get("public_key") or "")
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_IDENTITY_MISMATCH",
+            "企业连接器身份校验失败",
+            retryable=False,
+        )
     if not expected_public_key:
-        raise HTTPException(503, "企业连接器公钥未登记")
-    signed_result = {key: value for key, value in result.items() if key not in {"signature", "public_key", "signature_algorithm", "signature_valid"}}
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_KEY_NOT_REGISTERED",
+            "企业连接器公钥未登记",
+            retryable=False,
+        )
+    signed_result = {
+        key: value
+        for key, value in result.items()
+        if key not in {"signature", "public_key", "signature_algorithm", "signature_valid"}
+    }
     try:
         Ed25519PublicKey.from_public_bytes(base64.b64decode(expected_public_key)).verify(
             base64.b64decode(str(result["signature"])),
             canonical_json(signed_result).encode(),
         )
     except Exception as exc:
-        raise HTTPException(502, "企业计算结果数字签名验证失败") from exc
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_SIGNATURE_INVALID",
+            "企业计算结果数字签名验证失败",
+            retryable=False,
+        ) from exc
+    returned_version = result.get("dataset_version")
+    if (
+        isinstance(returned_version, bool)
+        or not isinstance(returned_version, int)
+        or returned_version != version.version_no
+        or result.get("dataset_local_ref") != version.data_ref
+        or result.get("dataset_content_hash") != version.data_hash
+    ):
+        raise TrustedQueryExecutionError(
+            "DATA_VERSION_BINDING_MISMATCH",
+            "企业连接器返回的数据版本与中央授权不一致",
+            retryable=False,
+        )
     privacy = result.get("privacy")
     if result.get("raw_records_returned") is True or (
         isinstance(privacy, dict) and privacy.get("raw_records_returned") is True
     ):
-        raise HTTPException(502, "企业连接器返回了不允许交付的原始记录")
+        raise TrustedQueryExecutionError(
+            "RAW_DATA_EXPORT_REJECTED",
+            "企业连接器返回了不允许交付的原始记录",
+            retryable=False,
+        )
     try:
         privacy_verification = verify_signed_connector_non_export(
             signed_result,
             connector_payload,
         )
     except PrivacyAttestationError as exc:
-        raise HTTPException(502, f"企业连接器不出域证明校验失败：{exc}") from exc
-    trend = _validated_trend(result.get("trend"))
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_ATTESTATION_INVALID",
+            "企业连接器不出域证明校验失败",
+            retryable=False,
+        ) from exc
+    try:
+        connector_audit = {
+            **verify_connector_audit_pointer(
+                signed_result,
+                connector_payload,
+                expected_connector_id=str(node.get("node_code") or ""),
+                expected_provider_org_id=authorization.provider_org_id,
+                expected_energy_domain=str(
+                    (task.canonical_payload_json or {}).get("energy_domain") or ""
+                ),
+                expected_task_id=task.task_id,
+                expected_request_item_id=request_item.request_item_id,
+            ),
+            "pointer_verified": True,
+            "event_hash_verified": True,
+            "verification_scope": "SINGLE_SIGNED_EVENT_POINTER",
+        }
+    except ConnectorAuditError as exc:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_AUDIT_INVALID",
+            "企业连接器审计事件指针校验失败",
+            retryable=False,
+        ) from exc
+    try:
+        trend = _validated_trend(result.get("trend"))
+        result_value = _validated_aggregate_result(result.get("result"))
+    except HTTPException as exc:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_RESPONSE_INVALID",
+            "企业连接器返回格式无效",
+            retryable=False,
+        ) from exc
+    capability = result.get("capability", "本地受控计算")
+    if capability not in {"本地受控计算", "本地计算份额"}:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_CAPABILITY_INVALID",
+            "企业连接器返回的能力标签不在受控计算允许范围内",
+            retryable=False,
+        )
+    record_count = result.get("record_count")
+    if (
+        record_count is not None
+        and (
+            isinstance(record_count, bool)
+            or not isinstance(record_count, int)
+            or record_count < 0
+        )
+    ):
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_RESPONSE_INVALID",
+            "企业连接器返回格式无效",
+            retryable=False,
+        )
+    task = _heartbeat_query_task(db, task_id=task_id, lease_owner=lease_owner)
     output_hash = sha256_json(signed_result)
-    privacy_guarantees = {
-        **(privacy if isinstance(privacy, dict) else {}),
-        "execution_environment": "SUBJECT_CONNECTOR",
-        "attestation_status": "CONNECTOR_SIGNED",
-        "connector_signature_verified": True,
-        "cross_domain_non_export_verified": True,
-        "privacy_verification": {
-            **privacy_verification,
-            "result_hash": output_hash,
-        },
-    }
+    signing_key_fingerprint = hashlib.sha256(
+        base64.b64decode(expected_public_key, validate=True)
+    ).hexdigest()
     privacy_verification = {
         **privacy_verification,
         "result_hash": output_hash,
+        "connector_audit": connector_audit,
     }
-    job_id = new_id()
-    job = PrivacyComputeJob(
-        job_id=job_id,
-        task_id=task_id,
-        algorithm_code=payload.function,
-        adapter_code=f"LOCAL_SUBJECT_NODE_{authorization.provider_org_id}",
-        input_hashes_json=[authorization.decision_hash or authorization.request_fingerprint],
-        output_hash=output_hash,
-        result_json=result,
-        execution_attestation_json={
-            "connector_signature_verified": True,
-            "signature_algorithm": "Ed25519",
-            "raw_records_returned": False,
-            "raw_data_exported": False,
-            "execution_environment": "SUBJECT_CONNECTOR",
-            "attestation_status": "CONNECTOR_SIGNED",
-            "cross_domain_non_export_verified": True,
-            "privacy_verification": privacy_verification,
-            "authorization_id": authorization.request_id,
-            "applicant_org_id": user.org_id,
-            "provider_org_id": authorization.provider_org_id,
-            "request_item_id": request_item.request_item_id,
-            "node_code": node.get("node_code") if node else None,
-        },
-        status="SUCCEEDED",
-        progress=100,
-        privacy_guarantees_json=privacy_guarantees,
+    job = db.scalar(
+        select(PrivacyComputeJob).where(
+            PrivacyComputeJob.task_id == task.task_id,
+            PrivacyComputeJob.adapter_code
+            == f"LOCAL_SUBJECT_NODE_{authorization.provider_org_id}",
+        )
     )
-    db.add(job)
+    if job is None:
+        job = PrivacyComputeJob(
+            job_id=new_id(),
+            task_id=task.task_id,
+            algorithm_code=str((task.canonical_payload_json or {}).get("function") or ""),
+            adapter_code=f"LOCAL_SUBJECT_NODE_{authorization.provider_org_id}",
+            input_hashes_json=[
+                authorization.decision_hash or authorization.request_fingerprint
+            ],
+            output_hash=output_hash,
+            result_json={},
+            execution_attestation_json={
+                "connector_signature_verified": True,
+                "signature_algorithm": "Ed25519",
+                "raw_records_returned": False,
+                "raw_data_exported": False,
+                "execution_environment": "SUBJECT_CONNECTOR",
+                "attestation_status": "CONNECTOR_SIGNED",
+                "cross_domain_non_export_verified": True,
+                "connector_audit_event_verified": True,
+                "receipt_verification_schema": TRUSTED_QUERY_RECEIPT_SCHEMA,
+                "signing_key_fingerprint": signing_key_fingerprint,
+                "connector_audit": connector_audit,
+                "privacy_verification": privacy_verification,
+                "authorization_id": authorization.request_id,
+                "applicant_org_id": user.org_id,
+                "applicant_user_id": user.user_id,
+                "provider_org_id": authorization.provider_org_id,
+                "request_item_id": request_item.request_item_id,
+                "node_code": node.get("node_code") if node else None,
+            },
+            status="SUCCEEDED",
+            progress=100,
+            privacy_guarantees_json={
+                "execution_environment": "SUBJECT_CONNECTOR",
+                "attestation_status": "CONNECTOR_SIGNED",
+                "connector_signature_verified": True,
+                "cross_domain_non_export_verified": True,
+                "connector_audit_event_verified": True,
+                "receipt_verification_schema": TRUSTED_QUERY_RECEIPT_SCHEMA,
+                "signing_key_fingerprint": signing_key_fingerprint,
+                "connector_audit": connector_audit,
+                "raw_records_returned": False,
+                "raw_data_exported": False,
+                "privacy_verification": privacy_verification,
+            },
+        )
+        db.add(job)
+    try:
+        public_result = build_trusted_query_public_result(
+            task_id=task.task_id,
+            job_id=job.job_id,
+            request_item_id=request_item.request_item_id,
+            authorization_id=authorization.request_id,
+            canonical_payload=task.canonical_payload_json or {},
+            attempt=task.attempt,
+            asset_version_id=task.asset_version_id,
+            signed_result=signed_result,
+            connector_audit=connector_audit,
+            privacy_verification=privacy_verification,
+            receipt_schema=TRUSTED_QUERY_RECEIPT_SCHEMA,
+        )
+    except TrustedQueryProjectionError as exc:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_RESPONSE_INVALID",
+            "企业连接器返回格式无效",
+            retryable=False,
+        ) from exc
+    job.result_json = public_result
+    request_item.status = "SUCCEEDED"
+    request_item.result_json = public_result
+    request_item.result_hash = output_hash
+    request_item.failure_code = None
+    request_item.failure_detail = None
+    request_item.completed_at = utc_now()
+    request_hash = sha256_json(connector_payload)
+    receipt = db.scalar(
+        select(ExecutionReceipt).where(
+            ExecutionReceipt.request_item_id == request_item.request_item_id,
+            ExecutionReceipt.request_hash == request_hash,
+        )
+    )
+    if receipt is None:
+        db.add(
+            ExecutionReceipt(
+                receipt_id=new_id(),
+                request_item_id=request_item.request_item_id,
+                provider_org_id=authorization.provider_org_id,
+                task_id=task.task_id,
+                request_hash=request_hash,
+                result_hash=output_hash,
+                node_code=node.get("node_code") if node else "UNKNOWN",
+                node_signature=str(result.get("signature") or ""),
+                result_summary_json={
+                    "result": result_value,
+                    "unit": result.get("unit"),
+                    "record_count": record_count,
+                    "trend": trend,
+                    "raw_records_returned": False,
+                    "raw_data_exported": False,
+                    "connector_audit": connector_audit,
+                    "privacy_verification": privacy_verification,
+                    "verification_envelope": {
+                        "schema": TRUSTED_QUERY_RECEIPT_SCHEMA,
+                        "signed_result": signed_result,
+                        "signing_key_fingerprint": signing_key_fingerprint,
+                        "verifier": "ED25519_CANONICAL_JSON_V1",
+                    },
+                },
+                visible_to_orgs_json=[user.org_id, authorization.provider_org_id],
+                audit_sequence=int(connector_audit["sequence"]),
+                previous_audit_hash=str(connector_audit["previous_hash"]),
+                connector_audit_hash=str(connector_audit["audit_hash"]),
+                audit_event_verified=True,
+            )
+        )
+    elif receipt.result_hash != output_hash or any(
+        (
+            receipt.audit_sequence != connector_audit["sequence"],
+            receipt.previous_audit_hash != connector_audit["previous_hash"],
+            receipt.connector_audit_hash != connector_audit["audit_hash"],
+            receipt.audit_event_verified is not True,
+        )
+    ):
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_REPLAY_MISMATCH",
+            "企业连接器重放回执与既有结果不一致",
+            retryable=False,
+        )
     add_audit_log(
         db,
         action="CONTROLLED_QUERY_COMPLETED",
-        target_type="COMPUTE_TASK",
-        target_id=task_id,
+        target_type="TRUSTED_QUERY_TASK",
+        target_id=task.task_id,
         result="SUCCESS",
         user=user,
         details={
             "authorization_id": authorization.request_id,
-            "energy_domain": payload.energy_domain,
-            "function": payload.function,
+            "request_item_id": request_item.request_item_id,
+            "energy_domain": (task.canonical_payload_json or {}).get("energy_domain"),
+            "function": (task.canonical_payload_json or {}).get("function"),
             "result_hash": output_hash,
             "raw_records_returned": False,
             "raw_data_exported": False,
             "signature_verified": True,
             "cross_domain_non_export_verified": True,
+            "connector_audit_event_verified": True,
+            "connector_audit": connector_audit,
             "privacy_verification": privacy_verification,
-            "trust_bootstrap": "DEMO_FIRST_USE" if not expected_public_key else "PRECONFIGURED_PUBLIC_KEY",
+            "trust_bootstrap": trust_bootstrap,
         },
     )
-    request_item.status = "SUCCEEDED"
-    request_item.result_json = {
-        **result,
-        "_hiddenchain_task_id": task_id,
-        "_hiddenchain_job_id": job.job_id,
-    }
-    request_item.result_hash = output_hash
-    request_item.completed_at = utc_now()
-    db.add(
-        ExecutionReceipt(
-            receipt_id=new_id(),
-            request_item_id=request_item.request_item_id,
-            provider_org_id=authorization.provider_org_id,
-            task_id=task_id,
-            request_hash=sha256_json(connector_payload),
-            result_hash=output_hash,
-            node_code=node.get("node_code") if node else "UNKNOWN",
-            node_signature=str(result.get("signature") or ""),
-            result_summary_json={
-                "result": result.get("result"),
-                "unit": result.get("unit"),
-                "record_count": result.get("record_count"),
-                "trend": trend,
-                "raw_records_returned": False,
-                "raw_data_exported": False,
-                "privacy_verification": privacy_verification,
-            },
-            visible_to_orgs_json=[user.org_id, authorization.provider_org_id],
+    now = utc_now()
+    completed = db.execute(
+        update(TrustedQueryTask)
+        .where(
+            TrustedQueryTask.task_id == task.task_id,
+            TrustedQueryTask.status == "RUNNING",
+            TrustedQueryTask.lease_owner == lease_owner,
         )
+        .values(
+            status="SUCCEEDED",
+            result_json=public_result,
+            result_hash=output_hash,
+            failure_code=None,
+            failure_summary=None,
+            lease_owner=None,
+            lease_expires_at=None,
+            heartbeat_at=now,
+            next_attempt_at=None,
+            completed_at=now,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
     )
+    if completed.rowcount != 1:
+        db.rollback()
+        raise TrustedQueryLeaseLost(task_id)
     db.commit()
-    return {
-        "task_id": task_id,
-        "job_id": job.job_id,
-        "request_item_id": request_item.request_item_id,
-        "authorization_scope": authorization.request_id,
-        "generated_at": result.get("generated_at"),
-        "result": result.get("result"),
-        "unit": result.get("unit"),
-        "record_count": result.get("record_count"),
-        "trend": trend,
-        "resource_name": result.get("resource_name") or "未命名数据资源",
-        "function_name": result.get("function_name") or FUNCTION_LABELS[payload.function],
-        "digital_signature": "已验证",
-        "audit_recorded": True,
-        "raw_records_returned": False,
-        "capability": result.get("capability", "本地受控计算"),
-        "privacy_verification": privacy_verification,
-        "idempotent_replay": False,
-    }
+
+
+def _persist_fenced_query_task_failure(
+    db: Session,
+    *,
+    task: TrustedQueryTask,
+    expected_status: str,
+    expected_lease_owner: str | None,
+    error: TrustedQueryExecutionError,
+    expired_before: datetime | None = None,
+) -> bool:
+    now = utc_now()
+    terminal = not error.retryable or task.attempt >= task.max_attempts
+    next_attempt_at = (
+        None if terminal else now + timedelta(seconds=min(30, 2 ** task.attempt))
+    )
+    fence_conditions = [
+        TrustedQueryTask.task_id == task.task_id,
+        TrustedQueryTask.status == expected_status,
+        TrustedQueryTask.lease_owner == expected_lease_owner,
+    ]
+    if expired_before is not None:
+        fence_conditions.extend(
+            [
+                TrustedQueryTask.lease_expires_at.is_not(None),
+                TrustedQueryTask.lease_expires_at <= expired_before,
+            ]
+        )
+    fenced = db.execute(
+        update(TrustedQueryTask)
+        .where(*fence_conditions)
+        .values(
+            status="FAILED" if terminal else "PENDING_RETRY",
+            failure_code=error.code,
+            failure_summary=error.summary,
+            lease_owner=None,
+            lease_expires_at=None,
+            heartbeat_at=now,
+            next_attempt_at=next_attempt_at,
+            completed_at=now if terminal else None,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if fenced.rowcount != 1:
+        db.rollback()
+        return False
+    request_item = db.get(DataRequestItem, task.request_item_id)
+    if request_item is not None:
+        request_item.status = "FAILED" if terminal else "PENDING_RETRY"
+        request_item.failure_code = error.code
+        request_item.failure_detail = error.summary
+        request_item.completed_at = now if terminal else None
+    user = db.get(User, task.applicant_user_id)
+    add_audit_log(
+        db,
+        action="TRUSTED_QUERY_FAILED" if terminal else "TRUSTED_QUERY_RETRY_SCHEDULED",
+        target_type="TRUSTED_QUERY_TASK",
+        target_id=task.task_id,
+        result="FAILED" if terminal else "PENDING_RETRY",
+        user=user,
+        actor_name=None if user else "TRUSTED_QUERY_WORKER",
+        actor_org_id=task.applicant_org_id,
+        details={
+            "failure_code": error.code,
+            "retryable": error.retryable and not terminal,
+            "attempt": task.attempt,
+            "max_attempts": task.max_attempts,
+            "raw_data_accessed": False,
+        },
+    )
+    if terminal:
+        anomaly_dedupe = f"trusted-query-terminal-failure:{task.task_id}"
+        if not db.scalar(select(AnomalyEvent.event_id).where(AnomalyEvent.dedupe_key == anomaly_dedupe)):
+            db.add(AnomalyEvent(
+                task_id=task.task_id,
+                event_type="TRUSTED_QUERY_TERMINAL_FAILURE",
+                risk_level="HIGH",
+                title="受控查询终态失败",
+                description=error.summary,
+                evidence_json={
+                    "failure_code": error.code,
+                    "attempt": task.attempt,
+                    "max_attempts": task.max_attempts,
+                },
+                dedupe_key=anomaly_dedupe,
+            ))
+    db.commit()
+    return True
+
+
+def _record_query_task_failure(
+    db: Session,
+    *,
+    task_id: str,
+    lease_owner: str,
+    error: TrustedQueryExecutionError,
+) -> None:
+    db.rollback()
+    task = db.get(TrustedQueryTask, task_id)
+    if task is None or task.status != "RUNNING" or task.lease_owner != lease_owner:
+        return
+    _persist_fenced_query_task_failure(
+        db,
+        task=task,
+        expected_status="RUNNING",
+        expected_lease_owner=lease_owner,
+        error=error,
+    )
+
+
+def run_trusted_query_task(task_id: str) -> None:
+    lease_owner = f"trusted-query-worker-{secrets.token_hex(8)}"
+    with SessionLocal() as db:
+        task = _claim_query_task(db, task_id=task_id, lease_owner=lease_owner)
+        if task is None:
+            return
+        try:
+            _execute_claimed_query_task(
+                db,
+                task_id=task_id,
+                lease_owner=lease_owner,
+            )
+        except TrustedQueryLeaseLost:
+            db.rollback()
+        except TrustedQueryExecutionError as exc:
+            try:
+                _record_query_task_failure(
+                    db,
+                    task_id=task_id,
+                    lease_owner=lease_owner,
+                    error=exc,
+                )
+            except Exception:
+                db.rollback()
+        except Exception:
+            try:
+                _record_query_task_failure(
+                    db,
+                    task_id=task_id,
+                    lease_owner=lease_owner,
+                    error=TrustedQueryExecutionError(
+                        "INTERNAL_EXECUTION_ERROR",
+                        "可信查询执行暂时失败，任务将在稍后重试",
+                        retryable=True,
+                    ),
+                )
+            except Exception:
+                db.rollback()
+
+
+@router.get("/tasks/{task_id}")
+def get_query_task_status(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    task = _scoped_query_task(db, task_id=task_id, user=user)
+    response = _query_task_status_payload(task)
+    if _query_task_is_due(task):
+        background_tasks.add_task(run_trusted_query_task, task.task_id)
+    return response
+
+
+@router.get("/tasks/{task_id}/result")
+def get_query_task_result(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    task = _scoped_query_task(db, task_id=task_id, user=user)
+    if task.status != "SUCCEEDED":
+        if _query_task_is_due(task):
+            background_tasks.add_task(run_trusted_query_task, task.task_id)
+        raise HTTPException(
+            409,
+            {
+                "code": "TRUSTED_QUERY_NOT_SUCCEEDED",
+                "message": "可信查询任务尚未成功完成",
+                "status": task.status,
+            },
+        )
+    return dict(task.result_json or {})
 
 
 @router.get("/tasks")
@@ -1105,15 +2096,51 @@ def list_query_tasks(
         for item in candidate_jobs
         if (item.execution_attestation_json or {}).get("applicant_org_id") == user.org_id
     ][:50]
+    current_task_ids = set(
+        db.scalars(
+            select(TrustedQueryTask.task_id).where(
+                TrustedQueryTask.task_id.in_([item.task_id for item in jobs])
+            )
+        ).all()
+    ) if jobs else set()
     return {
         "items": [
             {
                 "task_id": item.task_id,
-                "status": "已完成" if item.status == "SUCCEEDED" else "处理中",
-                "resource_name": (item.result_json or {}).get("resource_name") or "未命名数据资源",
-                "function_name": (item.result_json or {}).get("function_name") or "固定函数",
+                "status": (
+                    "历史隔离（未按当前协议复验）"
+                    if item.adapter_code.startswith("ENTERPRISE_CONNECTOR_")
+                    else "历史只读"
+                    if item.task_id not in current_task_ids
+                    else "已完成" if item.status == "SUCCEEDED" else "处理中"
+                ),
+                "resource_name": (
+                    "升级前历史记录"
+                    if item.adapter_code.startswith("ENTERPRISE_CONNECTOR_")
+                    else (item.result_json or {}).get("resource_name") or "未命名数据资源"
+                ),
+                "function_name": (
+                    "已隔离"
+                    if item.adapter_code.startswith("ENTERPRISE_CONNECTOR_")
+                    else (item.result_json or {}).get("function_name") or "固定函数"
+                ),
                 "generated_at": (item.result_json or {}).get("generated_at"),
-                "signature": "已验证" if (item.execution_attestation_json or {}).get("connector_signature_verified") else "待验证",
+                "signature": (
+                    "未复验"
+                    if item.adapter_code.startswith("ENTERPRISE_CONNECTOR_")
+                    else "已验证"
+                    if (
+                        item.task_id in current_task_ids
+                        and (item.execution_attestation_json or {}).get(
+                            "receipt_verification_schema"
+                        ) == TRUSTED_QUERY_RECEIPT_SCHEMA
+                    )
+                    else "已验证（升级前协议，只读）"
+                    if (item.execution_attestation_json or {}).get(
+                        "connector_signature_verified"
+                    )
+                    else "待验证"
+                ),
             }
             for item in jobs
         ]

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { Check, FileSignature, LockKeyhole, MessageSquareText, Paperclip, RefreshCw, X } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, formatDate, prepareIdempotencyKey, shortHash, type IdempotencyKeyRecord } from "../../../api";
-import { useRemote } from "../../../hooks";
+import { useRemote, useScopedRemote } from "../../../hooks";
 import { Button, Card, CardContent, CardHeader, CardTitle, Divider, Input, RemoteState, StatusBadge, SurfaceHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea, Timeline } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { loadContract, loadContracts, postContractAction, type ContractAction, type ContractDetailPayload, type ContractListItem, type ContractListPayload } from "../trusted-space-api";
@@ -36,7 +36,7 @@ export function ContractPage() {
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const listState = searchParams.get("state") || "";
   const listRemote = useRemote<ContractListPayload | null>((signal) => contractId ? Promise.resolve(null) : loadContracts({ page, pageSize: 12, state: listState || undefined }, signal), [contractId, page, listState]);
-  const detailRemote = useRemote<ContractDetailPayload | null>((signal) => contractId ? loadContract(contractId, signal) : Promise.resolve(null), [contractId]);
+  const detailRemote = useScopedRemote<ContractDetailPayload | null>(contractId || "", (signal) => contractId ? loadContract(contractId, signal) : Promise.resolve(null));
   const detail = detailRemote.data;
   const list = listRemote.data;
   const [activeAction, setActiveAction] = useState<ContractAction>("comment");
@@ -104,6 +104,7 @@ export function ContractPage() {
   return <PageFrame title="合同协商" description={detail ? `围绕用途、处理方式、结果范围和存证口径保留合同 ${detail.contract.contract_id} 的真实协商轨迹。` : "读取真实合同与协商轨迹。"} back={routeForView("contract")} action={<Button variant="secondary" onClick={detailRemote.reload} busy={detailRemote.refreshing}><RefreshCw size={14} />刷新</Button>}>
     {detailRemote.loading && !detail && <RemoteState loading />}
     {detailRemote.error && !detail && <RemoteState error={detailRemote.error} onRetry={() => void detailRemote.reload()} />}
+    {detail && detailRemote.refreshError && <RemoteState error={detailRemote.refreshError} onRetry={() => void detailRemote.reload()} />}
     {detail && <>
       <Card className="trusted-contract-meta"><CardContent><div><small>合同编号</small><strong><code>{detail.contract.contract_id}</code></strong></div><div><small>提供方</small><strong>{orgName(detail.contract.provider)}</strong><code>{detail.agreement?.provider_did || "未配置去中心化身份标识"}</code></div><div><small>申请方</small><strong>{orgName(detail.contract.consumer)}</strong><code>{detail.agreement?.consumer_did || "未配置去中心化身份标识"}</code></div><div><small>协商状态</small><StatusBadge value={contractStatus(detail.agreement?.state || detail.contract.status)} /></div></CardContent></Card>
       <div className="trusted-contract-grid"><Card><CardHeader><SurfaceHeader title="协商时间轴" description="节点状态与时间戳来自合同事件持久化记录" action={<LockKeyhole size={16} />} /></CardHeader><CardContent>{timeline.length ? <Timeline events={timeline} /> : <RemoteState empty emptyLabel="暂无协商事件" />}</CardContent></Card><Card><CardHeader><SurfaceHeader title="合同基本信息" description="条款与数据引用只展示后端登记内容" action={<FileSignature size={16} />} /></CardHeader><CardContent><dl className="trusted-definition-list"><div><dt>用途</dt><dd>{purposeLabel(detail.contract.purpose)}</dd></div><div><dt>关联任务</dt><dd><code>{detail.contract.task_id || "未关联"}</code></dd></div><div><dt>协议状态</dt><dd>{contractStatus(detail.agreement?.state || "")}</dd></div><div><dt>协议版本</dt><dd><code>{detail.agreement?.protocol_version || "—"}</code></dd></div><div><dt>策略哈希</dt><dd><code>{shortHash(detail.contract.policy_hash || detail.agreement?.negotiated_policy_hash)}</code></dd></div><div><dt>有效期</dt><dd>{formatDate(detail.contract.valid_from)} — {formatDate(detail.contract.expires_at)}</dd></div></dl><Divider /><div className="trusted-contract-attachments">{detail.contract.data_refs.map((reference) => <div key={String(reference.asset_id)}><Paperclip size={14} /><span>资产引用 <code>{String(reference.asset_id || "—")}</code></span><Button variant="link" size="sm" disabled={!reference.asset_id} onClick={() => navigate(routeForView("asset", String(reference.asset_id)))}>查看资产</Button></div>)}{!detail.contract.data_refs.length && <span className="trusted-muted">暂无资产引用</span>}</div></CardContent></Card></div>

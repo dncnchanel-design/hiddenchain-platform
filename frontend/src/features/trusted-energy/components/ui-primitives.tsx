@@ -62,7 +62,14 @@ export function CardDescription({ className, ...props }: React.HTMLAttributes<HT
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("energy-card-content", className)} {...props} />;
+  const isTableRegion = className?.split(/\s+/).includes("trusted-table-wrap") ?? false;
+  return <div
+    {...props}
+    className={cn("energy-card-content", className)}
+    role={props.role ?? (isTableRegion ? "region" : undefined)}
+    aria-label={props["aria-label"] ?? (isTableRegion ? "数据表格" : undefined)}
+    tabIndex={props.tabIndex ?? (isTableRegion ? 0 : undefined)}
+  />;
 }
 
 const badgeVariants = cva("energy-badge", {
@@ -90,7 +97,8 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 Textarea.displayName = "TrustedTextarea";
 
 export function Select({ label, value, onChange, options, className, disabled = false }: { label?: string; value?: string; onChange?: React.ChangeEventHandler<HTMLSelectElement>; options: Array<{ value: string; label: string }>; className?: string; disabled?: boolean }) {
-  return <label className={cn("energy-select-wrap", className)}>{label && <span className="energy-field-label">{label}</span>}<span className="energy-select-shell"><select className="energy-select" value={value} onChange={onChange} disabled={disabled}>{options.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><ChevronDown size={14} aria-hidden="true" /></span></label>;
+  const accessibleName = label || options[0]?.label || "筛选条件";
+  return <label className={cn("energy-select-wrap", className)}>{label && <span className="energy-field-label">{label}</span>}<span className="energy-select-shell"><select className="energy-select" aria-label={label ? undefined : accessibleName} value={value} onChange={onChange} disabled={disabled}>{options.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><ChevronDown size={14} aria-hidden="true" /></span></label>;
 }
 
 export function FieldLabel({ children, htmlFor, hint }: { children: React.ReactNode; htmlFor?: string; hint?: string }) {
@@ -105,11 +113,12 @@ export const Table = ({ className, ...props }: React.TableHTMLAttributes<HTMLTab
 export const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => <thead className={className} {...props} />;
 export const TableBody = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => <tbody className={className} {...props} />;
 export const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => <tr className={className} {...props} />;
-export const TableHead = ({ className, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) => <th className={className} {...props} />;
+export const TableHead = ({ className, scope = "col", ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) => <th className={className} scope={scope} {...props} />;
 export const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => <td className={className} {...props} />;
 
 export function Progress({ value, label, className }: { value: number; label?: string; className?: string }) {
-  return <div className={cn("energy-progress-wrap", className)}>{label && <span className="energy-progress-label">{label}</span>}<div className="energy-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}><span style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></div></div>;
+  const normalized = Math.max(0, Math.min(100, value));
+  return <div className={cn("energy-progress-wrap", className)}>{label && <span className="energy-progress-label">{label}</span>}<div className="energy-progress" role="progressbar" aria-label={label || "完成进度"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={normalized}><span style={{ width: `${normalized}%` }} /></div></div>;
 }
 
 export const Tabs = TabsPrimitive.Root;
@@ -126,7 +135,7 @@ export const DialogClose = DialogPrimitive.Close;
 export const DialogPortal = DialogPrimitive.Portal;
 export const DialogOverlay = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Overlay>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>>(({ className, ...props }, ref) => <DialogPrimitive.Overlay ref={ref} className={cn("energy-dialog-overlay", className)} {...props} />);
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
-export const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>>(({ className, children, ...props }, ref) => <DialogPortal><DialogOverlay /><DialogPrimitive.Content ref={ref} className={cn("energy-dialog-content", className)} {...props}>{children}<DialogPrimitive.Close className="energy-dialog-close" aria-label="关闭"><X size={16} /></DialogPrimitive.Close></DialogPrimitive.Content></DialogPortal>);
+export const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>>(({ className, children, ...props }, ref) => <DialogPortal><DialogOverlay /><DialogPrimitive.Content ref={ref} className={cn("energy-dialog-content", className)} {...props}>{children}<DialogPrimitive.Close className="energy-dialog-close" aria-label="关闭"><X size={16} aria-hidden="true" /></DialogPrimitive.Close></DialogPrimitive.Content></DialogPortal>);
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
@@ -136,14 +145,14 @@ export function Sheet({ open, onOpenChange, title, side = "right", children, cla
 }
 
 export function Steps({ steps, current }: { steps: string[]; current: number }) {
-  return <ol className="energy-steps" aria-label="流程进度">{steps.map((step, index) => { const state = index < current ? "done" : index === current ? "current" : "pending"; return <li className={`energy-step energy-step-${state}`} key={step}><span className="energy-step-marker">{state === "done" ? <Check size={13} /> : index + 1}</span><span>{step}</span>{index < steps.length - 1 && <i className="energy-step-line" aria-hidden="true" />}</li>; })}</ol>;
+  return <ol className="energy-steps" aria-label="流程进度">{steps.map((step, index) => { const state = index < current ? "done" : index === current ? "current" : "pending"; return <li className={`energy-step energy-step-${state}`} aria-current={state === "current" ? "step" : undefined} key={step}><span className="energy-step-marker" aria-hidden="true">{state === "done" ? <Check size={13} /> : index + 1}</span><span>{step}</span>{index < steps.length - 1 && <i className="energy-step-line" aria-hidden="true" />}</li>; })}</ol>;
 }
 
 export function Timeline({ events }: { events: Array<{ id: string; label: string; detail: string; time: string; state: "done" | "current" | "pending" }> }) {
-  return <ol className="energy-timeline">{events.map((event) => <li key={event.id} className={`energy-timeline-item energy-timeline-${event.state}`}><span className="energy-timeline-marker">{event.state === "done" ? <Check size={12} /> : event.state === "current" ? <LoaderCircle className="energy-spin" size={12} /> : <Circle size={8} />}</span><div className="energy-timeline-copy"><strong>{event.label}</strong><span>{event.detail}</span></div><time>{event.time}</time></li>)}</ol>;
+  return <ol className="energy-timeline">{events.map((event) => <li key={event.id} className={`energy-timeline-item energy-timeline-${event.state}`}><span className="energy-timeline-marker" aria-hidden="true">{event.state === "done" ? <Check size={12} /> : event.state === "current" ? <LoaderCircle className="energy-spin" size={12} /> : <Circle size={8} />}</span><div className="energy-timeline-copy"><strong>{event.label}</strong><span>{event.detail}</span></div><time>{event.time}</time></li>)}</ol>;
 }
 
-export function SurfaceHeader({ title, action }: { title: string; description?: string; action?: React.ReactNode }) {
+export function SurfaceHeader({ title, description: _description, action }: { title: string; description?: string; action?: React.ReactNode }) {
   return <div className="energy-surface-header"><div><h2>{title}</h2></div>{action && <div className="energy-surface-header-action">{action}</div>}</div>;
 }
 
@@ -158,8 +167,8 @@ export function StatusBadge({ value }: { value: string }) {
 }
 
 export function RemoteState({ loading, error, onRetry, empty = false, emptyLabel = "暂无数据" }: { loading?: boolean; error?: string; onRetry?: () => void; empty?: boolean; emptyLabel?: string }) {
-  if (loading) return <div className="trusted-empty-state" role="status"><LoaderCircle className="energy-spin" size={20} /><span>正在加载真实数据…</span></div>;
-  if (error) return <div className="trusted-empty-state" role="alert"><X size={20} /><strong>数据加载失败</strong><span>{error}</span>{onRetry && <Button variant="secondary" onClick={onRetry}>重试</Button>}</div>;
-  if (empty) return <div className="trusted-empty-state" role="status"><Circle size={20} /><strong>{emptyLabel}</strong></div>;
+  if (loading) return <div className="trusted-empty-state" role="status" aria-live="polite"><LoaderCircle className="energy-spin" aria-hidden="true" size={20} /><span>正在加载真实数据…</span></div>;
+  if (error) return <div className="trusted-empty-state" role="alert"><X size={20} aria-hidden="true" /><strong>数据加载失败</strong><span>{error}</span>{onRetry && <Button variant="secondary" onClick={onRetry}>重试</Button>}</div>;
+  if (empty) return <div className="trusted-empty-state" role="status"><Circle size={20} aria-hidden="true" /><strong>{emptyLabel}</strong></div>;
   return null;
 }

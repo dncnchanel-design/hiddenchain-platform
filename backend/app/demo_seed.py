@@ -69,6 +69,18 @@ RESOURCE_DEFINITIONS: dict[str, list[tuple[str, str, str]]] = {
         ("price", "石油价格", "元/吨"),
     ],
 }
+DEMO_SEED_VERSION = "hiddenchain-demo-seed-v1"
+
+
+def demo_seed_content_hash(owner_org_id: str, domain: str, resource: str) -> str:
+    return sha256_json(
+        {
+            "generator_version": DEMO_SEED_VERSION,
+            "connector_id": f"local-node-{owner_org_id}",
+            "energy_domain": domain,
+            "resource_id": resource,
+        }
+    )
 
 OWNER_BY_DOMAIN = {
     "coal": "org-coal-t01",
@@ -472,17 +484,22 @@ def _seed_catalog(db: Session) -> None:
                     "chinese_name_complete": True,
                 },
             )
-            data_hash = sha256_json({"connector": owner_org_id, "domain": domain, "resource": resource, "schema": schema})
+            data_hash = demo_seed_content_hash(owner_org_id, domain, resource)
             version = DataAssetVersion(
                 version_id=version_id,
                 asset_id=asset_id,
                 version_no=1,
-                schema_version="2026.08",
+                schema_version=DEMO_SEED_VERSION,
                 schema_json=schema,
-                data_ref=f"connector://{owner_org_id}/{resource}",
+                data_ref=f"connector://local-node-{owner_org_id}/{resource}/versions/1",
                 data_hash=data_hash,
                 commitment=sha256_json({"data_hash": data_hash, "owner": owner_org_id}),
-                record_count=1460,
+                record_count=(
+                    36500
+                    if domain in {"electricity", "heat", "gas"}
+                    and resource in {"load", "supply"}
+                    else 1460
+                ),
                 effective_from=datetime(2025, 9, 1),
                 effective_until=datetime(2026, 8, 31, 23, 59, 59),
                 immutable_hash=sha256_json({"asset": asset_id, "version": 1, "data_hash": data_hash}),

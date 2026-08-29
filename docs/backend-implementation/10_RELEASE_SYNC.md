@@ -334,3 +334,40 @@ PRODUCTION_STATUS = NOT_RELEASED
 ```
 
 本条记录了 GitHub 双分支同步、Render 评审环境部署，以及线上电力/石油申请边界冒烟结果；Render 仍不代表生产发布。
+
+## 2026-08-29 全系统升级发布前基线
+
+```text
+DESIGN_STATUS = USER_APPROVED
+IMPLEMENTATION_STATUS = IN_PROGRESS
+BASELINE_BACKEND = PASS（194 full + 24 formal contract）
+BASELINE_FRONTEND = PASS（lint + typecheck + 72 tests + production build）
+BASELINE_CONNECTOR = PASS（1 test）
+BASELINE_PRODUCTION_GUARD = PASS（现有规则）
+
+NEW_BLOCKERS = central vault 1434 JSON / 236617 B；production connector config absent；Render retailer/exchange URL requires correction/verification
+RAW_DATA_ACTION = NOT_AUTHORIZED；未读取、未移动、未删除
+GITHUB_SYNC = PENDING_AFTER_ALL_GATES
+RENDER_SYNC = PENDING_AFTER_GITHUB_SAME_SHA
+PRODUCTION_STATUS = NOT_RELEASED
+```
+
+用户已授权最终同步 GitHub 与 Render，但此授权不允许上传数据库、Vault、密钥、日志、截图或原始数据。发布只能在本地全量门禁、独立审查和敏感文件扫描通过后进行。
+
+## 2026-08-29 全系统升级最终发布候选
+
+```text
+RELEASE_TARGET = CURRENT_RELEASE_COMMIT（本条记录写入时尚未创建）
+LOCAL_BACKEND = PASS（323 tests collected；frozen full suite；production guard；compileall；pip check）
+LOCAL_CONNECTOR = PASS（13 passed；compileall）
+LOCAL_FRONTEND = PASS（149 tests；ESLint；TypeScript；production/brand guards；Vite build；pnpm production audit）
+BROWSER_QA = PASS（监管方、交易中心、企业、平台运维；桌面与 390×844；无文字冲突、框外溢出、图文重叠或页面横向溢出）
+PACKAGE = PASS（302 files；source hash match；SHA256 357a8739cb4dfbfcf208752d5333fb8f3ad4e059b9bdee78f81d02dcfd1f4583）
+RAW_VAULT = UNTOUCHED_AND_EXCLUDED
+GITHUB_TARGET = main + agent/deep-brand-green；same commit；non-force
+RENDER_TARGET = 8 services；main；checksPass；same Git commit
+SYNC_STATUS = PENDING_COMMIT_AT_DOCUMENT_AUTHORING
+PRODUCTION_STATUS = NOT_RELEASED（Render 仅为公开演示/评审环境）
+```
+
+发布完成证据必须由本记录之外的外部状态给出：GitHub 两分支 SHA、目标提交全部 Actions、8 条 Render Deployment、平台 `/api/version` 与健康端点、7 个连接器 `/health`。在这些证据全部一致前不得声明三方同步完成。

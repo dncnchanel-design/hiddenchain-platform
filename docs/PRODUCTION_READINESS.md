@@ -2,7 +2,7 @@
 
 适用版本：`0.2.0`。
 
-当前总体结论：本地实现、验证、非强制推送、远端 SHA 核验、GitHub CI 与 Render review/test 在线验证均 `PASS`，正式生产验收仍为 `BLOCKED`。最终分支头为 `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f`，其中包含加固发布候选 `fa04fdc7e1d87761010fb7d2fc523d436ab54b77`；GitHub 分支与 Render `build_sha` 已核验一致。Render 服务运行在 `APP_ENV=test`，仅为 review/test，不是生产环境。
+当前总体结论：仓库提供完整本地门禁、GitHub CI 和 Render 公开 review 验收流程；正式生产验收仍为 `BLOCKED`。本文不硬编码会过期的 commit SHA，发布时必须以 `/api/version` 返回的完整 `build_sha` 为准，并确认 GitHub `main`、八个 Render 服务及本地发布提交完全一致。Render 平台运行在 `APP_ENV=demo`，仅为公开 review，不是生产环境。
 
 ## 自动门禁
 
@@ -24,13 +24,13 @@ cd ..\backend
 
 | 门禁 | 状态 | 证据 |
 | --- | --- | --- |
-| 后端构建/测试 | `PASS` | `compileall`、`pip check`；117 项 pytest 全量通过 |
-| 后端分支覆盖率 | `PASS` | coverage.py 7.15.4 + 固定随机种子全量通过，应用代码分支覆盖率 79%，高于 75% 门槛；GitHub Python 3.12 分支覆盖率任务通过 |
-| 前端 lint/typecheck/test/build | `PASS` | ESLint、TypeScript、46 项 Vitest、生产/品牌守卫及 Vite 构建通过 |
-| API 合同/黄金路径 | `PASS` | OpenAPI 0.2.0 可序列化，69 个 path；3 条显式端到端黄金路径通过 |
-| 安全/失败/越权检查 | `PASS` | TTC 绕过、Agent 越权、Vault/算法/证据篡改、Outbox 重试/死信及跨组织访问回归通过 |
-| commit/push/远程 SHA/CI | `PASS` | 非强制推送成功，远端 `ls-remote` 核验为 `9e40ac7db1c8fcbdd52eb3be72dab35436d12d6f`，与本地一致；GitHub CI 全部通过 |
-| Render 部署/健康/在线冒烟 | `PASS (review/test only)` | `https://hiddenchain-platform.onrender.com`；live/ready/version/health 均 HTTP 200，迁移 `20260820_004` READY，`build_sha=9e40ac7`；未宣称生产 |
+| 后端构建/测试 | 发布门禁 | `compileall`、`pip check` 与全量 pytest 必须通过；实际数量以本次 CI 日志为准 |
+| 后端分支覆盖率 | GitHub CI 门禁 | 固定随机种子全量运行且应用代码分支覆盖率不低于仓库阈值 |
+| 前端 lint/typecheck/test/build | 发布门禁 | ESLint、TypeScript、Vitest、生产/品牌守卫及 Vite 生产构建必须通过 |
+| API 合同/黄金路径 | 发布门禁 | OpenAPI 可序列化，显式端到端黄金路径必须通过 |
+| 安全/失败/越权检查 | 发布门禁 | TTC 绕过、Agent 越权、Vault/算法/证据篡改、Outbox 重试/死信及跨组织访问回归必须通过 |
+| commit/push/远程 SHA/CI | 发布门禁 | 只允许非强制推送；GitHub `main` 指向本地候选且同 SHA 的全部 required checks 成功 |
+| Render 部署/健康/在线冒烟 | `review only` | [公开 review 平台](https://hiddenchain-platform-review.onrender.com)；live/ready/version/health 与七个连接器 health 均成功，八服务部署 SHA 相同；未宣称生产 |
 | 生产外部基础设施 | `BLOCKED` | 需 PostgreSQL、共享限流/队列、持久对象存储、可观测性和高可用部署证据 |
 
 ## 发布前人工检查

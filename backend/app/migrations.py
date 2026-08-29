@@ -100,6 +100,7 @@ ASSISTANT_TABLE_NAMES = frozenset(
     }
 )
 NOTIFICATION_TABLE_NAMES = frozenset({"user_notifications"})
+NOTIFICATION_OUTBOX_TABLE_NAMES = frozenset({"notification_outbox"})
 REVOKED_TOKEN_TABLE_NAMES = frozenset({"revoked_access_tokens"})
 DID_LOGIN_TABLE_NAMES = frozenset({"did_login_challenges"})
 LOCAL_DATA_BOUNDARY_TABLE_NAMES = frozenset(
@@ -112,6 +113,43 @@ LOCAL_DATA_BOUNDARY_TABLE_NAMES = frozenset(
         "evidence_projections",
     }
 )
+CONNECTOR_INGESTION_TABLE_NAMES = frozenset(
+    {
+        "connector_ingestion_tickets",
+        "connector_ingestion_receipts",
+    }
+)
+TRUSTED_QUERY_TASK_TABLE_NAMES = frozenset({"trusted_query_tasks"})
+
+ANOMALY_RELIABILITY_COLUMNS: dict[str, str] = {
+    "state_version": "INTEGER NOT NULL DEFAULT 1",
+    "resolved_at": "TIMESTAMP",
+    "resolved_by_user_id": "VARCHAR(36)",
+    "disposition": "VARCHAR(24)",
+    "resolution_idempotency_key": "VARCHAR(160)",
+    "resolution_fingerprint": "VARCHAR(128)",
+    "resolution_response_json": "JSON NOT NULL DEFAULT '{}'",
+    "dedupe_key": "VARCHAR(160)",
+}
+
+EXECUTION_RECEIPT_AUDIT_COLUMNS: dict[str, str] = {
+    "audit_sequence": "INTEGER",
+    "previous_audit_hash": "VARCHAR(64)",
+    "connector_audit_hash": "VARCHAR(64)",
+    "audit_chain_verified": "BOOLEAN",
+}
+
+RELIABILITY_INDEXES: tuple[str, ...] = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_anomaly_events_dedupe ON anomaly_events (dedupe_key)",
+    "CREATE INDEX IF NOT EXISTS ix_anomaly_events_resolution_idempotency_key ON anomaly_events (resolution_idempotency_key)",
+)
+
+
+def _notification_outbox_and_anomaly_reliability(connection: Connection) -> None:
+    _create_revision_tables(connection, NOTIFICATION_OUTBOX_TABLE_NAMES)
+    _add_columns(connection, "anomaly_events", ANOMALY_RELIABILITY_COLUMNS)
+    _add_columns(connection, "execution_receipts", EXECUTION_RECEIPT_AUDIT_COLUMNS)
+    _create_indexes(connection, RELIABILITY_INDEXES)
 
 COMPUTE_CONTROL_COLUMNS: dict[str, dict[str, str]] = {
     "privacy_compute_jobs": {
@@ -440,6 +478,32 @@ def _enterprise_account_scope(connection: Connection) -> None:
     for table_name, columns in ENTERPRISE_ACCOUNT_COLUMNS.items():
         _add_columns(connection, table_name, columns)
     _create_indexes(connection, ENTERPRISE_ACCOUNT_INDEXES)
+
+
+CONNECTOR_INGESTION_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_connector_ingestion_ticket_org_status "
+    "ON connector_ingestion_tickets (org_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_connector_ingestion_receipt_org_resource "
+    "ON connector_ingestion_receipts (org_id, energy_domain, resource_id, version_no)",
+)
+
+
+def _connector_ingestion_metadata(connection: Connection) -> None:
+    _create_revision_tables(connection, CONNECTOR_INGESTION_TABLE_NAMES)
+    _create_indexes(connection, CONNECTOR_INGESTION_INDEXES)
+
+
+TRUSTED_QUERY_TASK_INDEXES: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_trusted_query_tasks_dispatch "
+    "ON trusted_query_tasks (status, next_attempt_at, lease_expires_at)",
+    "CREATE INDEX IF NOT EXISTS ix_trusted_query_tasks_owner_created "
+    "ON trusted_query_tasks (applicant_org_id, applicant_user_id, created_at)",
+)
+
+
+def _trusted_query_tasks(connection: Connection) -> None:
+    _create_revision_tables(connection, TRUSTED_QUERY_TASK_TABLE_NAMES)
+    _create_indexes(connection, TRUSTED_QUERY_TASK_INDEXES)
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -982,6 +1046,47 @@ MIGRATIONS: tuple[Migration, ...] = (
         _did_login_challenges,
         revision_schema=tuple(f"table:{name}" for name in sorted(DID_LOGIN_TABLE_NAMES)),
         checksum_helpers=(_create_revision_tables,),
+    ),
+    Migration(
+        "20260829_001",
+        "add metadata-only connector ingestion tickets and signed receipts",
+        _connector_ingestion_metadata,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(CONNECTOR_INGESTION_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in CONNECTOR_INGESTION_INDEXES),
+            "raw-upload-bytes:connector-only",
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260829_002",
+        "add durable leased trusted query tasks",
+        _trusted_query_tasks,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(TRUSTED_QUERY_TASK_TABLE_NAMES)),
+            *(f"index:{statement}" for statement in TRUSTED_QUERY_TASK_INDEXES),
+            "idempotency-scope:organization+user+operation",
+            "connector-semantics:stable-request-item-and-task-id",
+        ),
+        checksum_helpers=(_create_revision_tables, _create_indexes),
+    ),
+    Migration(
+        "20260829_003",
+        "add durable notification outbox and versioned anomaly dispositions",
+        _notification_outbox_and_anomaly_reliability,
+        revision_schema=(
+            *(f"table:{name}" for name in sorted(NOTIFICATION_OUTBOX_TABLE_NAMES)),
+            *(
+                f"column:anomaly_events.{column_name}:{definition}"
+                for column_name, definition in sorted(ANOMALY_RELIABILITY_COLUMNS.items())
+            ),
+            *(
+                f"column:execution_receipts.{column_name}:{definition}"
+                for column_name, definition in sorted(EXECUTION_RECEIPT_AUDIT_COLUMNS.items())
+            ),
+            *(f"index:{statement}" for statement in RELIABILITY_INDEXES),
+        ),
+        checksum_helpers=(_create_revision_tables, _add_columns, _create_indexes),
     ),
 )
 

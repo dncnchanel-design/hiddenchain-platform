@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import (
     AuditReport,
     ContractNegotiationEvent,
     DataUsageRequest,
+    AnomalyEvent,
+    NotificationOutbox,
     PrivacyComputeJob,
     SettlementTask,
+    TaskParticipant,
     User,
     UserNotification,
     utc_now,
 )
+from .common import add_audit_log
 
 
 class NotificationError(Exception):
@@ -56,7 +62,9 @@ def _recipient_query(
     user_ids = tuple({str(item) for item in user_ids if item})
     org_ids = tuple({str(item) for item in org_ids if item})
     role_codes = tuple({str(item) for item in role_codes if item})
-    query = select(User).where(User.status == "ACTIVE")
+    if not user_ids and not org_ids and not role_codes:
+        return []
+    query = select(User).where(User.status == "ACTIVE", User.role_code != "ADMIN")
     scopes = []
     if user_ids:
         scopes.append(User.user_id.in_(user_ids))
@@ -85,13 +93,9 @@ def publish(
     org_ids: Iterable[str] = (),
     role_codes: Iterable[str] = (),
     exclude_user_id: str | None = None,
+    task_id: str | None = None,
 ) -> int:
-    """Publish notifications after a domain transaction has committed.
-
-    The caller deliberately invokes this after its primary commit.  Any
-    notification error is swallowed and rolled back here, so an unavailable
-    inbox never invalidates an already committed business decision.
-    """
+    """Freeze final recipients into the durable outbox in the caller transaction."""
 
     recipients = _recipient_query(
         db,
@@ -101,20 +105,17 @@ def publish(
         exclude_user_id=exclude_user_id,
     )
     created = 0
-    try:
-        for recipient in recipients:
-            existing = db.scalar(
-                select(UserNotification).where(
-                    UserNotification.user_id == recipient.user_id,
-                    UserNotification.dedupe_key == dedupe_key,
-                )
-            )
-            if existing is not None:
-                continue
-            db.add(
-                UserNotification(
-                    user_id=recipient.user_id,
-                    org_id=recipient.org_id,
+    for recipient in recipients:
+        if db.scalar(select(NotificationOutbox.outbox_id).where(
+            NotificationOutbox.recipient_user_id == recipient.user_id,
+            NotificationOutbox.dedupe_key == dedupe_key,
+        )):
+            continue
+        try:
+            with db.begin_nested():
+                db.add(NotificationOutbox(
+                    recipient_user_id=recipient.user_id,
+                    recipient_org_id=recipient.org_id,
                     notification_type=notification_type,
                     title=title,
                     body=body,
@@ -122,15 +123,158 @@ def publish(
                     entity_id=entity_id,
                     severity=severity,
                     dedupe_key=dedupe_key,
+                    payload_json={"task_id": task_id or (entity_id if entity_type == "SETTLEMENT_TASK" else None)},
+                    next_attempt_at=utc_now(),
+                ))
+                db.flush()
+            created += 1
+        except IntegrityError:
+            continue
+    return created
+
+
+def _materialize_notification(db: Session, item: NotificationOutbox) -> None:
+    existing = db.scalar(select(UserNotification.notification_id).where(
+        UserNotification.user_id == item.recipient_user_id,
+        UserNotification.dedupe_key == item.dedupe_key,
+    ))
+    if existing:
+        return
+    db.add(UserNotification(
+        user_id=item.recipient_user_id,
+        org_id=item.recipient_org_id,
+        notification_type=item.notification_type,
+        title=item.title,
+        body=item.body,
+        entity_type=item.entity_type,
+        entity_id=item.entity_id,
+        severity=item.severity,
+        dedupe_key=item.dedupe_key,
+    ))
+    db.flush()
+
+
+def process_notification_outbox(db: Session, *, limit: int = 50, recipient_user_id: str | None = None) -> dict[str, int]:
+    now = utc_now()
+    query = select(NotificationOutbox.outbox_id).where(or_(
+        and_(NotificationOutbox.status.in_(("PENDING", "RETRY")), or_(NotificationOutbox.next_attempt_at.is_(None), NotificationOutbox.next_attempt_at <= now)),
+        and_(NotificationOutbox.status == "PROCESSING", NotificationOutbox.lease_expires_at <= now),
+    ))
+    if recipient_user_id:
+        query = query.where(NotificationOutbox.recipient_user_id == recipient_user_id)
+    ids = list(db.scalars(query.order_by(NotificationOutbox.created_at).limit(limit)).all())
+    delivered = retried = dead = 0
+    for outbox_id in ids:
+        lease_owner = f"notification-{uuid.uuid4().hex}"
+        claimed = db.execute(update(NotificationOutbox).where(
+            NotificationOutbox.outbox_id == outbox_id,
+            or_(
+                and_(
+                    NotificationOutbox.status.in_(("PENDING", "RETRY")),
+                    or_(
+                        NotificationOutbox.next_attempt_at.is_(None),
+                        NotificationOutbox.next_attempt_at <= now,
+                    ),
+                ),
+                and_(NotificationOutbox.status == "PROCESSING", NotificationOutbox.lease_expires_at <= now),
+            ),
+        ).values(status="PROCESSING", lease_owner=lease_owner, lease_expires_at=now + timedelta(seconds=30), attempt_count=NotificationOutbox.attempt_count + 1))
+        if claimed.rowcount != 1:
+            db.rollback()
+            continue
+        db.commit()
+        item = db.get(NotificationOutbox, outbox_id)
+        if item is None or item.lease_owner != lease_owner:
+            continue
+        try:
+            _materialize_notification(db, item)
+            completed = db.execute(
+                update(NotificationOutbox)
+                .where(
+                    NotificationOutbox.outbox_id == outbox_id,
+                    NotificationOutbox.status == "PROCESSING",
+                    NotificationOutbox.lease_owner == lease_owner,
+                )
+                .values(
+                    status="DELIVERED",
+                    delivered_at=utc_now(),
+                    next_attempt_at=None,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    last_error=None,
                 )
             )
-            created += 1
-        if created:
+            if completed.rowcount != 1:
+                db.rollback()
+                continue
             db.commit()
+            delivered += 1
+        except Exception as exc:
+            db.rollback()
+            owned = db.scalar(
+                select(NotificationOutbox).where(
+                    NotificationOutbox.outbox_id == outbox_id,
+                    NotificationOutbox.status == "PROCESSING",
+                    NotificationOutbox.lease_owner == lease_owner,
+                )
+            )
+            if owned is None:
+                continue
+            failed_at = utc_now()
+            is_dead_letter = owned.attempt_count >= owned.max_attempts
+            failure_values = {
+                "status": "DEAD_LETTER" if is_dead_letter else "RETRY",
+                "last_error": f"{type(exc).__name__}: {str(exc)}"[:255],
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "next_attempt_at": (
+                    None
+                    if is_dead_letter
+                    else failed_at + timedelta(seconds=min(60, 2 ** owned.attempt_count))
+                ),
+                "dead_lettered_at": failed_at if is_dead_letter else None,
+            }
+            failed = db.execute(
+                update(NotificationOutbox)
+                .where(
+                    NotificationOutbox.outbox_id == outbox_id,
+                    NotificationOutbox.status == "PROCESSING",
+                    NotificationOutbox.lease_owner == lease_owner,
+                )
+                .values(**failure_values)
+            )
+            if failed.rowcount != 1:
+                db.rollback()
+                continue
+            if is_dead_letter:
+                dedupe = f"notification-dead-letter:{owned.outbox_id}"
+                if not db.scalar(select(AnomalyEvent.event_id).where(AnomalyEvent.dedupe_key == dedupe)):
+                    db.add(AnomalyEvent(
+                        task_id=(owned.payload_json or {}).get("task_id"), event_type="NOTIFICATION_DEAD_LETTER",
+                        risk_level="MEDIUM", title="通知投递进入死信", description="通知物化达到最大重试次数",
+                        evidence_json={"outbox_id": owned.outbox_id, "recipient_user_id": owned.recipient_user_id}, dedupe_key=dedupe,
+                    ))
+                    add_audit_log(
+                        db,
+                        action="NOTIFICATION_OUTBOX_DEAD_LETTER",
+                        target_type="NOTIFICATION_OUTBOX",
+                        target_id=owned.outbox_id,
+                        result="DEAD_LETTER",
+                        actor_name="NOTIFICATION_OUTBOX_WORKER",
+                        details={"task_id": (owned.payload_json or {}).get("task_id")},
+                    )
+                dead += 1
+            else:
+                retried += 1
+            db.commit()
+    return {"delivered": delivered, "retry": retried, "dead_letter": dead}
+
+
+def process_notification_outbox_best_effort(db: Session, *, limit: int = 50) -> None:
+    try:
+        process_notification_outbox(db, limit=limit)
     except Exception:
         db.rollback()
-        return 0
-    return created
 
 
 def list_notifications(
@@ -142,6 +286,7 @@ def list_notifications(
     notification_type: str | None = None,
     unread_only: bool = False,
 ) -> dict[str, Any]:
+    process_notification_outbox(db, recipient_user_id=user.user_id)
     query = select(UserNotification).where(UserNotification.user_id == user.user_id)
     if notification_type:
         query = query.where(UserNotification.notification_type == notification_type)
@@ -327,6 +472,7 @@ def publish_computation_action(
         severity="WARNING" if normalized == "CANCEL" else "INFO",
         org_ids=org_ids,
         exclude_user_id=actor_user_id,
+        task_id=job.task_id,
     )
 
 
@@ -347,6 +493,7 @@ def publish_result_confirmation(
         entity_type="SETTLEMENT_RESULT",
         entity_id=result_id,
         org_ids=org_ids,
+        task_id=task_id,
     )
 
 
@@ -356,6 +503,15 @@ def publish_audit_report(
     *,
     actor_user_id: str | None = None,
 ) -> int:
+    from .audit_scope import scoped_audit_task
+
+    task = db.get(SettlementTask, report.task_id)
+    if task is None:
+        return 0
+    org_ids = {task.creator_org_id, *db.scalars(select(TaskParticipant.org_id).where(TaskParticipant.task_id == task.task_id)).all()}
+    recipient_user_ids = set(db.scalars(select(User.user_id).where(User.status == "ACTIVE", User.org_id.in_(org_ids))).all())
+    regulators = db.scalars(select(User).where(User.status == "ACTIVE", User.role_code == "REGULATOR")).all()
+    recipient_user_ids.update(user.user_id for user in regulators if scoped_audit_task(db, user, task.task_id) is not None)
     return publish(
         db,
         notification_type="AUDIT_REPORT",
@@ -364,6 +520,7 @@ def publish_audit_report(
         dedupe_key=f"audit-report:{report.report_id}:GENERATED",
         entity_type="AUDIT_REPORT",
         entity_id=report.report_id,
-        role_codes=["EXCHANGE", "REGULATOR", "ADMIN"],
+        user_ids=recipient_user_ids,
         exclude_user_id=actor_user_id,
+        task_id=report.task_id,
     )

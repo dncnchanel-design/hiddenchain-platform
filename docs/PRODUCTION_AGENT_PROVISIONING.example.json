@@ -1,0 +1,281 @@
+{
+  "schema_version": "HIDDENCHAIN_PRODUCTION_AGENT_MANIFEST_V1",
+  "grant_issuer_did": "did:hiddenchain:org:platform-operator-prod",
+  "organizations": [
+    {
+      "organization_id": "platform-operator-prod",
+      "organization_type": "PLATFORM_OPERATOR",
+      "organization_name": "Production platform operator",
+      "credit_code": "REPLACE-WITH-PRODUCTION-CREDIT-CODE",
+      "energy_domain": null,
+      "profile": {
+        "identity_source": "external"
+      },
+      "status": "ACTIVE"
+    }
+  ],
+  "grant_issuer": {
+    "did": "did:hiddenchain:org:platform-operator-prod",
+    "organization_id": "platform-operator-prod",
+    "owner_type": "ORG",
+    "credential_status": "VALID",
+    "external_public_key_fingerprint": "6484a4ae4f49bab36536b130c8470cef21b628609c1b426073f76f57121eeb08",
+    "chain_address": null,
+    "credential": {
+      "type": [
+        "VerifiableCredential",
+        "OrganizationGrantIssuerCredential"
+      ],
+      "issuer": "did:example:credential-authority-prod",
+      "credentialSubject": {
+        "id": "did:hiddenchain:org:platform-operator-prod",
+        "organizationId": "platform-operator-prod",
+        "grantAuthority": "AGENT_TOOL_GRANT"
+      },
+      "proof": {
+        "type": "DataIntegrityProof",
+        "created": "2026-08-29T08:00:00+08:00",
+        "verificationMethod": "did:example:credential-authority-prod#credential-authority-key-1",
+        "proofPurpose": "assertionMethod",
+        "proofHash": "00f4c586b51c67ad73d7e80c47f8f6d13173ebf85e6837cc9161e457b0577f06"
+      },
+      "verification": {
+        "status": "VERIFIED",
+        "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+        "verifierDid": "did:example:credential-authority-prod",
+        "verifiedAt": "2026-08-29T08:01:00+08:00",
+        "publicKeyFingerprint": "6484a4ae4f49bab36536b130c8470cef21b628609c1b426073f76f57121eeb08"
+      }
+    }
+  },
+  "agents": [
+    {
+      "agent_code": "ORCHESTRATOR",
+      "did": "did:hiddenchain:agent:orchestrator",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "7d97c4aba5f0d374f7e465dea13f9ec6ace2950e13fec5e5d68a5c61df208db3",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:orchestrator",
+          "agentCode": "ORCHESTRATOR",
+          "capabilities": [
+            "WorkflowEngine",
+            "TaskStateStore",
+            "CapabilityGateway"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "f92748e4137efb66136c561821f1b82d14326745b900889f4b131cf88d847e18"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "7d97c4aba5f0d374f7e465dea13f9ec6ace2950e13fec5e5d68a5c61df208db3"
+        }
+      }
+    },
+    {
+      "agent_code": "DATA_ACCESS",
+      "did": "did:hiddenchain:agent:data-access",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "5297acf41ce51034d75e0200017f34b52d2a802eb9c06db550832322f318a4cb",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:data-access",
+          "agentCode": "DATA_ACCESS",
+          "capabilities": [
+            "EDCAdapter",
+            "ForecastFeatureAdapter",
+            "DataCatalog",
+            "PolicyEngine"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "300cb5b2f9fa1a9cc4e6ead7b198081b2ae7a96e89500d9f37e6af144a1426e8"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "5297acf41ce51034d75e0200017f34b52d2a802eb9c06db550832322f318a4cb"
+        }
+      }
+    },
+    {
+      "agent_code": "RULE_CONTRACT",
+      "did": "did:hiddenchain:agent:rule-contract",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "71c39c3378ebe0234b45ac777a97416bd93c115d9b77e0e6a5d7c115b4d868ca",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:rule-contract",
+          "agentCode": "RULE_CONTRACT",
+          "capabilities": [
+            "RuleRAG",
+            "DSLValidator",
+            "OPAAdapter",
+            "MarketRuleEngine",
+            "SigningGate"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "b8ca7f0c456df17d764409e1cb7235d4e6bdfc98aa22f30fb064412532c7ffef"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "71c39c3378ebe0234b45ac777a97416bd93c115d9b77e0e6a5d7c115b4d868ca"
+        }
+      }
+    },
+    {
+      "agent_code": "SECURE_SETTLEMENT",
+      "did": "did:hiddenchain:agent:secure-settlement",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "0da0c877782d91156110f8fc8e2e810648c6784fa0078ab04e940055a00c6367",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:secure-settlement",
+          "agentCode": "SECURE_SETTLEMENT",
+          "capabilities": [
+            "CommitmentJoin",
+            "LocalControlledCompute",
+            "VPPResourceAdapter",
+            "DeterministicEngine"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "ee26817d63477da3d32b590faaaf06438adf7780f30bad0067da9a38f5b1218a"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "0da0c877782d91156110f8fc8e2e810648c6784fa0078ab04e940055a00c6367"
+        }
+      }
+    },
+    {
+      "agent_code": "AUDIT_RISK",
+      "did": "did:hiddenchain:agent:audit-risk",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "474854a447f3e8ec420a151ae24f0eaeadd9494d06698ff4a17efb98225f63d3",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:audit-risk",
+          "agentCode": "AUDIT_RISK",
+          "capabilities": [
+            "GridBoundaryAdapter",
+            "SecurityGate",
+            "EvidenceGraph",
+            "LocalEvidenceLedger",
+            "RiskRuleEngine"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "fd6dfa244069f66512bfdedec81973520d66360df0c0f1029bc17d72e939cf2b"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "474854a447f3e8ec420a151ae24f0eaeadd9494d06698ff4a17efb98225f63d3"
+        }
+      }
+    },
+    {
+      "agent_code": "REPORT_EXPLAIN",
+      "did": "did:hiddenchain:agent:report-explain",
+      "organization_id": "platform-operator-prod",
+      "external_public_key_fingerprint": "4aa08b6a173c800a124c72dbd232d40104cbc5ba6a154ef46a249f4de47b9926",
+      "chain_address": null,
+      "credential": {
+        "type": [
+          "VerifiableCredential",
+          "AgentCapabilityCredential"
+        ],
+        "issuer": "did:hiddenchain:org:platform-operator-prod",
+        "credentialSubject": {
+          "id": "did:hiddenchain:agent:report-explain",
+          "agentCode": "REPORT_EXPLAIN",
+          "capabilities": [
+            "ReportTemplate",
+            "CitationRAG",
+            "CredentialService"
+          ]
+        },
+        "proof": {
+          "type": "DataIntegrityProof",
+          "created": "2026-08-29T09:00:00+08:00",
+          "verificationMethod": "did:hiddenchain:org:platform-operator-prod#agent-issuer-key-1",
+          "proofPurpose": "assertionMethod",
+          "proofHash": "e4ac80b7f381608249193feeba9593b5296b7edc90412d3c87969f9728810437"
+        },
+        "verification": {
+          "status": "VERIFIED",
+          "method": "EXTERNAL_VC_PROOF_VERIFICATION_V1",
+          "verifierDid": "did:hiddenchain:org:platform-operator-prod",
+          "verifiedAt": "2026-08-29T09:01:00+08:00",
+          "publicKeyFingerprint": "4aa08b6a173c800a124c72dbd232d40104cbc5ba6a154ef46a249f4de47b9926"
+        }
+      }
+    }
+  ]
+}

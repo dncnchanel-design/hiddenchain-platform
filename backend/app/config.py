@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import base64
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,6 +42,17 @@ _load_local_env()
 
 
 VALID_APP_ENVIRONMENTS = {"development", "test", "demo", "production"}
+NON_PRODUCTION_ENVIRONMENT_NAMES = {
+    "development",
+    "test",
+    "testing",
+    "demo",
+    "staging",
+    "开发环境",
+    "测试环境",
+    "演示环境",
+    "公开演示环境",
+}
 
 
 def _app_env() -> str:
@@ -73,6 +88,48 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def parse_subject_map(raw: str) -> dict[str, str]:
+    """Parse deployment-owned organization maps with one normalization rule."""
+
+    try:
+        value = json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key).strip(): str(item).strip()
+        for key, item in value.items()
+        if str(key).strip() and str(item).strip()
+    }
+
+
+def parse_subject_public_key_rings(raw: str) -> dict[str, tuple[str, ...]]:
+    """Parse optional retired Ed25519 keys used only for historical receipts."""
+
+    try:
+        value = json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for raw_org_id, raw_keys in value.items():
+        org_id = str(raw_org_id).strip()
+        if not org_id or not isinstance(raw_keys, list):
+            continue
+        keys = tuple(
+            dict.fromkeys(
+                str(item).strip()
+                for item in raw_keys
+                if str(item).strip()
+            )
+        )
+        if keys:
+            result[org_id] = keys
+    return result
 
 
 @dataclass(frozen=True)
@@ -172,8 +229,20 @@ class Settings:
     subject_node_endpoints_json: str = os.getenv(
         "SUBJECT_NODE_ENDPOINTS_JSON", os.getenv("CONNECTOR_ENDPOINTS_JSON", "{}")
     )
+    subject_node_ids_json: str = os.getenv("SUBJECT_NODE_IDS_JSON", "{}")
     subject_node_public_keys_json: str = os.getenv(
         "SUBJECT_NODE_PUBLIC_KEYS_JSON", os.getenv("CONNECTOR_PUBLIC_KEYS_JSON", "{}")
+    )
+    # Optional retired keys keep historical signed receipts verifiable after a
+    # connector rotates its active key.  They are never used for new calls.
+    subject_node_public_key_rings_json: str = os.getenv(
+        "SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON", "{}"
+    )
+    # Browser uploads may need a public connector URL while server-to-server
+    # compute uses an internal network endpoint (for example in Docker Compose).
+    subject_node_browser_endpoints_json: str = os.getenv(
+        "SUBJECT_NODE_BROWSER_ENDPOINTS_JSON",
+        os.getenv("SUBJECT_NODE_ENDPOINTS_JSON", os.getenv("CONNECTOR_ENDPOINTS_JSON", "{}")),
     )
     connector_timeout_seconds: float = _float_env("CONNECTOR_TIMEOUT_SECONDS", 15.0)
     # Optional external evidence anchor.  The platform verifies the receipt
@@ -257,6 +326,10 @@ def validate_runtime_settings(settings_value: Settings = settings) -> None:
     errors: list[str] = []
     if settings_value.test_fixture_seed:
         errors.append("TEST_FIXTURE_SEED must be false")
+    if settings_value.demo_catalog_seed:
+        errors.append("DEMO_CATALOG_SEED must be false")
+    if settings_value.demo_business_seed:
+        errors.append("DEMO_BUSINESS_SEED must be false")
     if settings_value.test_compute_delay_ms:
         errors.append("TEST_COMPUTE_DELAY_MS must be 0")
     if settings_value.opa_local_fallback:
@@ -273,12 +346,142 @@ def validate_runtime_settings(settings_value: Settings = settings) -> None:
     if not settings_value.opa_url:
         errors.append("OPA_URL must identify the production policy service")
     if not settings_value.cors_origins or any(
-        origin == "*" or "localhost" in origin or "127.0.0.1" in origin
+        (
+            origin == "*"
+            or "localhost" in origin.casefold()
+            or "127.0.0.1" in origin
+            or (parsed_origin := urlparse(origin)).scheme != "https"
+            or not parsed_origin.netloc
+            or parsed_origin.username is not None
+            or parsed_origin.password is not None
+            or parsed_origin.path not in {"", "/"}
+            or bool(parsed_origin.params)
+            or bool(parsed_origin.query)
+            or bool(parsed_origin.fragment)
+        )
         for origin in settings_value.cors_origins
     ):
         errors.append("CORS_ORIGINS must contain only explicit production origins")
-    if settings_value.environment_name in {"开发环境", "测试环境", "演示环境"}:
+    if settings_value.environment_name.strip().casefold() in {
+        item.casefold() for item in NON_PRODUCTION_ENVIRONMENT_NAMES
+    }:
         errors.append("ENVIRONMENT_NAME cannot identify a non-production environment")
+    signing_key = settings_value.platform_signing_private_key.strip()
+    if len(signing_key) < 32 or "replace" in signing_key.lower():
+        errors.append("PLATFORM_SIGNING_PRIVATE_KEY must be a unique value of at least 32 characters")
+
+    def parse_required_map(raw: str, name: str) -> dict[str, str]:
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if not isinstance(parsed, dict) or not parsed:
+            errors.append(f"{name} must be a non-empty JSON object")
+            return {}
+        result = parse_subject_map(raw)
+        if len(result) != len(parsed):
+            errors.append(
+                f"{name} cannot contain blank or normalization-colliding organization ids or values"
+            )
+        return result
+
+    endpoints = parse_required_map(
+        settings_value.subject_node_endpoints_json,
+        "SUBJECT_NODE_ENDPOINTS_JSON",
+    )
+    connector_ids = parse_required_map(
+        settings_value.subject_node_ids_json,
+        "SUBJECT_NODE_IDS_JSON",
+    )
+    public_keys = parse_required_map(
+        settings_value.subject_node_public_keys_json,
+        "SUBJECT_NODE_PUBLIC_KEYS_JSON",
+    )
+    if endpoints:
+        invalid_endpoint = False
+        for endpoint in endpoints.values():
+            parsed = urlparse(endpoint)
+            if (
+                parsed.scheme != "https"
+                or not parsed.netloc
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                invalid_endpoint = True
+                break
+        if invalid_endpoint:
+            errors.append("SUBJECT_NODE_ENDPOINTS_JSON must contain only explicit HTTPS endpoints")
+    if public_keys:
+        invalid_public_key = False
+        for public_key in public_keys.values():
+            try:
+                decoded = base64.b64decode(public_key, validate=True)
+            except Exception:
+                decoded = b""
+            if len(decoded) != 32:
+                invalid_public_key = True
+                break
+        if invalid_public_key:
+            errors.append("SUBJECT_NODE_PUBLIC_KEYS_JSON must contain 32-byte Ed25519 public keys")
+    if connector_ids and any(
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,95}", connector_id)
+        for connector_id in connector_ids.values()
+    ):
+        errors.append("SUBJECT_NODE_IDS_JSON contains an invalid connector id")
+    if endpoints and public_keys and connector_ids and not (
+        set(endpoints) == set(public_keys) == set(connector_ids)
+    ):
+        errors.append(
+            "SUBJECT_NODE_ENDPOINTS_JSON, SUBJECT_NODE_IDS_JSON, and "
+            "SUBJECT_NODE_PUBLIC_KEYS_JSON must bind the same organizations"
+        )
+    rings_raw = settings_value.subject_node_public_key_rings_json.strip()
+    if rings_raw and rings_raw != "{}":
+        try:
+            parsed_rings = json.loads(rings_raw)
+        except (json.JSONDecodeError, TypeError):
+            parsed_rings = None
+        rings = parse_subject_public_key_rings(rings_raw)
+        if not isinstance(parsed_rings, dict) or len(rings) != len(parsed_rings):
+            errors.append(
+                "SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON must map organization ids to non-empty key lists"
+            )
+        elif public_keys and not set(rings).issubset(public_keys):
+            errors.append(
+                "SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON contains an organization without an active public key"
+            )
+        for keys in rings.values():
+            for public_key in keys:
+                try:
+                    decoded = base64.b64decode(public_key, validate=True)
+                except Exception:
+                    decoded = b""
+                if len(decoded) != 32:
+                    errors.append(
+                        "SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON must contain only 32-byte Ed25519 public keys"
+                    )
+                    break
+    browser_raw = settings_value.subject_node_browser_endpoints_json.strip()
+    if browser_raw and browser_raw != "{}":
+        browser_endpoints = parse_required_map(
+            browser_raw,
+            "SUBJECT_NODE_BROWSER_ENDPOINTS_JSON",
+        )
+        invalid_browser_endpoint = False
+        for endpoint in browser_endpoints.values():
+            parsed = urlparse(endpoint)
+            if (
+                parsed.scheme != "https"
+                or not parsed.netloc
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                invalid_browser_endpoint = True
+                break
+        if invalid_browser_endpoint:
+            errors.append("SUBJECT_NODE_BROWSER_ENDPOINTS_JSON must contain only explicit HTTPS endpoints")
+        if endpoints and set(browser_endpoints) != set(endpoints):
+            errors.append("SUBJECT_NODE_BROWSER_ENDPOINTS_JSON must bind the same organizations as SUBJECT_NODE_ENDPOINTS_JSON")
     if errors:
         raise RuntimeError("Invalid production configuration: " + "; ".join(errors))
 

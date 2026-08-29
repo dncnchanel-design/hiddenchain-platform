@@ -22,7 +22,7 @@ export function ReportsPage() {
   const [decisionBusy, setDecisionBusy] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "warning">("success");
-  const canGenerate = ["REGULATOR", "ADMIN"].includes(session!.user.role_code);
+  const canGenerate = session!.user.role_code === "REGULATOR";
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
     const [reports, tasks] = await Promise.all([api<JsonRecord[]>("/audit/reports", request), api<JsonRecord[]>("/settlement/tasks", request)]);

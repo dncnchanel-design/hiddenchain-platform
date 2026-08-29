@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invalidateApiCache } from "../../api";
-import { confirmResult, controlComputation, createAssistantSession, createUsageRequest, downloadAudit, loadAsset, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, loadAudit, loadAuditTask, loadCatalog, loadComputation, loadComputationEvents, loadComputations, loadContract, loadContracts, loadNotifications, loadResult, loadResults, loadTtc, loadTtcEvents, loadTtcList, loadTrustedContext, loadTrustedHelp, loadUsageRequests, markAllNotificationsRead, markNotificationRead, postAssistantMessage, postContractAction, runAssistantPlanAction, transitionTtc, transitionUsageRequest, verifyEvidence } from "./trusted-space-api";
+import { confirmResult, controlComputation, createAssistantSession, createUsageRequest, downloadAudit, executeTrustedQuery, issueConnectorUploadTicket, loadAsset, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, loadAudit, loadAuditTask, loadCatalog, loadComputation, loadComputationEvents, loadComputations, loadConnectorCatalog, loadConnectorReceipt, loadContract, loadContracts, loadNotifications, loadResult, loadResults, loadTrustedQueryResult, loadTrustedQueryTask, loadTtc, loadTtcEvents, loadTtcList, loadTrustedContext, loadTrustedHelp, loadUsageRequests, lookupConnectorReceipt, markAllNotificationsRead, markNotificationRead, postAssistantMessage, postContractAction, registerConnectorReceipt, runAssistantPlanAction, transitionTtc, transitionUsageRequest, uploadConnectorCsv, verifyEvidence } from "./trusted-space-api";
 import { notificationPath, quickActionPath } from "./trusted-space-ui";
 
 function stubRuntime() {
@@ -15,6 +15,235 @@ afterEach(() => {
 });
 
 describe("Trusted Space API client", () => {
+  const connectorTicket = {
+    claims: {
+      iss: "hiddenchain-platform" as const,
+      jti: "ticket-real-1",
+      subject_user_id: "user-real-1",
+      organization_id: "org-real-1",
+      connector_id: "connector-real-1",
+      energy_domain: "electricity" as const,
+      resource_id: "generation",
+      resource_name: "发电量",
+      classification: "L3" as const,
+      schema_version: "connector-csv-v1" as const,
+      file_format: "csv" as const,
+      max_bytes: 5_242_880,
+      purpose: "LOCAL_DATASET_INGEST" as const,
+      issued_at: 1_787_937_600,
+      expires_at: 1_787_937_900,
+    },
+    signature: "ticket-signature",
+    public_key: "platform-public-key",
+    algorithm: "Ed25519" as const,
+  };
+
+  const connectorReceipt = {
+    receipt_id: "receipt-real-1",
+    ticket_id: "ticket-real-1",
+    connector_id: "connector-real-1",
+    organization_id: "org-real-1",
+    energy_domain: "electricity",
+    resource_id: "generation",
+    resource_name: "发电量",
+    version: 1,
+    schema_version: "connector-csv-v1",
+    schema_hash: "a".repeat(64),
+    content_hash: "b".repeat(64),
+    record_count: 1,
+    byte_size: 80,
+    local_ref: "connector://connector-real-1/generation/versions/1",
+    audit_sequence: 1,
+    audit_hash: "c".repeat(64),
+    issued_at: "2026-08-29T00:00:00+00:00",
+    signature: "connector-signature",
+    public_key: "connector-public-key",
+    signature_algorithm: "Ed25519" as const,
+    signature_valid: true as const,
+  };
+
+  it("submits and follows the durable trusted-query task contract", async () => {
+    stubRuntime();
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const value = String(url);
+      requests.push({ url: value, init });
+      if (value.endsWith("/query/execute")) return new Response(JSON.stringify({
+        task_id: "task/real",
+        status: "QUEUED",
+        status_url: "/api/trust-space/query/tasks/task%2Freal",
+        result_url: null,
+        attempt: 0,
+        max_attempts: 3,
+        failure_code: null,
+        failure_summary: null,
+        created_at: "2026-08-29T00:00:00+00:00",
+        started_at: null,
+        completed_at: null,
+        idempotent_replay: false,
+      }), { status: 202, headers: { "Content-Type": "application/json" } });
+      if (value.endsWith("/tasks/task%2Freal/result")) return new Response(JSON.stringify({
+        task_id: "task/real",
+        authorization_scope: "auth-real",
+        generated_at: "2026-08-29T00:00:01+00:00",
+        result: 12,
+        unit: "MWh",
+        resource_name: "发电量",
+        function_name: "求和",
+        digital_signature: "已验证",
+        audit_recorded: true,
+        raw_records_returned: false,
+        capability: "本地受控计算",
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        task_id: "task/real",
+        status: "SUCCEEDED",
+        status_url: "/api/trust-space/query/tasks/task%2Freal",
+        result_url: "/api/trust-space/query/tasks/task%2Freal/result",
+        attempt: 1,
+        max_attempts: 3,
+        failure_code: null,
+        failure_summary: null,
+        created_at: "2026-08-29T00:00:00+00:00",
+        started_at: "2026-08-29T00:00:00+00:00",
+        completed_at: "2026-08-29T00:00:01+00:00",
+        idempotent_replay: false,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    const queued = await executeTrustedQuery({
+      authorization_id: "auth-real",
+      provider_org_id: "org-real",
+      energy_domain: "electricity",
+      resource: "generation",
+      function: "sum",
+      start_date: "2026-08-01",
+      end_date: "2026-08-29",
+      decimals: 2,
+      confirmation_token: "confirmation-real",
+    }, "trusted-query:key-real");
+    const status = await loadTrustedQueryTask("task/real");
+    const result = await loadTrustedQueryResult("task/real");
+
+    expect(queued.status).toBe("QUEUED");
+    expect(status.status).toBe("SUCCEEDED");
+    expect(result.result).toBe(12);
+    const executeRequest = requests.find((request) => request.url.endsWith("/query/execute"));
+    expect(executeRequest?.init?.method).toBe("POST");
+    expect(new Headers(executeRequest?.init?.headers).get("Idempotency-Key")).toBe("trusted-query:key-real");
+    expect(requests.map((request) => request.url)).toContain("/api/trust-space/query/tasks/task%2Freal");
+    expect(requests.map((request) => request.url)).toContain("/api/trust-space/query/tasks/task%2Freal/result");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      task_id: "task-invalid",
+      status: "UNKNOWN",
+      status_url: "/api/trust-space/query/tasks/task-invalid",
+      result_url: null,
+      attempt: 0,
+      max_attempts: 3,
+      failure_code: null,
+      failure_summary: null,
+      created_at: null,
+      started_at: null,
+      completed_at: null,
+      idempotent_replay: false,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(loadTrustedQueryTask("task-invalid")).rejects.toMatchObject({ status: 502, code: "TRUSTED_QUERY_TASK_INVALID" });
+  });
+
+  it("uses the authenticated central API for connector catalog, ticket and receipt registration", async () => {
+    stubRuntime();
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(url), init });
+      if (String(url).endsWith("/catalog")) return new Response(JSON.stringify({
+        connector: { connector_id: "connector-real-1", organization_id: "org-real-1", organization_name: "真实企业", energy_domain: "electricity", endpoint: "https://connector.example", status: "ACTIVE", capability_state: "LOCAL_REAL" },
+        resources: [{ resource_id: "generation", resource_name: "发电量", unit: "MWh", schema_version: "connector-csv-v1", required_columns: ["record_date", "value"], optional_columns: ["region", "organization", "unit"], current_version: null, record_count: null, status: "NOT_REGISTERED" }],
+        upload_contract: { mode: "BROWSER_TO_SUBJECT_CONNECTOR", file_format: "csv", max_bytes: 5_242_880, ticket_lifetime_seconds: 300 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (String(url).endsWith("/tickets")) return new Response(JSON.stringify({ ticket: connectorTicket, upload_url: "https://connector.example/ingest", receipt_lookup_url: "https://connector.example/ingest/receipts/lookup", connector: { connector_id: "connector-real-1", organization_id: "org-real-1", energy_domain: "electricity" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      if (String(url).endsWith("/receipts/ticket-real-1")) return new Response(JSON.stringify({ ticket_id: "ticket-real-1", status: "PENDING", receipt_id: null, raw_data_centrally_stored: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ receipt_id: "receipt-real-1", ticket_id: "ticket-real-1", status: "VERIFIED", raw_data_centrally_stored: false }), { status: 201, headers: { "Content-Type": "application/json" } });
+    }));
+
+    await loadConnectorCatalog();
+    await issueConnectorUploadTicket("generation", "L3");
+    await registerConnectorReceipt(connectorReceipt);
+    await loadConnectorReceipt("ticket-real-1");
+
+    expect(requests.map((item) => item.url)).toEqual([
+      expect.stringContaining("/api/trust-space/connectors/catalog"),
+      expect.stringContaining("/api/trust-space/connectors/tickets"),
+      expect.stringContaining("/api/trust-space/connectors/receipts"),
+      expect.stringContaining("/api/trust-space/connectors/receipts/ticket-real-1"),
+    ]);
+    expect(JSON.parse(String(requests[1].init?.body))).toEqual({ resource_id: "generation", classification: "L3" });
+    expect(JSON.parse(String(requests[2].init?.body))).toEqual(connectorReceipt);
+    expect(new Headers(requests[1].init?.headers).get("Authorization")).toBe("Bearer test-token");
+  });
+
+  it("posts CSV directly to the issued connector URL without platform authorization headers", async () => {
+    stubRuntime();
+    let requestedUrl = "";
+    let requestInit: RequestInit | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      requestedUrl = String(url);
+      requestInit = init;
+      return new Response(JSON.stringify(connectorReceipt), { status: 201, headers: { "Content-Type": "application/json" } });
+    }));
+
+    const file = new File(["record_date,value\n2026-08-29,10\n"], "generation.csv", { type: "text/csv" });
+    await expect(uploadConnectorCsv("https://connector.example/ingest", connectorTicket, file)).resolves.toEqual(connectorReceipt);
+
+    const headers = new Headers(requestInit?.headers);
+    const form = requestInit?.body as FormData;
+    expect(requestedUrl).toBe("https://connector.example/ingest");
+    expect(requestedUrl).not.toContain("/api/");
+    expect(requestInit?.method).toBe("POST");
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.has("Content-Type")).toBe(false);
+    expect(form.get("ticket")).toBe(JSON.stringify(connectorTicket));
+    expect(form.get("file")).toBe(file);
+  });
+
+  it("looks up a connector receipt directly with only the signed ticket JSON", async () => {
+    stubRuntime();
+    let requestedUrl = "";
+    let requestInit: RequestInit | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      requestedUrl = String(url);
+      requestInit = init;
+      return new Response(JSON.stringify(connectorReceipt), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    await expect(lookupConnectorReceipt("https://connector.example/ingest/receipts/lookup", connectorTicket)).resolves.toEqual(connectorReceipt);
+
+    const headers = new Headers(requestInit?.headers);
+    expect(requestedUrl).toBe("https://connector.example/ingest/receipts/lookup");
+    expect(requestInit?.method).toBe("POST");
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.has("Authorization")).toBe(false);
+    expect(requestInit?.body).toBe(JSON.stringify(connectorTicket));
+  });
+
+  it("maps connector validation and transport failures to safe Chinese messages", async () => {
+    stubRuntime();
+    const file = new File(["invalid"], "invalid.csv", { type: "text/csv" });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "SQL SELECT secret_token FROM internal_table" }), { status: 422, headers: { "Content-Type": "application/json" } })));
+    await expect(uploadConnectorCsv("https://connector.example/ingest", connectorTicket, file)).rejects.toMatchObject({
+      status: 422,
+      code: "CONNECTOR_VALIDATION",
+      message: "CSV 未通过企业连接器校验，请核对列名、格式和数据内容",
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch: secret internal endpoint"); }));
+    await expect(uploadConnectorCsv("https://connector.example/ingest", connectorTicket, file)).rejects.toMatchObject({
+      status: 503,
+      code: "CONNECTOR_NETWORK_OR_CORS",
+      message: "浏览器无法直连企业连接器，请确认连接器在线且已允许当前站点跨域访问",
+    });
+  });
+
   it("serializes catalog filters and pagination for the server-side read model", async () => {
     stubRuntime();
     let requestedUrl = "";
@@ -241,11 +470,12 @@ describe("Trusted Space API client", () => {
       return new Response(JSON.stringify({ items: [{ result_id: "result-real", task_id: "task-real", result_hash: "hash-real", confirm_status: "UNCONFIRMED" }], total: 1, page: 2, page_size: 20, empty_state: false }), { status: 200 });
     }));
 
-    const list = await loadResults({ page: 2, pageSize: 20 });
+    const list = await loadResults({ page: 2, pageSize: 20, taskId: "task/real" });
     const detail = await loadResult("result-real");
     const verified = await verifyEvidence("ev-real");
     const command = await confirmResult("result-real", { decision: "APPROVE", opinion: "核对通过" }, { ifMatch: '"3"', idempotencyKey: "result-confirm:1" });
     expect(list.items[0].result_id).toBe("result-real");
+    expect(requests[0].url).toContain("task_id=task%2Freal");
     expect(detail.result.result_hash).toBe("hash-real");
     expect(detail.evidence[0].tx_hash).toBeNull();
     expect(verified.matched).toBe(true);
@@ -265,8 +495,8 @@ describe("Trusted Space API client", () => {
       urls.push(value);
       if (value.includes("/audit/export?format=json")) return new Response('{"items":[]}', { status: 200, headers: { "Content-Type": "application/json", "Content-Disposition": "attachment; filename=audit-records.json" } });
       if (value.includes("/audit/export?format=csv")) return new Response("record_type,record_id\n", { status: 200, headers: { "Content-Type": "text/csv", "Content-Disposition": "attachment; filename=audit-records.csv" } });
-      if (value.includes("/audit/tasks/task-real")) return new Response(JSON.stringify({ task: { task_id: "task-real", ttc_state: "ARCHIVED" }, audit_chain: [], transitions: [], reports: [], evidence: [], allowed_actions: ["view", "export_json", "export_csv"] }), { status: 200 });
-      if (value.includes("/audit?")) return new Response(JSON.stringify({ items: [{ record_type: "AUDIT_REPORT", record_id: "report-real", details: { task_id: "task-real" } }], reports: [], total: 1, page: 2, page_size: 50 }), { status: 200 });
+      if (value.includes("/audit/tasks/task-real")) return new Response(JSON.stringify({ task: { task_id: "task-real", ttc_state: "ARCHIVED" }, audit_chain: [], transitions: [], reports: [], evidence: [{ evidence_id: "evidence-real", verification_status: "MATCHED" }], execution_receipts: [{ receipt_id: "receipt-real", status: "CONFIRMED" }], allowed_actions: ["view", "export_json", "export_csv"] }), { status: 200 });
+      if (value.includes("/audit?")) return new Response(JSON.stringify({ items: [{ record_type: "AUDIT_REPORT", record_id: "report-real", details: { task_id: "task-real" } }], reports: [], total: 1, page: 2, page_size: 50, empty_state: false }), { status: 200 });
       return new Response(JSON.stringify({ detail: "无权导出" }), { status: 403 });
     }));
 
@@ -276,6 +506,8 @@ describe("Trusted Space API client", () => {
     const csv = await downloadAudit("csv");
     expect(list.items[0].record_id).toBe("report-real");
     expect(detail.task.task_id).toBe("task-real");
+    expect(detail.evidence[0].verification_status).toBe("MATCHED");
+    expect(detail.execution_receipts[0].receipt_id).toBe("receipt-real");
     expect(await json.blob.text()).toContain("items");
     expect(json.filename).toBe("audit-records.json");
     expect(csv.filename).toBe("audit-records.csv");

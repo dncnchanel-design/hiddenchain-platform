@@ -88,11 +88,17 @@ def _permission_is_current(permission: AgentPermission) -> bool:
     )
 
 
-def ensure_agent_tool_catalog(db: Session) -> dict[str, int]:
+def ensure_agent_tool_catalog(
+    db: Session,
+    *,
+    grant_issuer_did: str | None,
+) -> dict[str, int]:
     """Idempotently register controlled Tools and least-privilege grants.
 
-    The catalog never creates identities.  Production Agent DIDs must be
-    provisioned through the identity lifecycle before a permission is emitted.
+    The catalog never creates identities.  Passing ``None`` only registers
+    Tool definitions, so production startup cannot mint permissions.  A grant
+    issuer must be supplied by an explicit provisioning workflow before any
+    permission is emitted.
     """
 
     definitions = {item["code"]: item for item in AGENT_DEFINITIONS}
@@ -135,6 +141,8 @@ def ensure_agent_tool_catalog(db: Session) -> dict[str, int]:
                     changed = True
             if changed:
                 tools_updated += 1
+        if grant_issuer_did is None:
+            continue
         for agent_code in binding["agents"]:
             definition = definitions[agent_code]
             identity = db.get(DidIdentity, definition["did"])
@@ -149,7 +157,12 @@ def ensure_agent_tool_catalog(db: Session) -> dict[str, int]:
                 )
                 .order_by(AgentPermission.created_at.desc())
             ).all()
-            if any(_permission_is_current(item) for item in existing_permissions):
+            if any(
+                _permission_is_current(item)
+                and item.agent_role == agent_code
+                and item.granted_by_did == grant_issuer_did
+                for item in existing_permissions
+            ):
                 continue
             db.add(
                 AgentPermission(
@@ -159,7 +172,7 @@ def ensure_agent_tool_catalog(db: Session) -> dict[str, int]:
                     operations_json=["INVOKE"],
                     scope_json={"allow_all_tasks": True},
                     status="ACTIVE",
-                    granted_by_did="did:hiddenchain:org:org-exchange-t01",
+                    granted_by_did=grant_issuer_did,
                     grant_reason="Repository-controlled least-privilege workflow binding",
                 )
             )
@@ -172,7 +185,11 @@ def ensure_agent_tool_catalog(db: Session) -> dict[str, int]:
     }
 
 
-def agent_tool_catalog_readiness(db: Session) -> dict[str, Any]:
+def agent_tool_catalog_readiness(
+    db: Session,
+    *,
+    grant_issuer_did: str | None = None,
+) -> dict[str, Any]:
     """Verify that every required Agent DID, Tool and grant is executable."""
 
     definitions = {item["code"]: item for item in AGENT_DEFINITIONS}
@@ -221,9 +238,36 @@ def agent_tool_catalog_readiness(db: Session) -> dict[str, Any]:
                     continue
             if tool is None:
                 continue
+            credential_issuer = str((identity.credential_json or {}).get("issuer") or "")
+            if grant_issuer_did is not None and credential_issuer != grant_issuer_did:
+                issues.append(f"AGENT_CREDENTIAL_ISSUER_MISMATCH:{agent_code}")
+                continue
+            expected_issuer = grant_issuer_did or credential_issuer or None
+            if expected_issuer is not None:
+                issuer_identity = identities.get(expected_issuer)
+                issuer_organization = (
+                    organizations.get(issuer_identity.org_id)
+                    if issuer_identity is not None and issuer_identity.org_id
+                    else None
+                )
+                if (
+                    issuer_identity is None
+                    or issuer_identity.owner_type != "ORG"
+                    or issuer_identity.owner_id != issuer_identity.org_id
+                    or issuer_identity.credential_status != "VALID"
+                    or issuer_organization is None
+                    or issuer_organization.status != "ACTIVE"
+                ):
+                    issues.append(f"AGENT_GRANT_ISSUER_INVALID:{agent_code}")
+                    continue
             valid_grant = any(
                 permission.agent_did == did
                 and permission.tool_id == tool.tool_id
+                and permission.agent_role == agent_code
+                and (
+                    expected_issuer is None
+                    or permission.granted_by_did == expected_issuer
+                )
                 and _permission_is_current(permission)
                 for permission in permissions
             )

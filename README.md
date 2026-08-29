@@ -32,11 +32,12 @@
 | --- | --- | --- | --- | --- |
 | `development` | 本地开发 | 允许 | 允许 | 否 |
 | `test` | 自动化与验收 | 允许 | 允许 | 否 |
+| `demo` | 公开演示与评审 | 仅合成演示目录/业务账户 | 允许 | 否 |
 | `production` | 正式部署 | 禁止 | 禁止 | 是 |
 
 生产启动会校验密钥、CORS、OPA、环境标签和数据库内容；发现测试账户、测试任务或历史模拟适配器记录时拒绝启动，不会自动删除数据。
 
-`render.yaml` 固定使用 Render Free、`APP_ENV=test`、SQLite、测试夹具和 OPA 本地回退，仅用于 review/test，不得称为生产环境。
+`render.yaml` 固定使用 Render Free、`APP_ENV=demo`、SQLite、合成演示目录/业务数据和 OPA 本地回退，仅用于公开演示与评审，不得称为生产环境。
 
 ## 本地测试
 
@@ -66,12 +67,24 @@ docker compose --env-file .env.production -f docker-compose.production.yml up -d
 
 后端镜像构建会运行 `backend/scripts/check_production.py`，前端镜像构建会运行 `pnpm check:production`。任一生产边界被破坏即构建失败。完整步骤见 [生产部署](docs/PRODUCTION_DEPLOYMENT.md) 与 [生产就绪检查](docs/PRODUCTION_READINESS.md)。
 
+## Windows 安装包
+
+Windows 用户请使用 Docker Desktop 的 WSL 2 engine，并运行：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-windows.ps1 -Mode Demo
+```
+
+这会构建并启动本地合成数据演示。Windows 生产参考部署、Caddy/Cloudflare profile、停止命令和故障排查见 [Windows 部署手册](docs/WINDOWS_DEPLOYMENT.md)；源码模块说明见 [源代码导读](docs/SOURCE_CODE_GUIDE.md)。
+
 ## 主要目录
 
 ```text
 backend/app/              FastAPI、RBAC、工作流与本地适配器
 backend/app/migrations.py 版本化、校验和就绪状态迁移账本
 backend/tests/            核心闭环、权限和生产门禁测试
+connector/app/            各能源主体本地连接器服务
 frontend/src/             React 业务与管理界面
 policy/                   OPA 策略包
 demo-data/                仅 development/test 的历史验收样例
@@ -89,3 +102,5 @@ docs/                     产品、权限、环境、部署与审计文档
 - [可信执行说明](docs/TRUSTED_EXECUTION.md)
 - [可信执行运维手册](docs/TRUSTED_EXECUTION_RUNBOOK.md)
 - [生产就绪检查](docs/PRODUCTION_READINESS.md)
+- [源代码导读](docs/SOURCE_CODE_GUIDE.md)
+- [Windows 部署手册](docs/WINDOWS_DEPLOYMENT.md)

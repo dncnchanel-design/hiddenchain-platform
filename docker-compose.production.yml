@@ -25,6 +25,8 @@ services:
       SIGNING_SECRET: ${SIGNING_SECRET:?Set SIGNING_SECRET in .env.production}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set the public HTTPS origin in .env.production}
       TEST_FIXTURE_SEED: "false"
+      DEMO_CATALOG_SEED: "false"
+      DEMO_BUSINESS_SEED: "false"
       TEST_COMPUTE_DELAY_MS: "0"
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:-memory://}
@@ -35,6 +37,8 @@ services:
       PRODUCT_LOGO: ${PRODUCT_LOGO:-}
       PRODUCT_LOGO_COMPACT: ${PRODUCT_LOGO_COMPACT:-}
       PRODUCT_FAVICON: ${PRODUCT_FAVICON:-}
+      BRAND_THEME_ID: ${BRAND_THEME_ID:-trusted-space-navy}
+      BRAND_PRIMARY: "${BRAND_PRIMARY:-#1768A0}"
       CUSTOMER_NAME: ${CUSTOMER_NAME:-}
       OPERATOR_NAME: ${OPERATOR_NAME:-}
       BUILDER_NAME: ${BUILDER_NAME:-}
@@ -44,6 +48,7 @@ services:
       SUPPORT_CONTACT: ${SUPPORT_CONTACT:-}
       ENVIRONMENT_NAME: ${ENVIRONMENT_NAME:-}
       LOGIN_NOTICE: ${LOGIN_NOTICE:-}
+      DID_WALLET_BINDINGS_JSON: "${DID_WALLET_BINDINGS_JSON:-{}}"
       OPA_URL: ${OPA_URL:-http://opa:8181}
       OPA_POLICY_PATH: ${OPA_POLICY_PATH:-/v1/data/hiddenchain/decision}
       OPA_TIMEOUT_SECONDS: ${OPA_TIMEOUT_SECONDS:-1.0}
@@ -74,6 +79,13 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
       DEEPSEEK_TIMEOUT_SECONDS: ${DEEPSEEK_TIMEOUT_SECONDS:-20}
       DEEPSEEK_MAX_TOKENS: ${DEEPSEEK_MAX_TOKENS:-800}
+      PLATFORM_SIGNING_PRIVATE_KEY: ${PLATFORM_SIGNING_PRIVATE_KEY:?Set the platform Ed25519 private key in .env.production}
+      SUBJECT_NODE_ENDPOINTS_JSON: ${SUBJECT_NODE_ENDPOINTS_JSON:?Set the organization-to-connector endpoint map in .env.production}
+      SUBJECT_NODE_BROWSER_ENDPOINTS_JSON: ${SUBJECT_NODE_BROWSER_ENDPOINTS_JSON:?Set the public organization-to-connector endpoint map in .env.production}
+      SUBJECT_NODE_IDS_JSON: ${SUBJECT_NODE_IDS_JSON:?Set the organization-to-connector id map in .env.production}
+      SUBJECT_NODE_PUBLIC_KEYS_JSON: ${SUBJECT_NODE_PUBLIC_KEYS_JSON:?Set the organization-to-connector public-key map in .env.production}
+      SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON: "${SUBJECT_NODE_PUBLIC_KEY_RINGS_JSON:-{}}"
+      CONNECTOR_TIMEOUT_SECONDS: ${CONNECTOR_TIMEOUT_SECONDS:-15}
     volumes:
       - hiddenchain-runtime:/app/runtime
     healthcheck:
@@ -96,7 +108,7 @@ services:
     image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
     restart: unless-stopped
     profiles: ["cloudflare"]
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env.production}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       - frontend
 
@@ -105,7 +117,7 @@ services:
     restart: unless-stopped
     profiles: ["direct-domain"]
     environment:
-      DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+      DOMAIN: ${PUBLIC_DOMAIN:-}
     ports:
       - "80:80"
       - "443:443"

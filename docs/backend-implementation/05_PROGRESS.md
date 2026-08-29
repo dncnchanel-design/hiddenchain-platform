@@ -1,5 +1,27 @@
 # Progress Ledger
 
+## Current comprehensive system upgrade release candidate — 2026-08-29
+
+### Completed in this batch
+
+- Closed frontend/backend gaps across all role menus: business actions now use authenticated persisted APIs, organization-scoped pagination and explicit loading, empty, retry and failure states; removed raw-data central upload behavior and kept connector ingestion metadata-only.
+- Hardened trusted-query execution with exact asset-version binding, Ed25519 key fingerprints and rotation rings, durable audit pointers, V2 restart verification, read-only legacy compatibility, immutable signed display labels and fail-closed public-result projection.
+- Added production-safe Agent provisioning from a strict external manifest. A blank production database can create the exact organizations, verified issuer DID, six Agent DIDs and grants atomically; normal production startup creates neither identities nor grants.
+- Hardened settlement retry history, database/outbox concurrency, authorization scope, runtime configuration, Compose profiles, Windows packaging and the eight-service Render review blueprint.
+- Completed desktop and 390×844 role-by-role browser QA. No text collision, box overflow, icon/text overlap or page-level horizontal overflow remained in the reviewed routes.
+
+### Verification evidence
+
+- Backend: 323 tests collected and the frozen full suite passed; production readiness, release hygiene, Agent provisioning, compileall, dependency consistency and production guard passed.
+- Connector: 13 tests and compileall passed; health now reports the deployed build SHA and `raw_data_centrally_stored=false`.
+- Frontend: 21 test files / 149 tests, ESLint, TypeScript, production and brand guards, Vite production build and production dependency audit passed.
+- Release configuration: PowerShell 7 and Windows PowerShell 5.1 parsing, production Compose rendering, Render eight-service validation, `git diff --check` and three independent P0/P1 reviews passed.
+
+### Release boundary
+
+- The release target is one non-force commit shared by GitHub `main`, `agent/deep-brand-green` and all eight Render review services. External convergence is recorded only after GitHub Actions and every live build SHA agree.
+- Render remains a public demo/review environment with ephemeral SQLite and synthetic data. It is not a production deployment. Historical local Vault data was not read, moved, deleted or included in Git/Docker/Windows artifacts.
+
 ## Current privacy-proof and evidence-anchor batch — 2026-08-26
 
 ### Completed in this batch
@@ -361,3 +383,41 @@
 - 申请批准后仍须通过提供方授权、数据承诺和受控使用门禁，结算工作流继续沿用这些审批与用量控制边界。
 - 本地验证通过：后端全量 pytest、前端 TypeScript、72 项前端测试和 Vite 生产构建；仅出现既有构建 chunk 体积提示。
 - 发布同步：GitHub `main` 与 `agent/deep-brand-green` 已同步，Render `hiddenchain-platform-review` 已完成评审环境部署并通过线上规则冒烟；未追踪的本地截图、数据库、运行时和缓存文件均未纳入范围。
+
+## 2026-08-29 全系统契约驱动升级
+
+### 已确认设计与计划
+
+- 用户已批准 `docs/superpowers/specs/2026-08-29-comprehensive-system-upgrade-design.md`，并授权全部门禁通过后同步 GitHub 与 Render 同一提交。
+- 实施计划位于 `docs/superpowers/plans/2026-08-29-comprehensive-system-upgrade-implementation-plan.md`；可信空间七模块为唯一业务主入口，原始文件改为企业连接器直传，生产严格 fail-closed。
+
+### 阶段 0 基线
+
+- 后端全量：194 passed；正式业务契约组：24 passed；现有 production guard：PASS。
+- 前端：ESLint、TypeScript、72 tests、production build 全部通过；`TrustedSpaceShell` gzip 453.92 KiB，超过 250 KiB 新预算。
+- 连接器：1 passed；development/production compose 语法与完全插值配置通过。
+- 当前生产数据库门禁正确阻断 13 个夹具组织与 5 个默认测试账户。
+- 只读清点发现中央 `backend/runtime/vault` 有 1,434 个 JSON（236,617 B）；未读取、移动或删除。生产读取已阻断，但启动门禁尚未检查存量文件，列为发布阻断项。
+- `docker-compose.production.yml` 尚无主体连接器签名配置；Render retailer/exchange URL 与服务名静态不一致，列入阶段 1。
+
+### 当前阶段
+
+- 正在执行阶段 1：生产路由拆分、秘密与构建上下文保护、连接器生产配置和前端首轮拆包/错误恢复。
+- 发布尚未开始；GitHub、Render 和本地仍不得声称已同步本轮升级。
+
+## 2026-08-29 全系统升级最终候选验收
+
+### 已完成
+
+- 七个可信空间业务模块、平台运维隔离、主体连接器接入、持久化可信查询、审计/通知 Outbox、数据库分页与权限范围已完成并通过回归；公开平台继续只保存元数据、授权、受控结果与审计证据。
+- 前端 14 个可信业务路由已按页懒加载；模块加载超时可恢复，旧路由保留查询串与锚点，中文长文本、输入法、错误态、移动触控和 390px 结算步骤导航均完成修复。
+- 本地最终验证通过：后端 270 passed、1 optional dependency skip；连接器 13 passed；前端 ESLint、TypeScript、149 tests、生产/品牌守卫和 Vite production build 全部通过，可信路由静态预算最高 136.0 KiB。
+- 真实浏览器已覆盖监管方、交易中心、企业与平台运维主要页面，并完成桌面和 390×844 窄屏的文字溢出、遮挡、横向滚动、44px 触控目标和权限拒绝检查。
+- Windows `v0.2.0` 发布包已重新生成；285 个文件与源码逐项哈希一致，数据库及 sidecar、Vault、运行目录、环境文件、密钥、日志、截图和旧构建均未进入 ZIP；SHA256 为 `c3b083ad745d985cf0af13f2c45846ca803cf8a481f029388f7e5267a4bfff16`。
+- `render.yaml` 已固定 8 个服务使用 `main` 与 `checksPass`；售电企业和交易中心端点使用已部署的真实短域名，不再从 Blueprint 服务名错误推导子域。
+
+### 发布边界
+
+- 历史中央 Vault 保持原位且未读取、移动或删除；Git、Docker 与发布包均明确排除该目录及所有运行数据库。
+- 本条记录生成时发布提交尚未创建；目标是让本地候选、GitHub `main`/`agent/deep-brand-green` 与 Render 8 个评审服务收敛到同一后续提交。
+- Render 仍是公开演示/评审环境，不能作为正式生产基础设施、外部 TEE、跨域 MPC 或区块链共识已部署的证明。

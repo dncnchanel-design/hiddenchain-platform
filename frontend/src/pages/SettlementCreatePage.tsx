@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, RotateCcw, Save, UsersRound } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, post, prepareIdempotencyKey, type ApiResponseMetadata, type IdempotencyKeyRecord } from "../api";
@@ -15,6 +15,8 @@ const steps = [
   { code: "RULE", label: "规则与计算" },
   { code: "REVIEW", label: "提交复核" },
 ] as const;
+
+const EMPTY_ENTRIES: JsonRecord[] = [];
 
 export function SettlementCreatePage() {
   const navigate = useNavigate();
@@ -46,27 +48,26 @@ export function SettlementCreatePage() {
   const activeRules = data?.rules.filter((item) => item.status === "ACTIVE") || [];
   const generators = data?.organizations.filter((item) => item.org_type === "GENERATOR") || [];
   const retailers = data?.organizations.filter((item) => item.org_type === "RETAILER") || [];
-  const entries = data?.catalog.entries || [];
+  const rawEntries = data?.catalog.entries;
+  const entries: JsonRecord[] = Array.isArray(rawEntries) ? rawEntries : EMPTY_ENTRIES;
   const selectedGeneratorId = generatorId || (isReadyTemplate ? generators[0]?.org_id || "" : "");
   const selectedRetailerId = retailerId || (isReadyTemplate ? retailers[0]?.org_id || "" : "");
   const selectedRuleId = ruleId || (isReadyTemplate ? activeRules[0]?.rule_id || "" : "");
   const selectedRule = activeRules.find((item) => item.rule_id === selectedRuleId);
   const generator = generators.find((item) => item.org_id === selectedGeneratorId);
   const retailer = retailers.find((item) => item.org_id === selectedRetailerId);
-  const generationData = entries.find((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.owner_org_id === selectedGeneratorId && item.trade_batch_no === batch);
-  const retailData = entries.find((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.owner_org_id === selectedRetailerId && item.trade_batch_no === batch);
-  useEffect(() => {
-    if (!isReadyTemplate || batch) return;
-    const readyBatch = entries
-      .map((item: JsonRecord) => String(item.trade_batch_no || ""))
-      .filter(Boolean)
-      .find((candidate: string) => {
-        const candidateEntries = entries.filter((item: JsonRecord) => item.trade_batch_no === candidate);
-        return candidateEntries.some((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.commitment_confirmed)
-          && candidateEntries.some((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.commitment_confirmed);
-      });
-    if (readyBatch) setBatch(readyBatch);
-  }, [batch, entries, isReadyTemplate]);
+  const readyBatch = useMemo(() => {
+    if (!isReadyTemplate) return "";
+    const candidateBatches: string[] = Array.from(new Set(entries.map((item: JsonRecord) => String(item.trade_batch_no || "")).filter(Boolean)));
+    return candidateBatches.find((candidate) => {
+      const candidateEntries = entries.filter((item: JsonRecord) => item.trade_batch_no === candidate);
+      return candidateEntries.some((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.commitment_confirmed)
+        && candidateEntries.some((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.commitment_confirmed);
+    }) || "";
+  }, [entries, isReadyTemplate]);
+  const effectiveBatch = batch || readyBatch;
+  const generationData = entries.find((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.owner_org_id === selectedGeneratorId && item.trade_batch_no === effectiveBatch);
+  const retailData = entries.find((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.owner_org_id === selectedRetailerId && item.trade_batch_no === effectiveBatch);
   const preflightBlockers: string[] = [];
   if (!generationData) preflightBlockers.push("发电企业尚未登记当前批次的已校验计量数据");
   else if (!generationData.commitment_confirmed) preflightBlockers.push("发电企业尚未确认数据承诺");
@@ -77,7 +78,7 @@ export function SettlementCreatePage() {
   if (loading) return <LoadingState label="正在准备结算任务" variant="page" />;
   if (loadError || !data) return <ErrorState message={loadError || "创建页加载失败"} retry={reload} />;
 
-  const basicReady = taskName.trim().length >= 2 && batch.trim().length >= 3 && Boolean(periodStart && periodEnd) && periodStart <= periodEnd;
+  const basicReady = taskName.trim().length >= 2 && effectiveBatch.trim().length >= 3 && Boolean(periodStart && periodEnd) && periodStart <= periodEnd;
   const partiesReady = Boolean(selectedGeneratorId && selectedRetailerId && selectedGeneratorId !== selectedRetailerId);
   const ruleReady = Boolean(selectedRule);
   const canAdvance = [basicReady, partiesReady, true, ruleReady, true][step];
@@ -90,7 +91,7 @@ export function SettlementCreatePage() {
     try {
       const payload = {
         task_name: taskName.trim(),
-        trade_batch_no: batch.trim(),
+        trade_batch_no: effectiveBatch.trim(),
         period_start: periodStart,
         period_end: periodEnd,
         rule_id: selectedRuleId,
@@ -146,7 +147,7 @@ export function SettlementCreatePage() {
             <SectionHeader icon={Network} title="基本信息" description="明确交易批次与结算周期。" />
             <div className="form-grid two">
               <Field label="任务名称"><input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="例如：2026年8月月度电量结算" autoFocus /></Field>
-              <Field label="交易批次"><input value={batch} onChange={(event) => setBatch(event.target.value)} placeholder="例如：TB-2026-08-001" /></Field>
+              <Field label="交易批次"><input value={effectiveBatch} onChange={(event) => setBatch(event.target.value)} placeholder="例如：TB-2026-08-001" /></Field>
               <Field label="周期开始"><input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} /></Field>
               <Field label="周期结束" error={periodStart && periodEnd && periodStart > periodEnd ? "结束日期不能早于开始日期" : undefined}><input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></Field>
               <Field label="业务说明"><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={4} placeholder="可选：记录合同范围、特殊结算事项或业务联系人" /></Field>
@@ -168,7 +169,7 @@ export function SettlementCreatePage() {
               <DataReadiness label="发电计量数据" organization={generator?.org_name} entry={generationData} />
               <DataReadiness label="售电履约数据" organization={retailer?.org_name} entry={retailData} />
             </div>
-            {!batch && <Notice tone="warning">请先填写交易批次，系统才能匹配数据。</Notice>}
+            {!effectiveBatch && <Notice tone="warning">请先填写交易批次，系统才能匹配数据。</Notice>}
           </div>}
 
           {step === 3 && <div className="wizard-section">
@@ -185,7 +186,7 @@ export function SettlementCreatePage() {
             <SectionHeader icon={Save} title="提交复核" description="创建后进入任务详情继续处理。" />
             <dl className="review-grid">
               <div><dt>任务名称</dt><dd>{taskName || "—"}</dd></div>
-              <div><dt>交易批次</dt><dd><IdText value={batch} /></dd></div>
+              <div><dt>交易批次</dt><dd><IdText value={effectiveBatch} /></dd></div>
               <div><dt>结算周期</dt><dd>{periodStart} 至 {periodEnd}</dd></div>
               <div><dt>发电企业</dt><dd>{generator?.org_name || "—"}</dd></div>
               <div><dt>售电企业</dt><dd>{retailer?.org_name || "—"}</dd></div>

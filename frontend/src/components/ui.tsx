@@ -130,7 +130,7 @@ export function Button({
       onClick={handleClick}
       disabled={isBusy || props.disabled}
     >
-      {isBusy ? <LoaderCircle className="spin" size={16} /> : Icon ? <Icon size={16} /> : null}
+      {isBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : Icon ? <Icon size={16} aria-hidden="true" /> : null}
       {children}
     </button>
   );
@@ -358,7 +358,7 @@ export function DataTable<Row extends Record<string, any>>({
           </tbody>
         </table>
       </div>
-      <div className="table-pagination" aria-label="分页">
+      <div className="table-pagination" role="navigation" aria-label="分页">
         <span>显示 {startIndex + 1}-{Math.min(startIndex + pageSize, rows.length)} / {rows.length}</span>
         <label>每页
           <select value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))}>
@@ -409,7 +409,7 @@ export function ErrorState({ message, retry, traceId }: { message: string; retry
 }
 
 export function EmptyState({ title, description }: { title: string; description?: string }) {
-  return <div className="empty-state"><Inbox size={24} /><strong>{title}</strong>{description && <span>{description}</span>}</div>;
+  return <div className="empty-state" role="status"><Inbox size={24} aria-hidden="true" /><strong>{title}</strong>{description && <span>{description}</span>}</div>;
 }
 
 function useDialogFocus(ref: RefObject<HTMLElement | null>, onClose: () => void, closeDisabled = false) {
@@ -592,6 +592,7 @@ export function IdText({ value, length = 10, copyable = true }: { value?: string
     <span className="id-text">
       <CodeValue title={value}>{display}</CodeValue>
       {copyable && <button className="copy-button" type="button" onClick={copy} aria-label="复制完整编号" title={copied ? "已复制" : "复制完整编号"}><Copy size={13} /></button>}
+      {copied && <span className="sr-only" role="status">完整编号已复制</span>}
     </span>
   );
 }

@@ -1,6 +1,8 @@
 services:
   - type: web
     name: hiddenchain-platform-review
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
@@ -47,6 +49,10 @@ services:
         value: '{"electricity":"https://hiddenchain-electricity-connector.onrender.com","coal":"https://hiddenchain-coal-connector.onrender.com","heat":"https://hiddenchain-heat-connector.onrender.com","gas":"https://hiddenchain-gas-connector.onrender.com","oil":"https://hiddenchain-oil-connector.onrender.com"}'
       - key: SUBJECT_NODE_ENDPOINTS_JSON
         value: '{"org-generator-t01":"https://hiddenchain-electricity-connector.onrender.com","org-retailer-t01":"https://hiddenchain-electricity-retailer.onrender.com","org-exchange-t01":"https://hiddenchain-electricity-exchange.onrender.com","org-coal-t01":"https://hiddenchain-coal-connector.onrender.com","org-heat-t01":"https://hiddenchain-heat-connector.onrender.com","org-gas-t01":"https://hiddenchain-gas-connector.onrender.com","org-oil-t01":"https://hiddenchain-oil-connector.onrender.com"}'
+      - key: SUBJECT_NODE_BROWSER_ENDPOINTS_JSON
+        value: '{"org-generator-t01":"https://hiddenchain-electricity-connector.onrender.com","org-retailer-t01":"https://hiddenchain-electricity-retailer.onrender.com","org-exchange-t01":"https://hiddenchain-electricity-exchange.onrender.com","org-coal-t01":"https://hiddenchain-coal-connector.onrender.com","org-heat-t01":"https://hiddenchain-heat-connector.onrender.com","org-gas-t01":"https://hiddenchain-gas-connector.onrender.com","org-oil-t01":"https://hiddenchain-oil-connector.onrender.com"}'
+      - key: SUBJECT_NODE_IDS_JSON
+        value: '{"org-generator-t01":"local-node-org-generator-t01","org-retailer-t01":"local-node-org-retailer-t01","org-exchange-t01":"local-node-org-exchange-t01","org-coal-t01":"local-node-org-coal-t01","org-heat-t01":"local-node-org-heat-t01","org-gas-t01":"local-node-org-gas-t01","org-oil-t01":"local-node-org-oil-t01"}'
       - key: CONNECTOR_PUBLIC_KEYS_JSON
         value: '{}'
       - key: JWT_SECRET
@@ -76,6 +82,8 @@ services:
 
   - type: web
     name: hiddenchain-electricity-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -87,18 +95,24 @@ services:
       - key: CONNECTOR_NAME
         value: 电力企业连接器
       - key: CONNECTOR_ID
-        value: node-org-generator-t01
+        value: local-node-org-generator-t01
       - key: ORGANIZATION_ID
         value: org-generator-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/electricity.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-coal-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -110,18 +124,24 @@ services:
       - key: CONNECTOR_NAME
         value: 煤炭企业连接器
       - key: CONNECTOR_ID
-        value: node-org-coal-t01
+        value: local-node-org-coal-t01
       - key: ORGANIZATION_ID
         value: org-coal-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/coal.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-heat-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -133,18 +153,24 @@ services:
       - key: CONNECTOR_NAME
         value: 热能企业连接器
       - key: CONNECTOR_ID
-        value: node-org-heat-t01
+        value: local-node-org-heat-t01
       - key: ORGANIZATION_ID
         value: org-heat-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/heat.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-gas-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -156,18 +182,24 @@ services:
       - key: CONNECTOR_NAME
         value: 天然气企业连接器
       - key: CONNECTOR_ID
-        value: node-org-gas-t01
+        value: local-node-org-gas-t01
       - key: ORGANIZATION_ID
         value: org-gas-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/gas.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-oil-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -179,18 +211,24 @@ services:
       - key: CONNECTOR_NAME
         value: 石油企业连接器
       - key: CONNECTOR_ID
-        value: node-org-oil-t01
+        value: local-node-org-oil-t01
       - key: ORGANIZATION_ID
         value: org-oil-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/oil.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-electricity-retailer-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -202,18 +240,24 @@ services:
       - key: CONNECTOR_NAME
         value: 售电企业本地节点
       - key: CONNECTOR_ID
-        value: node-org-retailer-t01
+        value: local-node-org-retailer-t01
       - key: ORGANIZATION_ID
         value: org-retailer-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/retailer.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true
 
   - type: web
     name: hiddenchain-electricity-exchange-connector
+    branch: main
+    autoDeployTrigger: checksPass
     runtime: docker
     plan: free
     dockerfilePath: ./connector/Dockerfile
@@ -225,12 +269,16 @@ services:
       - key: CONNECTOR_NAME
         value: 电力交易中心本地节点
       - key: CONNECTOR_ID
-        value: node-org-exchange-t01
+        value: local-node-org-exchange-t01
       - key: ORGANIZATION_ID
         value: org-exchange-t01
       - key: CONNECTOR_DATABASE_PATH
         value: /app/runtime/exchange.db
       - key: ALLOW_DEMO_KEY_REGISTRATION
         value: "true"
+      - key: CONNECTOR_SEED_SYNTHETIC_DATA
+        value: "true"
+      - key: CONNECTOR_CORS_ORIGINS
+        value: https://hiddenchain-platform-review.onrender.com
       - key: CONNECTOR_SIGNING_PRIVATE_KEY
         generateValue: true

@@ -5,12 +5,13 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import (
     AgentEvent,
+    AnomalyEvent,
     AuditReport,
     AuditLog,
     BlockchainEvidence,
@@ -26,11 +27,19 @@ from ..models import (
     SettlementTask,
     Signature,
     TaskParticipant,
+    TrustedQueryTask,
     User,
     utc_now,
 )
 from ..security import sha256_json
-from ..services.adapters import DataSpaceConnectorAdapter
+from ..services.adapters import DataSpaceConnectorAdapter, LocalEvidenceLedgerAdapter
+from ..services.audit_scope import (
+    audit_task_ids_query,
+    audit_trusted_query_task_ids_query,
+    audit_trusted_query_task_scope_query,
+    has_audit_permission,
+    scoped_audit_task,
+)
 from ..services.credentials import JsonLdCredentialAdapter
 from ..services.common import add_audit_log
 from ..services.data_usage_requests import DataUsageRequestStatus, duration_policy_for_version
@@ -40,6 +49,7 @@ from ..services.local_data_boundary import (
     usage_domain_pair_is_closed,
 )
 from ..services.notifications import (
+    process_notification_outbox_best_effort,
     publish_computation_action,
     publish_contract_event,
     publish_ttc_transition,
@@ -505,6 +515,16 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if value is not None and hasattr(value, "isoformat") else value
 
 
+def _public_audit_verification_metadata(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    payload = dict(value)
+    legacy_value = payload.pop("connector_audit_chain_verified", None)
+    if legacy_value is not None and "connector_audit_event_verified" not in payload:
+        payload["connector_audit_event_verified"] = legacy_value is True
+    return payload
+
+
 def _request_summary(request: DataUsageRequest, organizations: dict[str, Organization]) -> dict[str, Any]:
     return {
         "request_id": request.request_id,
@@ -733,7 +753,7 @@ def _quick_action_items(
             _quick_action(
                 code="CREATE_SETTLEMENT",
                 label="发起结算任务",
-                path="/settlements/new",
+                path="/trusted-space/mpc/new",
                 allowed=True,
             ),
             _quick_action(
@@ -1923,17 +1943,13 @@ def append_contract_event(
             "attachment_metadata_only": True,
         },
     )
+    publish_contract_event(db, event, provider_org_id=contract.provider_org_id, consumer_org_id=contract.consumer_type)
     try:
         db.commit()
     except Exception:
         db.rollback()
         raise
-    publish_contract_event(
-        db,
-        event,
-        provider_org_id=contract.provider_org_id,
-        consumer_org_id=contract.consumer_type,
-    )
+    process_notification_outbox_best_effort(db)
     return {**_event_payload(db, event), "idempotent_replay": False}
 
 
@@ -2210,6 +2226,7 @@ def transition_ttc(
     except ValueError as exc:
         raise ValueError(str(exc)) from exc
     identity = _actor_did(db, user)
+    participant_org_ids = db.scalars(select(TaskParticipant.org_id).where(TaskParticipant.task_id == task.task_id)).all()
     try:
         transition = TtcStateMachine.transition(
             db,
@@ -2222,21 +2239,12 @@ def transition_ttc(
             trace_id=trace_id,
             attempt_id=attempt_id,
         )
+        publish_ttc_transition(db, task, transition_id=transition.transition_id, to_state=task.ttc_state, actor_user_id=user.user_id, participant_org_ids=participant_org_ids)
         db.commit()
     except TrustDomainError:
         db.rollback()
         raise
-    participant_org_ids = db.scalars(
-        select(TaskParticipant.org_id).where(TaskParticipant.task_id == task.task_id)
-    ).all()
-    publish_ttc_transition(
-        db,
-        task,
-        transition_id=transition.transition_id,
-        to_state=task.ttc_state,
-        actor_user_id=user.user_id,
-        participant_org_ids=participant_org_ids,
-    )
+    process_notification_outbox_best_effort(db)
     return {
         "task_id": task_id,
         "ttc_state": task.ttc_state,
@@ -2453,6 +2461,9 @@ def control_computation(
         job.action_idempotency_key = normalized_key
         job.action_fingerprint = fingerprint
         job.action_response_json = payload
+        if normalized_action == "CANCEL" and task is not None:
+            participant_org_ids = db.scalars(select(TaskParticipant.org_id).where(TaskParticipant.task_id == task.task_id)).all()
+            publish_computation_action(db, job, action=normalized_action, actor_user_id=user.user_id, org_ids=[task.creator_org_id, *participant_org_ids])
         db.commit()
     except TrustDomainError:
         db.rollback()
@@ -2461,17 +2472,7 @@ def control_computation(
         db.rollback()
         raise
 
-    if normalized_action == "CANCEL" and task is not None:
-        participant_org_ids = db.scalars(
-            select(TaskParticipant.org_id).where(TaskParticipant.task_id == task.task_id)
-        ).all()
-        publish_computation_action(
-            db,
-            job,
-            action=normalized_action,
-            actor_user_id=user.user_id,
-            org_ids=[task.creator_org_id, *participant_org_ids],
-        )
+    process_notification_outbox_best_effort(db)
     return payload
 
 
@@ -2554,34 +2555,16 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
             "status": item.status,
             "tx_hash": None,
             "block_height": None,
+            "audit_sequence": item.audit_sequence,
+            "previous_audit_hash": item.previous_audit_hash,
+            "connector_audit_hash": item.connector_audit_hash,
+            "audit_event_verified": item.audit_event_verified is True,
         }
         for item in query_receipts
     )
     control_actions, action_reasons = _compute_control_actions(db, job, user, task)
     return {
-        "job": {
-            "job_id": job.job_id,
-            "task_id": job.task_id,
-            "task_name": task.task_name
-            if task
-            else f"智能查询 · {(job.result_json or {}).get('resource_name') or job.algorithm_code}",
-            "task_kind": "TRUSTED_QUERY" if is_trusted_query else "SETTLEMENT",
-            "algorithm_code": job.algorithm_code,
-            "adapter_code": job.adapter_code,
-            "status": job.status,
-            "progress": job.progress,
-            "duration_ms": job.duration_ms,
-            "input_hashes": job.input_hashes_json,
-            "output_hash": job.output_hash,
-            "result": job.result_json
-            if (job.execution_attestation_json or {}).get("applicant_org_id") == user.org_id
-            else {"output_hash": job.output_hash},
-            "privacy_guarantees": job.privacy_guarantees_json,
-            "logs": job.logs_json,
-            "attempt_id": job.attempt_id,
-            "execution_snapshot_id": job.execution_snapshot_id,
-            "state_version": int(job.state_version or 1),
-        },
+        "job": _computation_job_item(job, user, task),
         "participants": participant_payloads,
         "attempt": _attempt_item(attempt) if attempt else None,
         "snapshot": {
@@ -2618,6 +2601,99 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
             state=job.status,
         ),
         "action_reasons": action_reasons,
+    }
+
+
+def _computation_job_item(
+    job: PrivacyComputeJob,
+    user: User,
+    task: SettlementTask | None,
+) -> dict[str, Any]:
+    attestation = job.execution_attestation_json or {}
+    is_trusted_query = task is None and bool(attestation.get("request_item_id"))
+    return {
+        "job_id": job.job_id,
+        "task_id": job.task_id,
+        "task_name": task.task_name
+        if task
+        else f"智能查询 · {(job.result_json or {}).get('resource_name') or job.algorithm_code}",
+        "task_kind": "TRUSTED_QUERY" if is_trusted_query else "SETTLEMENT",
+        "algorithm_code": job.algorithm_code,
+        "adapter_code": job.adapter_code,
+        "status": job.status,
+        "progress": job.progress,
+        "duration_ms": job.duration_ms,
+        "input_hashes": job.input_hashes_json,
+        "output_hash": job.output_hash,
+        "result": job.result_json
+        if attestation.get("applicant_org_id") == user.org_id
+        else {"output_hash": job.output_hash},
+        "privacy_guarantees": _public_audit_verification_metadata(
+            job.privacy_guarantees_json
+        ),
+        "logs": job.logs_json,
+        "attempt_id": job.attempt_id,
+        "execution_snapshot_id": job.execution_snapshot_id,
+        "state_version": int(job.state_version or 1),
+    }
+
+
+def _computation_scope_query(db: Session, user: User):
+    task_exists = select(SettlementTask.task_id).where(
+        SettlementTask.task_id == PrivacyComputeJob.task_id
+    ).exists()
+    attestation = PrivacyComputeJob.execution_attestation_json
+    return select(PrivacyComputeJob).where(
+        or_(
+            PrivacyComputeJob.task_id.in_(
+                _task_scope_query(db, user).with_only_columns(SettlementTask.task_id)
+            ),
+            and_(
+                ~task_exists,
+                attestation["request_item_id"].as_string().is_not(None),
+                attestation["request_item_id"].as_string() != "",
+                or_(
+                    attestation["applicant_org_id"].as_string() == user.org_id,
+                    attestation["provider_org_id"].as_string() == user.org_id,
+                ),
+            ),
+        )
+    )
+
+
+def computation_list(
+    db: Session,
+    user: User,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    status: str | None = None,
+) -> dict[str, Any]:
+    query = _computation_scope_query(db, user)
+    if status:
+        query = query.where(PrivacyComputeJob.status == status.upper())
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    jobs = db.scalars(
+        query.order_by(PrivacyComputeJob.created_at.desc(), PrivacyComputeJob.job_id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    task_ids = {item.task_id for item in jobs}
+    tasks = {
+        item.task_id: item
+        for item in db.scalars(
+            select(SettlementTask).where(SettlementTask.task_id.in_(task_ids or {"__none__"}))
+        ).all()
+    }
+    return {
+        "items": [_computation_job_item(item, user, tasks.get(item.task_id)) for item in jobs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "empty_state": total == 0,
+        "allowed_actions": ["view", "poll_logs"],
+        "capability_state": "LOCAL_REAL",
+        "source_of_truth": "privacy_compute_jobs",
     }
 
 
@@ -2662,8 +2738,8 @@ def result_visible(db: Session, result: SettlementResult, user: User) -> bool:
     task = db.get(SettlementTask, result.task_id)
     if task is None:
         return False
-    if user.role_code == "REGULATOR" and "VIEW_AUDIT" in set(user.permissions_json or []):
-        return True
+    if user.role_code == "REGULATOR":
+        return has_audit_permission(user) and scoped_audit_task(db, user, result.task_id) is not None
     if not _task_visible(db, task, user):
         return False
     return result.org_id in {None, user.org_id} or user.org_id == result.org_id
@@ -2817,30 +2893,53 @@ def result_detail(db: Session, result_id: str, user: User) -> dict[str, Any] | N
     }
 
 
-def result_list(db: Session, user: User, *, page: int = 1, page_size: int = 20) -> dict[str, Any]:
-    rows = db.scalars(select(SettlementResult).order_by(SettlementResult.created_at.desc())).all()
-    rows = [item for item in rows if result_visible(db, item, user)]
-    total = len(rows)
-    start = (page - 1) * page_size
-    items = []
-    for result in rows[start : start + page_size]:
-        items.append(
-            {
-                "result_id": result.result_id,
-                "task_id": result.task_id,
-                "attempt_id": result.attempt_id,
-                "org_id": result.org_id,
-                "result_scope": result.result_scope,
-                "result_hash": result.result_hash,
-                "confirm_status": result.confirm_status,
-                **_allowed_actions(
-                    user,
-                    actions=["view"],
-                    source="settlement_results",
-                    state=result.confirm_status,
-                ),
-            }
+def result_list(
+    db: Session,
+    user: User,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    if user.role_code == "REGULATOR":
+        query = select(SettlementResult).where(
+            SettlementResult.task_id.in_(audit_task_ids_query(user))
+            if has_audit_permission(user)
+            else SettlementResult.result_id.is_(None)
         )
+    else:
+        query = select(SettlementResult).where(
+            SettlementResult.task_id.in_(
+                _task_scope_query(db, user).with_only_columns(SettlementTask.task_id)
+            ),
+            or_(SettlementResult.org_id.is_(None), SettlementResult.org_id == user.org_id),
+        )
+    if task_id:
+        query = query.where(SettlementResult.task_id == task_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.scalars(
+        query.order_by(SettlementResult.created_at.desc(), SettlementResult.result_id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    items = [
+        {
+            "result_id": result.result_id,
+            "task_id": result.task_id,
+            "attempt_id": result.attempt_id,
+            "org_id": result.org_id,
+            "result_scope": result.result_scope,
+            "result_hash": result.result_hash,
+            "confirm_status": result.confirm_status,
+            **_allowed_actions(
+                user,
+                actions=["view"],
+                source="settlement_results",
+                state=result.confirm_status,
+            ),
+        }
+        for result in rows
+    ]
     return {
         "items": items,
         "total": total,
@@ -2852,68 +2951,134 @@ def result_list(db: Session, user: User, *, page: int = 1, page_size: int = 20) 
     }
 
 
-def audit_list(db: Session, user: User, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
-    if user.role_code != "REGULATOR" or "VIEW_AUDIT" not in set(user.permissions_json or []):
-        raise PermissionError("AUDIT_SCOPE_DENIED")
-    visible_task_ids = (
-        set(db.scalars(select(SettlementTask.task_id)).all())
-        if user.role_code == "REGULATOR"
-        else set(db.scalars(_task_scope_query(db, user).with_only_columns(SettlementTask.task_id)).all())
-    )
-    logs = db.scalars(select(AuditLog).order_by(AuditLog.occurred_at.desc())).all()
-    reports = db.scalars(select(AuditReport).order_by(AuditReport.created_at.desc())).all()
-    logs = [
-        item
-        for item in logs
-        if item.actor_org_id == user.org_id
-        or item.target_id in visible_task_ids
-        or item.target_type in {"DATA_USAGE_REQUEST", "TRUSTED_SPACE_QUERY_CONFIRMATION"}
-        and item.actor_org_id == user.org_id
+def _audit_target_task_associations():
+    def association(target_type: str, target_id: Any, task_id: Any):
+        return select(
+            literal(target_type).label("target_type"),
+            target_id.label("target_id"),
+            task_id.label("task_id"),
+        ).where(task_id.is_not(None))
+
+    return union_all(
+        association("SETTLEMENT_TASK", SettlementTask.task_id, SettlementTask.task_id),
+        association("AUDIT_REPORT", AuditReport.report_id, AuditReport.task_id),
+        association("SETTLEMENT_RESULT", SettlementResult.result_id, SettlementResult.task_id),
+        association("ANOMALY_EVENT", AnomalyEvent.event_id, AnomalyEvent.task_id),
+        association("BLOCKCHAIN_EVIDENCE", BlockchainEvidence.evidence_id, BlockchainEvidence.task_id),
+        association("PRIVACY_COMPUTE_JOB", PrivacyComputeJob.job_id, PrivacyComputeJob.task_id),
+        association("EXECUTION_RECEIPT", ExecutionReceipt.receipt_id, ExecutionReceipt.task_id),
+        association("TTC_STATE_TRANSITION", TtcStateTransition.transition_id, TtcStateTransition.task_id),
+        association("TRUSTED_QUERY_TASK", TrustedQueryTask.task_id, TrustedQueryTask.task_id),
+    ).subquery("audit_target_task")
+
+
+def _audit_log_scope_filter(user: User, *, task_id: str | None = None):
+    associations = _audit_target_task_associations()
+    visible_task_ids = union_all(
+        audit_task_ids_query(user),
+        audit_trusted_query_task_ids_query(user),
+    ).subquery("visible_audit_task_ids")
+    conditions = [
+        associations.c.target_type == AuditLog.target_type,
+        associations.c.target_id == AuditLog.target_id,
     ]
-    reports = [item for item in reports if item.task_id in visible_task_ids]
-    total = len(logs) + len(reports)
-    entries = [
-        {
-            "record_type": "AUDIT_LOG",
-            "record_id": item.log_id,
-            "occurred_at": _iso(item.occurred_at),
-            "action_code": item.action_code,
-            "target_type": item.target_type,
-            "target_id": item.target_id,
-            "result": item.result,
-            "actor_org_id": item.actor_org_id,
-            "details": item.details_json,
-        }
-        for item in logs
-    ] + [
-        {
-            "record_type": "AUDIT_REPORT",
-            "record_id": item.report_id,
-            "occurred_at": _iso(item.created_at),
-            "action_code": "AUDIT_REPORT",
-            "target_type": "AUDIT_REPORT",
-            "target_id": item.report_id,
-            "result": item.status,
-            "actor_org_id": None,
-            "details": {
-                "task_id": item.task_id,
-                "attempt_id": item.attempt_id,
-                "title": item.report_title,
-                "risk_level": item.risk_level,
-                "report_hash": item.report_hash,
-                "evidence_refs": item.evidence_refs_json,
-            },
-        }
-        for item in reports
-    ]
-    entries.sort(key=lambda item: item["occurred_at"] or "", reverse=True)
-    start = (page - 1) * page_size
+    if task_id is None:
+        conditions.append(
+            associations.c.task_id.in_(select(visible_task_ids.c.task_id))
+        )
+    else:
+        conditions.append(associations.c.task_id == task_id)
+    return select(associations.c.target_id).where(*conditions).exists()
+
+
+def _audit_log_item(item: AuditLog) -> dict[str, Any]:
     return {
-        "items": entries[start : start + page_size],
+        "record_type": "AUDIT_LOG",
+        "record_id": item.log_id,
+        "occurred_at": _iso(item.occurred_at),
+        "action_code": item.action_code,
+        "target_type": item.target_type,
+        "target_id": item.target_id,
+        "result": item.result,
+        "actor_org_id": item.actor_org_id,
+        "details": _public_audit_verification_metadata(item.details_json),
+    }
+
+
+def _audit_report_item(item: AuditReport) -> dict[str, Any]:
+    return {
+        "record_type": "AUDIT_REPORT",
+        "record_id": item.report_id,
+        "occurred_at": _iso(item.created_at),
+        "action_code": "AUDIT_REPORT",
+        "target_type": "AUDIT_REPORT",
+        "target_id": item.report_id,
+        "result": item.status,
+        "actor_org_id": None,
+        "details": {
+            "task_id": item.task_id,
+            "attempt_id": item.attempt_id,
+            "title": item.report_title,
+            "risk_level": item.risk_level,
+            "report_hash": item.report_hash,
+            "evidence_refs": item.evidence_refs_json,
+        },
+    }
+
+
+def audit_list(db: Session, user: User, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    if not has_audit_permission(user):
+        raise PermissionError("AUDIT_SCOPE_DENIED")
+    log_filter = _audit_log_scope_filter(user)
+    report_filter = AuditReport.task_id.in_(audit_task_ids_query(user))
+    stream = union_all(
+        select(
+            literal("AUDIT_LOG").label("record_type"),
+            AuditLog.log_id.label("record_id"),
+            AuditLog.occurred_at.label("occurred_at"),
+        ).where(log_filter),
+        select(
+            literal("AUDIT_REPORT").label("record_type"),
+            AuditReport.report_id.label("record_id"),
+            AuditReport.created_at.label("occurred_at"),
+        ).where(report_filter),
+    ).subquery("audit_record_stream")
+    total = db.scalar(select(func.count()).select_from(stream)) or 0
+    refs = db.execute(
+        select(stream.c.record_type, stream.c.record_id)
+        .order_by(
+            stream.c.occurred_at.desc(),
+            stream.c.record_type.desc(),
+            stream.c.record_id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    log_ids = [record_id for record_type, record_id in refs if record_type == "AUDIT_LOG"]
+    report_ids = [record_id for record_type, record_id in refs if record_type == "AUDIT_REPORT"]
+    logs = {
+        item.log_id: item
+        for item in db.scalars(select(AuditLog).where(AuditLog.log_id.in_(log_ids or {"__none__"}))).all()
+    }
+    reports = {
+        item.report_id: item
+        for item in db.scalars(
+            select(AuditReport).where(AuditReport.report_id.in_(report_ids or {"__none__"}))
+        ).all()
+    }
+    paged_entries = [
+        _audit_log_item(logs[record_id])
+        if record_type == "AUDIT_LOG"
+        else _audit_report_item(reports[record_id])
+        for record_type, record_id in refs
+    ]
+    return {
+        "items": paged_entries,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "reports": [item for item in entries if item["record_type"] == "AUDIT_REPORT"][:page_size],
+        "reports": [item for item in paged_entries if item["record_type"] == "AUDIT_REPORT"],
+        "empty_state": total == 0,
         **_allowed_actions(
             user,
             actions=["view", "export_json", "export_csv"],
@@ -2924,31 +3089,55 @@ def audit_list(db: Session, user: User, *, page: int = 1, page_size: int = 50) -
 
 
 def audit_task(db: Session, task_id: str, user: User) -> dict[str, Any] | None:
-    if user.role_code != "REGULATOR" or "VIEW_AUDIT" not in set(user.permissions_json or []):
+    if not has_audit_permission(user):
         raise PermissionError("AUDIT_SCOPE_DENIED")
-    task = db.get(SettlementTask, task_id)
+    task = scoped_audit_task(db, user, task_id)
+    query_task = None
     if task is None:
+        query_task = db.scalar(
+            audit_trusted_query_task_scope_query(user).where(
+                TrustedQueryTask.task_id == task_id
+            )
+        )
+    if task is None and query_task is None:
         return None
-    if user.role_code != "REGULATOR" and not _task_visible(db, task, user):
-        return None
-    audit = audit_list(db, user, page=1, page_size=500)
-    logs = [item for item in audit["items"] if item.get("target_id") == task_id]
-    report_rows = db.scalars(
-        select(AuditReport).where(AuditReport.task_id == task_id).order_by(AuditReport.created_at.asc())
+    report_rows = (
+        db.scalars(
+            select(AuditReport)
+            .where(AuditReport.task_id == task_id)
+            .order_by(AuditReport.created_at.asc(), AuditReport.report_id.asc())
+        ).all()
+        if task is not None
+        else []
+    )
+    log_rows = db.scalars(
+        select(AuditLog)
+        .where(_audit_log_scope_filter(user, task_id=task_id))
+        .order_by(AuditLog.occurred_at.asc(), AuditLog.log_id.asc())
     ).all()
+    logs = [_audit_log_item(item) for item in log_rows]
     evidence = db.scalars(
         select(BlockchainEvidence).where(BlockchainEvidence.task_id == task_id).order_by(BlockchainEvidence.created_at.asc())
     ).all()
     transitions = db.scalars(
         select(TtcStateTransition).where(TtcStateTransition.task_id == task_id).order_by(TtcStateTransition.occurred_at.asc())
     ).all()
+    execution_receipts = db.scalars(
+        select(ExecutionReceipt)
+        .where(ExecutionReceipt.task_id == task_id)
+        .order_by(ExecutionReceipt.executed_at.asc())
+    ).all()
     return {
         "task": {
-            "task_id": task.task_id,
-            "task_name": task.task_name,
-            "ttc_state": task.ttc_state,
-            "status": task.status,
-            "state_version": task.state_version,
+            "task_id": task_id,
+            "task_name": (
+                task.task_name
+                if task is not None
+                else f"可信查询 · {(query_task.canonical_payload_json or {}).get('resource') or task_id}"
+            ),
+            "ttc_state": task.ttc_state if task is not None else None,
+            "status": task.status if task is not None else query_task.status,
+            "state_version": task.state_version if task is not None else None,
         },
         "audit_chain": logs,
         "transitions": [_transition_item(item) for item in transitions],
@@ -2975,13 +3164,32 @@ def audit_task(db: Session, task_id: str, user: User) -> dict[str, Any] | None:
                 "block_height": item.block_height,
                 "chain_code": item.chain_code,
                 "status": item.status,
+                "verification_status": (
+                    "MATCHED" if LocalEvidenceLedgerAdapter.verify(item).get("matched") else "MISMATCH"
+                ),
             }
             for item in evidence
+        ],
+        "execution_receipts": [
+            {
+                "receipt_id": item.receipt_id,
+                "provider_org_id": item.provider_org_id,
+                "request_hash": item.request_hash,
+                "result_hash": item.result_hash,
+                "node_code": item.node_code,
+                "status": item.status,
+                "executed_at": _iso(item.executed_at),
+                "audit_sequence": item.audit_sequence,
+                "previous_audit_hash": item.previous_audit_hash,
+                "connector_audit_hash": item.connector_audit_hash,
+                "audit_event_verified": item.audit_event_verified is True,
+            }
+            for item in execution_receipts
         ],
         **_allowed_actions(
             user,
             actions=["view", "export_json", "export_csv"],
-            source="audit_logs/audit_reports/ttc_state_transitions/blockchain_evidence",
-            state=task.ttc_state,
+            source="audit_logs/audit_reports/ttc_state_transitions/blockchain_evidence/execution_receipts",
+            state=task.ttc_state if task is not None else query_task.status,
         ),
     }

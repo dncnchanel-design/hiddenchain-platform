@@ -28,10 +28,14 @@ describe("trusted energy console model", () => {
     expect(routeForView("ttc")).toBe(`${TRUSTED_BASE}/ttc`);
     expect(routeForView("mpc")).toBe(`${TRUSTED_BASE}/mpc`);
     expect(trustedEntityId(`${TRUSTED_BASE}/assets/asset%2Freal`, "assets")).toBe("asset/real");
+    expect(trustedEntityId(`${TRUSTED_BASE}/assets/%E0%A4%A`, "assets")).toBeUndefined();
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/assets/%E0%A4%A`)).toBe(false);
     expect(getTrustedView(`${TRUSTED_BASE}/contracts`)).toBe("contract");
     expect(getTrustedView(`${TRUSTED_BASE}/ttc/ttc-real`)).toBe("ttc");
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc`)).toBe(true);
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc/job-real`)).toBe(true);
+    expect(isKnownTrustedPath(`${TRUSTED_BASE}/mpc/new`)).toBe(true);
+    expect(getTrustedView(`${TRUSTED_BASE}/mpc/new`)).toBe("mpc");
     expect(isKnownTrustedPath(`${TRUSTED_BASE}/unknown`)).toBe(false);
     expect(trustedMenuCodeForView("asset")).toBe("catalog");
     expect(trustedMenuCodeForView("identity")).toBe("participants");

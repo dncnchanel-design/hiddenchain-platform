@@ -20,6 +20,7 @@ from ..schemas import (
     TtcTransitionAction,
 )
 from ..services.adapters import LocalEvidenceLedgerAdapter
+from ..services.audit_scope import has_audit_permission, scoped_audit_task
 from ..services.common import add_audit_log
 from ..services import notifications as notification_service
 from ..services import trust_space as trust_space_service
@@ -528,24 +529,13 @@ def computations(
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    query = select(trust_space_service.PrivacyComputeJob)
-    if status_filter:
-        query = query.where(trust_space_service.PrivacyComputeJob.status == status_filter.upper())
-    jobs = db.scalars(query.order_by(trust_space_service.PrivacyComputeJob.created_at.desc())).all()
-    jobs = [item for item in jobs if trust_space_service._compute_visible(db, item, user)]
-    total = len(jobs)
-    start = (page - 1) * page_size
-    items = [trust_space_service.computation_detail(db, item.job_id, user)["job"] for item in jobs[start : start + page_size]]
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "empty_state": total == 0,
-        "allowed_actions": ["view", "poll_logs"],
-        "capability_state": "LOCAL_REAL",
-        "source_of_truth": "privacy_compute_jobs",
-    }
+    return trust_space_service.computation_list(
+        db,
+        user,
+        page=page,
+        page_size=page_size,
+        status=status_filter,
+    )
 
 
 @router.get("/computations/{job_id}")
@@ -633,10 +623,17 @@ def retry_computation(
 def results(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    task_id: str | None = Query(default=None, min_length=1, max_length=36),
     user: User = Depends(require_roles(*BUSINESS_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return trust_space_service.result_list(db, user, page=page, page_size=page_size)
+    return trust_space_service.result_list(
+        db,
+        user,
+        page=page,
+        page_size=page_size,
+        task_id=task_id,
+    )
 
 
 @router.get("/results/{result_id}")
@@ -677,10 +674,12 @@ def verify_evidence(
     if evidence is None:
         raise HTTPException(status_code=404, detail={"code": "EVIDENCE_NOT_FOUND", "message": "证据不存在"})
     task = db.get(trust_space_service.SettlementTask, evidence.task_id) if evidence.task_id else None
-    if task is None or (
-        user.role_code != "REGULATOR"
-        and not trust_space_service._task_visible(db, task, user)
-    ):
+    if user.role_code == "REGULATOR":
+        if not has_audit_permission(user):
+            raise HTTPException(status_code=403, detail={"code": "EVIDENCE_SCOPE_DENIED", "message": "无权核验证据"})
+        if task is None or scoped_audit_task(db, user, task.task_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "EVIDENCE_NOT_FOUND", "message": "证据不存在"})
+    elif task is None or not trust_space_service._task_visible(db, task, user):
         raise HTTPException(status_code=403, detail={"code": "EVIDENCE_SCOPE_DENIED", "message": "无权核验证据"})
     result = LocalEvidenceLedgerAdapter.verify(evidence)
     external_receipt_verified = (
@@ -713,11 +712,17 @@ def verify_evidence(
 @router.get("/audit")
 def audit(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=500),
+    page_size: int = Query(default=50, ge=1, le=100),
     user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return trust_space_service.audit_list(db, user, page=page, page_size=page_size)
+    try:
+        return trust_space_service.audit_list(db, user, page=page, page_size=page_size)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "AUDIT_SCOPE_DENIED", "message": "当前账号未获授审计查看权限"},
+        ) from exc
 
 
 @router.get("/audit/tasks/{task_id}")
@@ -726,7 +731,13 @@ def audit_task(
     user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    payload = trust_space_service.audit_task(db, task_id, user)
+    try:
+        payload = trust_space_service.audit_task(db, task_id, user)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "AUDIT_SCOPE_DENIED", "message": "当前账号未获授审计查看权限"},
+        ) from exc
     if payload is None:
         raise HTTPException(status_code=404, detail={"code": "TTC_TASK_NOT_FOUND", "message": "任务不存在"})
     return payload
@@ -738,7 +749,28 @@ def export_audit(
     user: User = Depends(require_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> Response:
-    payload = trust_space_service.audit_list(db, user, page=1, page_size=5000)
+    try:
+        payload = trust_space_service.audit_list(db, user, page=1, page_size=5000)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "AUDIT_SCOPE_DENIED", "message": "当前账号未获授审计查看权限"},
+        ) from exc
+    if payload["total"] > 5000:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "AUDIT_EXPORT_LIMIT_EXCEEDED",
+                "message": "审计记录超过单次导出上限，请缩小授权范围后重试",
+                "limit": 5000,
+                "total": payload["total"],
+            },
+        )
+    payload = {
+        **payload,
+        "exported_count": len(payload["items"]),
+        "truncated": False,
+    }
     add_audit_log(
         db,
         action="EXPORT_AUDIT_RECORDS",
@@ -746,7 +778,12 @@ def export_audit(
         target_id=f"{user.user_id}:{format}",
         result="SUCCESS",
         user=user,
-        details={"format": format, "record_count": payload["total"]},
+        details={
+            "format": format,
+            "record_count": payload["total"],
+            "exported_count": payload["exported_count"],
+            "truncated": payload["truncated"],
+        },
     )
     db.commit()
     if format == "json":

@@ -38,9 +38,6 @@ BUSINESS_ROLES = [
     "EXCHANGE",
     "REGULATOR",
 ]
-APP_ROLES = [*BUSINESS_ROLES, "ADMIN"]
-REVIEW_ROLES = ["EXCHANGE", "REGULATOR", "ADMIN"]
-
 MODULES = [
     {"code": "overview", "path": "/trusted-space/workbench", "roles": BUSINESS_ROLES},
     {"code": "query", "path": "/trusted-space/query", "roles": BUSINESS_ROLES},
@@ -48,25 +45,24 @@ MODULES = [
     {"code": "connector", "path": "/trusted-space/connector", "roles": [role for role in BUSINESS_ROLES if role != "REGULATOR"]},
     {"code": "authorization", "path": "/trusted-space/authorizations", "roles": BUSINESS_ROLES},
     {"code": "compute", "path": "/trusted-space/mpc", "roles": BUSINESS_ROLES},
-    {"code": "audit", "path": "/trusted-space/audit", "roles": ["REGULATOR"]},
+    {"code": "audit", "path": "/trusted-space/audit", "roles": ["REGULATOR"], "required_permission": "VIEW_AUDIT"},
     {"code": "participants", "path": "/trusted-space/identity", "roles": BUSINESS_ROLES},
-    {"code": "workbench", "path": "/workbench", "roles": APP_ROLES},
-    {"code": "data-space", "path": "/data-space", "roles": APP_ROLES},
-    {"code": "rules", "path": "/rules", "roles": REVIEW_ROLES},
-    {"code": "compute", "path": "/compute", "roles": APP_ROLES},
-    {"code": "settlements", "path": "/settlements", "roles": APP_ROLES},
-    {"code": "results", "path": "/results", "roles": APP_ROLES},
-    {"code": "evidence", "path": "/evidence", "roles": APP_ROLES},
-    {"code": "audit", "path": "/audit", "roles": REVIEW_ROLES},
-    {"code": "reports", "path": "/reports", "roles": REVIEW_ROLES},
-    {"code": "anomalies", "path": "/anomalies", "roles": REVIEW_ROLES},
-    {"code": "trusted-execution", "path": "/trusted-execution", "roles": REVIEW_ROLES},
     {"code": "overview", "path": "/overview", "roles": ["ADMIN"]},
     {"code": "system", "path": "/system", "roles": ["ADMIN"]},
     {"code": "agents", "path": "/agents", "roles": ["ADMIN"]},
     {"code": "metrics", "path": "/metrics", "roles": ["ADMIN"]},
     {"code": "logs", "path": "/logs", "roles": ["ADMIN"]},
 ]
+
+
+def _visible_modules(user: User) -> list[dict]:
+    permission_codes = set(user.permissions_json or [])
+    return [
+        {key: value for key, value in item.items() if key != "required_permission"}
+        for item in MODULES
+        if user.role_code in item["roles"]
+        and (not item.get("required_permission") or item["required_permission"] in permission_codes)
+    ]
 
 
 def _user_payload(db: Session, user: User) -> dict:
@@ -87,7 +83,7 @@ def _user_payload(db: Session, user: User) -> dict:
         "user": public_user,
         "org": model_dict(org) if org else None,
         "did": model_dict(did) if did else None,
-        "menus": [item for item in MODULES if user.role_code in item["roles"]],
+        "menus": _visible_modules(user),
         "field_scopes": {
             "raw_data": "ENTERPRISE_CONNECTOR_ONLY" if user.role_code != "ADMIN" else "NONE",
             "result": "AUTHORIZED_SCOPE_ONLY" if user.role_code != "ADMIN" else "NONE",

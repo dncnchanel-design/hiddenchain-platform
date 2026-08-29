@@ -29,7 +29,7 @@ export function AnomaliesPage() {
   const { data, loading, refreshing, error, reload } = useRemote<JsonRecord[]>(
     (signal) => api("/anomalies", { signal, timeoutMs: 12000, cache: "no-store" }), [],
   );
-  const canResolve = ["REGULATOR", "ADMIN"].includes(session!.user.role_code);
+  const canResolve = session!.user.role_code === "REGULATOR";
   const rows = useMemo(() => (data || []).filter((item) => (!taskId || item.task_id === taskId) && (!statusFilter || item.status === statusFilter) && (!riskFilter || item.risk_level === riskFilter)), [data, riskFilter, statusFilter, taskId]);
 
   async function resolve() {

@@ -41,7 +41,7 @@ from .adapters import (
 from .common import add_audit_log, model_dict, trace_id
 from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
-from .notifications import publish_audit_report, publish_result_confirmation
+from .notifications import process_notification_outbox_best_effort, publish_audit_report, publish_result_confirmation
 from .trust_domain import authorize_agent_tool
 from ..trust_models import (
     AgentPermission,
@@ -1553,9 +1553,16 @@ def run_settlement_workflow(
         [
             MetricRecord(task_id=task.task_id, metric_code="LOCAL_COMPUTE_DURATION_MS", metric_value=duration_ms, metric_unit="ms"),
             MetricRecord(task_id=task.task_id, metric_code="EVIDENCE_RECORD_COUNT", metric_value=len(evidence_items) + 1, metric_unit="count"),
-            MetricRecord(task_id=task.task_id, metric_code="VERIFY_RATE", metric_value=100 if risk_level == "LOW" else 75, metric_unit="percent"),
+            MetricRecord(
+                task_id=task.task_id,
+                metric_code="EVIDENCE_VERIFY_RATE_PCT",
+                metric_value=round(
+                    100 * sum(item["matched"] for item in verification) / max(len(verification), 1),
+                    2,
+                ),
+                metric_unit="percent",
+            ),
             MetricRecord(task_id=task.task_id, metric_code="AGENT_EVENT_COUNT", metric_value=agent_event_count, metric_unit="count"),
-            MetricRecord(task_id=task.task_id, metric_code="SCENARIO_COUPLING_COUNT", metric_value=4, metric_unit="count"),
         ]
     )
     add_audit_log(
@@ -1576,21 +1583,22 @@ def run_settlement_workflow(
         },
         current_trace_id=run_trace,
     )
+    for scoped_result, org_id in scoped_results:
+        publish_result_confirmation(
+            db,
+            task_id=task.task_id,
+            result_id=scoped_result.result_id,
+            attempt_id=scoped_result.attempt_id,
+            org_ids=[org_id],
+        )
+    publish_audit_report(
+        db,
+        report,
+        actor_user_id=actor.user_id if actor is not None else None,
+    )
     if commit:
         db.commit()
-        for scoped_result, org_id in scoped_results:
-            publish_result_confirmation(
-                db,
-                task_id=task.task_id,
-                result_id=scoped_result.result_id,
-                attempt_id=scoped_result.attempt_id,
-                org_ids=[org_id],
-            )
-        publish_audit_report(
-            db,
-            report,
-            actor_user_id=actor.user_id if actor is not None else None,
-        )
+        process_notification_outbox_best_effort(db)
         emit_settlement_lineage(
             task,
             uploads=list({item.upload_id: item for item in [*uploads_by_role.values(), *scenario_uploads.values()]}.values()),
@@ -1674,8 +1682,7 @@ def create_audit_report(db: Session, task_id: str, template_code: str) -> AuditR
         status="GENERATED",
     )
     db.add(report)
-    db.commit()
-    db.refresh(report)
+    db.flush()
     return report
 
 

@@ -67,7 +67,7 @@ USERS = [
     ("user-exchange-heat", "org-exchange-heat-t01", "exchange_heat", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
     ("user-exchange-gas", "org-exchange-gas-t01", "exchange_gas", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
     ("user-exchange-oil", "org-exchange-oil-t01", "exchange_oil", "exchange123", "交易中心账户", "EXCHANGE", BUSINESS_OWNER_PERMISSIONS),
-    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管方账户", "REGULATOR", ["VIEW_DATA", "REQUEST_DATA", "CREATE_CROSS_ENERGY_QUERY", "CREATE_COMPUTE_TASK", "VIEW_COMPUTE_RESULT", "VIEW_AUDIT"]),
+    ("user-regulator", "org-regulator-t01", "regulator", "regulator123", "监管方账户", "REGULATOR", ["VIEW_DATA", "REQUEST_DATA", "CREATE_CROSS_ENERGY_QUERY", "CREATE_COMPUTE_TASK", "VIEW_COMPUTE_RESULT", "VIEW_AUDIT", "VIEW_AUDIT:ALL"]),
     ("user-admin", "org-admin-t01", "admin", "admin123", "平台运维账户", "ADMIN", ["MANAGE_PLATFORM_OPERATIONS"]),
 ]
 
@@ -211,7 +211,10 @@ def seed_test_fixtures(db: Session) -> None:
 
     ensure_agent_identities(db)
     db.flush()
-    ensure_agent_tool_catalog(db)
+    ensure_agent_tool_catalog(
+        db,
+        grant_issuer_did="did:hiddenchain:org:org-exchange-t01",
+    )
 
     for org_id, org_type, _energy_domain, _org_name, _credit_code in ORGS:
         if org_type not in {"GENERATOR", "RETAILER", "COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE", "EXCHANGE"}:

@@ -1,0 +1,501 @@
+% !TEX program = xelatex
+% 隐链明算 Windows 评委部署说明
+% 使用 XeLaTeX 编译：xelatex -interaction=nonstopmode JUDGE_DEPLOYMENT.tex
+
+\documentclass[UTF8,a4paper,zihao=-4,oneside]{ctexart}
+
+\usepackage[a4paper,top=2.2cm,bottom=2.0cm,left=2.25cm,right=2.25cm,headheight=15pt]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{fontspec}
+\usepackage{lastpage}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+\usepackage[most]{tcolorbox}
+
+\definecolor{HiddenGreen}{HTML}{0B6B50}
+\definecolor{HiddenGreenDark}{HTML}{064839}
+\definecolor{HiddenMint}{HTML}{EAF6F1}
+\definecolor{HiddenGold}{HTML}{B57916}
+\definecolor{HiddenGoldLight}{HTML}{FFF7E5}
+\definecolor{HiddenInk}{HTML}{24322D}
+\definecolor{HiddenGray}{HTML}{66736D}
+\definecolor{CodeBg}{HTML}{F5F7F6}
+\definecolor{CodeFrame}{HTML}{CBD8D2}
+
+\setmainfont{TeX Gyre Termes}
+\setsansfont{TeX Gyre Heros}
+\setmonofont{DejaVu Sans Mono}
+
+\hypersetup{
+  pdftitle={隐链明算 Windows 评委部署说明},
+  pdfauthor={隐链明算项目组},
+  colorlinks=true,
+  linkcolor=HiddenGreenDark,
+  urlcolor=HiddenGreenDark,
+  citecolor=HiddenGreenDark
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{HiddenGreenDark}隐链明算}
+\fancyhead[R]{\small\color{HiddenGray}Windows 评委部署说明}
+\fancyfoot[C]{\small\color{HiddenGray}\thepage\ /\ \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.35em}
+\linespread{1.18}
+
+\setlist[itemize]{leftmargin=2.4em,itemsep=0.25em,topsep=0.25em}
+\setlist[enumerate]{leftmargin=2.6em,itemsep=0.25em,topsep=0.25em}
+
+\lstdefinelanguage{PowerShell}{
+  morekeywords={Set-Location,Set-ExecutionPolicy,Invoke-RestMethod,Invoke-WebRequest,Get-Content},
+  sensitive=false,
+  morecomment=[l]{\#},
+  morestring=[b]",
+}
+\lstset{
+  language=PowerShell,
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{CodeBg},
+  frame=single,
+  rulecolor=\color{CodeFrame},
+  framerule=0.5pt,
+  framesep=6pt,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  showtabs=false,
+  numbers=none,
+  xleftmargin=0.2em,
+  xrightmargin=0.2em
+}
+
+% \path permits line breaks at slashes and underscores, which is important in tables.
+\newcommand{\fpath}[1]{\path{#1}}
+\newcommand{\term}[1]{\textbf{\color{HiddenGreenDark}#1}}
+\newcommand{\status}[1]{\texttt{#1}}
+
+\newtcolorbox{noticebox}{
+  enhanced,
+  breakable,
+  colback=HiddenMint,
+  colframe=HiddenGreen,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=8pt,right=8pt,top=7pt,bottom=7pt
+}
+\newtcolorbox{warningbox}{
+  enhanced,
+  breakable,
+  colback=HiddenGoldLight,
+  colframe=HiddenGold,
+  boxrule=0.6pt,
+  arc=2mm,
+  left=8pt,right=8pt,top=7pt,bottom=7pt
+}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{1.6cm}
+  \begin{flushleft}
+    {\color{HiddenGreen}\rule{0.22\textwidth}{5pt}}\\[1.4cm]
+    {\fontsize{30pt}{36pt}\selectfont\bfseries\color{HiddenInk}隐链明算}\\[0.35cm]
+    {\fontsize{20pt}{28pt}\selectfont\color{HiddenGreenDark}Windows 评委部署说明}
+  \end{flushleft}
+  \vfill
+  \begin{noticebox}
+    \textbf{文档定位}\quad 本文是交付包的 Windows 部署入口。评委只需准备 Docker Desktop，
+    按本文执行一条安装命令，即可启动本地合成数据演示环境。
+  \end{noticebox}
+  \vspace{1.0cm}
+  \begin{tabular}{@{}ll@{}}
+    \textbf{系统版本} & 0.2.0 \\
+    \textbf{适用环境} & Windows 10/11 64 位、Docker Desktop、WSL 2 \\
+    \textbf{部署模式} & Demo（本地评审闭环、合成数据） \\
+    \textbf{编译方式} & XeLaTeX \\
+    \textbf{文档日期} & 2026 年 8 月
+  \end{tabular}
+  \vfill
+  \begin{flushleft}
+    \color{HiddenGray}\small
+    版本化交付文档\\
+    隐链明算项目组
+  \end{flushleft}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+\section{一页速览}
+
+\begin{noticebox}
+  \textbf{最短部署路径}
+
+  将压缩包解压到 \fpath{C:/hiddenchain-platform}，打开 PowerShell，执行：
+\end{noticebox}
+
+\begin{lstlisting}
+Set-Location C:\hiddenchain-platform
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-windows.ps1 -Mode Demo
+\end{lstlisting}
+
+部署完成后访问：
+
+\begin{center}
+  \fbox{\large\url{http://127.0.0.1:5173/login}}
+\end{center}
+
+演示账号为 \texttt{exchange}，密码为 \texttt{exchange123}。首次启动会自动生成本机 Demo
+密钥，并创建组织、DID、数据目录、授权请求和一笔可继续操作的可信结算任务。
+
+\begin{warningbox}
+  Demo 模式只使用合成数据，适合评委本地查看系统功能；它不是生产结算环境。
+  不要把 Demo 密钥、数据库、Docker volume 或生产密钥提交到压缩包或代码仓库。
+\end{warningbox}
+
+\section{评委电脑准备}
+
+首次部署需要联网，用于 Docker 下载基础镜像和构建依赖。准备条件如下：
+
+\begin{itemize}
+  \item Windows 10/11 64 位；
+  \item Docker Desktop for Windows，并在 Settings 中启用 WSL 2 based engine；
+  \item 建议至少 4 核 CPU、8 GB 可用内存、20 GB 可用磁盘；
+  \item PowerShell 5.1 或 PowerShell 7；
+  \item Docker Desktop 已启动，并可以在 PowerShell 中执行 \texttt{docker info}。
+\end{itemize}
+
+建议把压缩包解压到不含中文和空格的目录，例如：
+
+\begin{lstlisting}
+C:\hiddenchain-platform
+\end{lstlisting}
+
+不要把压缩包解压到 OneDrive、临时目录或带很长中文路径的目录。首次构建需要较长时间，
+具体取决于网络速度。
+
+\section{一键部署}
+
+打开 PowerShell，进入解压后的目录，依次执行：
+
+\begin{lstlisting}
+Set-Location C:\hiddenchain-platform
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-windows.ps1 -Mode Demo
+\end{lstlisting}
+
+\subsection{脚本自动完成的工作}
+
+\begin{enumerate}
+  \item 检查 Docker 引擎和 Docker Compose；
+  \item 在 \fpath{runtime/windows-demo.env} 生成本机演示密钥；
+  \item 构建 OPA、FastAPI 后端、React/Nginx 前端和 7 个能源主体连接器；
+  \item 创建持久化 Docker volume；
+  \item 启动服务并轮询前端 \texttt{/api/health}；
+  \item 输出部署完成提示。
+\end{enumerate}
+
+看到“隐链明算 Windows 部署完成”后，打开：
+
+\begin{center}
+  \fbox{\large\url{http://127.0.0.1:5173/login}}
+\end{center}
+
+系统第一次启动会自动创建组织、DID、数据目录、授权请求和演示账户。同时会预置一笔
+“公开演示：2026 年 8 月可信结算闭环”任务，任务状态为“待主体确认”，可直接切换主体账号
+继续完成结果确认和监管审计。
+
+\section{演示账户与建议路线}
+
+\begin{longtable}{@{}L{0.18\textwidth}L{0.18\textwidth}L{0.20\textwidth}L{0.36\textwidth}@{}}
+  \caption{Demo 演示账户}\label{tab:accounts}\\
+  \toprule
+  \textbf{角色} & \textbf{账号} & \textbf{密码} & \textbf{主要用途} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{角色} & \textbf{账号} & \textbf{密码} & \textbf{主要用途} \\
+  \midrule
+  \endhead
+  电力交易中心 & \texttt{exchange} & \texttt{exchange123} & 查看数据目录、授权、创建和启动结算任务 \\
+  发电企业 & \texttt{generator} & \texttt{generator123} & 只查看并确认发电方结果 \\
+  售电企业 & \texttt{retailer} & \texttt{retailer123} & 只查看并确认售电方结果 \\
+  煤炭企业 & \texttt{coal} & \texttt{coal123} & 查看煤炭主体数据目录和主体权限 \\
+  热能企业 & \texttt{heat} & \texttt{heat123} & 查看热能主体数据目录和主体权限 \\
+  天然气企业 & \texttt{gas} & \texttt{gas123} & 查看天然气主体数据目录和主体权限 \\
+  石油企业 & \texttt{oil} & \texttt{oil123} & 查看石油主体数据目录和主体权限 \\
+  监管方 & \texttt{regulator} & \texttt{regulator123} & 查看证据、异常和审计报告 \\
+  平台运维 & \texttt{admin} & \texttt{admin123} & 查看平台、组织、身份、策略和日志管理 \\
+  \bottomrule
+\end{longtable}
+
+推荐从 \texttt{exchange} 开始，依次观察：
+
+\begin{enumerate}
+  \item 可信数据空间中的数据目录、数据资产版本和使用授权；
+  \item 结算任务创建向导的参与方、数据、规则、计算和提交检查；
+  \item TTC 可信任务胶囊的状态链和允许动作；
+  \item 受控计算生成的平台汇总结果和主体结果；
+  \item 切换到 \texttt{generator}、\texttt{retailer}，验证主体只能确认本组织结果；
+  \item 切换到 \texttt{regulator}，查看证据链、审计事件和报告；
+  \item 切换到 \texttt{admin}，查看组织、身份、策略和平台日志。
+\end{enumerate}
+
+压缩包中的 \fpath{demo-data/} 仅保存可复核的合成输入和期望结果，不是真实企业数据；
+评委第一次体验不需要额外导入文件，直接操作启动时预置的任务即可。
+
+\section{系统做了什么}
+
+\subsection{系统结构}
+
+\begin{center}
+\begin{tcolorbox}[width=0.94\textwidth,colback=CodeBg,colframe=CodeFrame,boxrule=0.5pt,arc=1mm]
+\centering
+浏览器\\[2pt]
+$\downarrow$\\[-1pt]
+\fbox{\texttt{frontend/}：React + Vite + Nginx}\\[2pt]
+同源 \texttt{/api} 反向代理\\[2pt]
+$\downarrow$\\[-1pt]
+\fbox{\texttt{backend/app/}：FastAPI + JWT/RBAC + SQLite 运行账本}\\[2pt]
+{\small
+\begin{minipage}[t]{0.42\linewidth}
+  \centering
+  $\swarrow$\\[-1pt]
+  数据引用、承诺、规则、结果、证据和审计
+\end{minipage}\hfill
+\begin{minipage}[t]{0.42\linewidth}
+  \centering
+  $\searrow$\\[-1pt]
+  OPA 用途与执行策略、主体侧本地节点
+\end{minipage}}\\[3pt]
+$\downarrow$\\[-1pt]
+\fbox{\texttt{policy/}：OPA/Rego 与能源执行约束}
+\end{tcolorbox}
+\end{center}
+
+\subsection{可信任务胶囊（TTC）}
+
+本系统围绕可信任务胶囊（Trusted Task Capsule，TTC）组织一次受控数据使用和结算：
+
+\begin{center}
+\fbox{\texttt{INIT}}
+ $\rightarrow$ \fbox{\texttt{IDENTITY\_VERIFIED}}
+ $\rightarrow$ \fbox{\texttt{DATA\_AUTHORIZED}}
+ $\rightarrow$ \fbox{\texttt{RULE\_FROZEN}}
+ $\rightarrow$ \fbox{\texttt{COMPUTE\_EXEC}}\\[5pt]
+ $\rightarrow$ \fbox{\texttt{RESULT\_CONFIRM}}
+ $\rightarrow$ \fbox{\texttt{AUDIT\_GATE}}
+ $\rightarrow$ \fbox{\texttt{EVIDENCE\_STAGE}}
+ $\rightarrow$ \fbox{\texttt{EVIDENCE\_ANCHOR}}
+ $\rightarrow$ \fbox{\texttt{ARCHIVED}}
+\end{center}
+
+\subsection{核心工作}
+
+\begin{itemize}
+  \item \term{数据授权：}数据目录、版本、用途、算法、输出模式、期限和调用次数进入授权约束；
+  \item \term{可信执行：}每次执行冻结规则、策略、合同、数据引用、算法、参数和单位，形成执行快照；
+  \item \term{受控结算：}生成确定性的聚合结果，不向中心业务 API 返回主体 Vault 原始记录；
+  \item \term{多方隔离：}后端按角色和组织校验权限，主体只能处理本组织结果；
+  \item \term{隐私计算：}提供差分隐私、加法秘密分享和 Paillier 适配器，并在结果中保留能力标签；
+  \item \term{证据审计：}记录数据、规则、计算、结果确认和审计事件，按域分离摘要形成 Merkle 批次，并通过事务 Outbox 留痕；
+  \item \term{多能源扩展：}电力、煤炭、热能、天然气、石油均有主体连接器和数据目录模型；
+  \item \term{可解释管理：}前端提供任务中心、可信数据空间、授权、隐私计算、结果证据、审计和平台运维页面。
+\end{itemize}
+
+\section{源代码阅读入口}
+
+交付包中的前后端代码均为可运行源代码。建议评委按“部署脚本 $\rightarrow$ 服务入口 $\rightarrow$ 业务路由 $\rightarrow$ 领域服务 $\rightarrow$ 前端页面 $\rightarrow$ 策略和测试”的顺序阅读。
+
+\begin{longtable}{@{}L{0.39\textwidth}L{0.53\textwidth}@{}}
+  \caption{关键源码入口}\label{tab:source-entry}\\
+  \toprule
+  \textbf{路径} & \textbf{内容} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{路径} & \textbf{内容} \\
+  \midrule
+  \endhead
+  \fpath{backend/app/main.py} & FastAPI 入口、路由、启动迁移、健康检查 \\
+  \fpath{backend/app/config.py} & 环境变量、演示/生产边界、白标和连接器配置 \\
+  \fpath{backend/app/database.py}、\fpath{migrations.py}、\fpath{models.py} & SQLite 连接、版本化迁移和领域模型 \\
+  \fpath{backend/app/security.py}、\fpath{production.py} & 密码、令牌、签名和生产门禁 \\
+  \fpath{backend/app/routers/} & 登录、数据、交易、执行、证据、审计、可信数据空间 API \\
+  \fpath{backend/app/services/workflow.py} & TTC 状态机、前置条件、动作和结算流程 \\
+  \fpath{backend/app/services/trust_execution.py} & 规则冻结、受控 Tool 和执行编排 \\
+  \fpath{backend/app/services/formal_evidence.py}、\fpath{evidence_outbox.py} & 证据摘要、Merkle 批次和事务 Outbox \\
+  \fpath{backend/app/services/mpc.py}、\fpath{privacy.py}、\fpath{paillier.py} & 隐私计算适配器和能力标签 \\
+  \fpath{backend/app/services/vault.py}、\fpath{local_data_boundary.py} & 主体数据引用、本地 Vault 和原始数据边界 \\
+  \fpath{connector/app/main.py} & 电力、煤炭、热能、天然气、石油主体侧本地连接器 \\
+  \fpath{frontend/src/App.tsx}、\fpath{auth.tsx}、\fpath{api.ts} & 前端入口、会话、API 客户端 \\
+  \fpath{frontend/src/features/trusted-energy/} & 可信数据空间目录、授权、查询、Agent、结果和审计页面 \\
+  \fpath{frontend/src/pages/} & 结算、数据、身份、策略、审计和管理页面 \\
+  \fpath{policy/hiddenchain.rego} & OPA 通用访问与用途策略 \\
+  \fpath{policy/energy_execution_policy.json} & 能源受控执行约束 \\
+  \fpath{docker-compose.yml} & 评委本地演示闭环 \\
+  \fpath{install-windows.ps1} & Windows 检查、构建、启动和健康检查 \\
+  \fpath{SOURCE_CODE_GUIDE.md} & 源码目录、前后端调用链、数据边界、测试入口和扩展说明 \\
+  \bottomrule
+\end{longtable}
+
+代码注释重点解释安全边界、状态转换、数据来源、失败行为和不能绕过的校验，不重复显而易见的变量含义。
+\fpath{backend/tests/}、\fpath{connector/tests/} 和 \fpath{frontend/src/*.test.*} 保留了后端、连接器和前端测试。
+
+\section{验收命令}
+
+部署脚本成功后，可在 PowerShell 验证：
+
+\begin{lstlisting}
+Invoke-RestMethod http://127.0.0.1:5173/api/health
+Invoke-RestMethod http://127.0.0.1:5173/api/health/ready
+
+docker compose --project-name hiddenchain-windows `
+  --env-file runtime\windows-demo.env `
+  -f docker-compose.yml ps
+\end{lstlisting}
+
+验收标准：
+
+\begin{itemize}
+  \item 前端能打开登录页；
+  \item \texttt{/api/health} 返回 \status{status: ok}；
+  \item \texttt{/api/health/ready} 返回 \status{status: READY}；
+  \item Compose 状态中后端、前端、OPA 和主体连接器处于运行或健康状态。
+\end{itemize}
+
+满足以上条件，即表示系统主体已经启动。
+
+\section{日常停止、启动与重置}
+
+\subsection{停止服务但保留数据}
+
+\begin{lstlisting}
+docker compose --project-name hiddenchain-windows `
+  --env-file runtime\windows-demo.env `
+  -f docker-compose.yml down
+\end{lstlisting}
+
+\subsection{再次启动}
+
+\begin{lstlisting}
+docker compose --project-name hiddenchain-windows `
+  --env-file runtime\windows-demo.env `
+  -f docker-compose.yml up -d
+\end{lstlisting}
+
+\subsection{查看日志}
+
+\begin{lstlisting}
+docker compose --project-name hiddenchain-windows `
+  --env-file runtime\windows-demo.env `
+  -f docker-compose.yml logs --tail=100
+\end{lstlisting}
+
+\subsection{清空本机演示数据}
+
+只有需要清空本机演示数据时才执行下面的命令；它会删除演示 Docker volume：
+
+\begin{lstlisting}
+docker compose --project-name hiddenchain-windows `
+  --env-file runtime\windows-demo.env `
+  -f docker-compose.yml down -v
+\end{lstlisting}
+
+清空后重新执行 \texttt{.\textbackslash install-windows.ps1 -Mode Demo} 即可重新初始化。
+
+\begin{warningbox}
+  \textbf{注意：} \texttt{down -v} 会删除本机 Demo 数据。需要保留数据时只执行普通的 \texttt{down}。
+\end{warningbox}
+
+\section{故障排查}
+
+\begin{longtable}{@{}L{0.31\textwidth}L{0.61\textwidth}@{}}
+  \caption{常见问题与处理方式}\label{tab:troubleshooting}\\
+  \toprule
+  \textbf{现象} & \textbf{处理} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{现象} & \textbf{处理} \\
+  \midrule
+  \endhead
+  \texttt{docker info} 失败 & 启动 Docker Desktop，确认使用 WSL 2 engine。 \\
+  Compose 构建下载失败 & 检查网络、代理和 Docker Desktop 镜像源，重新执行同一命令。 \\
+  端口 5173 被占用 & 停止占用该端口的程序，或先执行 \texttt{docker compose ... down}。 \\
+  页面打不开 & 执行 \texttt{docker compose ... ps} 和 \texttt{logs --tail=100}，等待 backend 健康后 frontend 才会启动。 \\
+  登录失败 & 确认使用 Demo 模式、演示账号和本机 5173 地址；不要使用 production 配置登录。 \\
+  启动后数据异常 & 备份需要保留的数据后执行 \texttt{down -v}，再重新运行安装脚本。 \\
+  中文路径构建异常 & 把包移动到 \fpath{C:/hiddenchain-platform} 等 ASCII 路径后重试。 \\
+  \bottomrule
+\end{longtable}
+
+\section{能力边界}
+
+本交付包可运行的是本地评审闭环，不把演示环境包装成已经完成的跨主体生产基础设施：
+
+\begin{longtable}{@{}L{0.28\textwidth}L{0.18\textwidth}L{0.46\textwidth}@{}}
+  \caption{系统能力边界}\label{tab:boundaries}\\
+  \toprule
+  \textbf{能力} & \textbf{状态} & \textbf{说明} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{能力} & \textbf{状态} & \textbf{说明} \\
+  \midrule
+  \endhead
+  确定性结算 & \status{LOCAL\_REAL} & 单服务进程内执行 \\
+  差分隐私 & \status{LOCAL\_REAL} & 本地 OpenDP 适配器 \\
+  MPC/秘密分享和 Paillier & 本地实验 & 份额/密钥编排仍在同一主机 \\
+  EDC & \status{ADAPTER} & 提供协议映射，不包含独立 EDC 控制面和数据面 \\
+  TEE & \status{BLOCKED} & 未接入硬件远程证明和密钥释放服务 \\
+  区块链锚定 & \status{DEMO} & 默认使用本地确定性哈希回执，不代表外部链共识或终局性 \\
+  演示数据 & 合成数据 & 不能用于生产结算 \\
+  \bottomrule
+\end{longtable}
+
+这些边界在源码的能力标签、健康接口和注释中保持一致，评委可以从
+\fpath{backend/app/version.py}、\fpath{backend/app/services/} 和本文复核。
+
+\section{交付边界}
+
+压缩包不包含以下运行时或敏感内容：
+
+\begin{itemize}
+  \item \texttt{.env}、\texttt{.env.production}；
+  \item 数据库、Docker volume 和日志；
+  \item Python 虚拟环境、\texttt{node\_modules} 和前端构建缓存；
+  \item 截图、项目书和历史研究资料。
+\end{itemize}
+
+Demo 密钥只在评委电脑首次运行时生成，生产密钥不得放入压缩包。
+
+\begin{noticebox}
+  \textbf{交付包中最重要的四个入口：}
+
+  \begin{enumerate}
+    \item \fpath{JUDGE\_DEPLOYMENT.md}：Markdown 版部署说明；
+    \item \fpath{SOURCE\_CODE\_GUIDE.md}：源代码注释与技术实现说明；
+    \item \fpath{JUDGE\_DEPLOYMENT.tex}：本文 LaTeX 源码；
+    \item \fpath{install-windows.ps1}：Windows 一键部署脚本。
+  \end{enumerate}
+\end{noticebox}
+
+\end{document}

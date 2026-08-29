@@ -9,6 +9,7 @@ from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -16,8 +17,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, settings, validate_runtime_settings
 from .database import SessionLocal, database_readiness, ensure_runtime_schema
-from .production import assert_production_database_clean
-from .routers import assistant, audit, auth, data, energy, evidence, execution, prototype, system, trade, trust, trust_domain, trust_space, trusted_query
+from .production import assert_production_database_clean, assert_production_runtime_clean
+from .routers import assistant, audit, auth, connector_ingestion, data, energy, evidence, execution, prototype, system, trade, trust, trust_domain, trust_space, trusted_query
 from .services.adapters import OPAPolicyAdapter, PandapowerGridAdapter
 from .services.arrow_connector import ArrowConnectorAdapter
 from .services.credentials import JsonLdCredentialAdapter
@@ -44,6 +45,7 @@ from .services.common import trace_id
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_runtime_settings()
+    assert_production_runtime_clean(settings)
     ensure_runtime_schema()
     with SessionLocal() as db:
         assert_production_database_clean(db, settings)
@@ -56,10 +58,14 @@ async def lifespan(app: FastAPI):
 
             seed_demo_catalog(db)
             seed_demo_authorization_request(db)
-        from .seed import ensure_agent_identities
+        if settings.app_env != "production":
+            from .seed import ensure_agent_identities
 
-        ensure_agent_identities(db)
-        ensure_agent_tool_catalog(db)
+            ensure_agent_identities(db)
+            grant_issuer_did = "did:hiddenchain:org:org-exchange-t01"
+        else:
+            grant_issuer_did = None
+        ensure_agent_tool_catalog(db, grant_issuer_did=grant_issuer_did)
         if settings.demo_business_seed:
             from .demo_seed import seed_demo_business
 
@@ -195,6 +201,7 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "Idempotency-Replayed", "ETag"],
 )
 app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 setup_observability(app)
 
 
@@ -221,6 +228,20 @@ async def collect_prometheus_metrics(request: Request, call_next):
     )
     return response
 
+
+@app.middleware("http")
+async def frontend_static_cache_policy(request: Request, call_next):
+    response = await call_next(request)
+    if request.method in {"GET", "HEAD"} and response.status_code == 200:
+        path = request.url.path
+        if path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif not path.startswith(f"{settings.api_prefix}/") and response.headers.get(
+            "content-type", ""
+        ).startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 application_routers = [
     auth.router,
     data.router,
@@ -229,6 +250,7 @@ application_routers = [
     trust_domain.router,
     trust_space.router,
     trusted_query.router,
+    connector_ingestion.router,
     assistant.router,
     evidence.router,
     audit.router,
@@ -237,6 +259,8 @@ application_routers = [
     energy.router,
     prototype.router,
 ]
+if settings.app_env in {"development", "test", "demo"}:
+    application_routers.append(prototype.demo_router)
 if settings.app_env in {"development", "test"}:
     from .routers import test_support
 
@@ -400,7 +424,14 @@ if FRONTEND_DIR.is_dir():
 
     @app.get("/{path:path}", include_in_schema=False)
     async def frontend_app(path: str):
-        requested = FRONTEND_DIR / path
-        if requested.is_file():
-            return FileResponse(requested)
-        return FileResponse(FRONTEND_DIR / "index.html")
+        frontend_root = FRONTEND_DIR.resolve()
+        requested = (FRONTEND_DIR / path).resolve()
+        if requested.is_relative_to(frontend_root) and requested.is_file():
+            return FileResponse(
+                requested,
+                headers={"Cache-Control": "no-cache, must-revalidate"},
+            )
+        return FileResponse(
+            FRONTEND_DIR / "index.html",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )

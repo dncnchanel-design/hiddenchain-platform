@@ -39,16 +39,29 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
     monkeypatch.setenv("PLATFORM_SIGNING_PUBLIC_KEY", _raw_public(platform_key))
     monkeypatch.setenv("CONNECTOR_DATABASE_PATH", str(tmp_path / "coal.db"))
     monkeypatch.setenv("ORGANIZATION_ID", "org-coal-t01")
+    monkeypatch.setenv("CONNECTOR_ID", "local-node-org-coal-t01")
+    monkeypatch.setenv("CONNECTOR_SEED_SYNTHETIC_DATA", "true")
     monkeypatch.setenv("PRIVACY_MIN_GROUP_SIZE", "3")
+    monkeypatch.setenv("GIT_COMMIT", "a" * 40)
     try:
         module = importlib.import_module("connector.app.main")
         with TestClient(module.app) as client:
+            health = client.get("/health")
+            assert health.status_code == 200
+            assert health.json()["build_sha"] == "a" * 40
+            dataset_local_ref = "connector://local-node-org-coal-t01/inventory/versions/1"
+            dataset_content_hash = module._demo_seed_content_hash(
+                "local-node-org-coal-t01", "coal", "inventory"
+            )
             catalog = client.get("/catalog")
             assert catalog.status_code == 200
             assert catalog.json()["notice"] == "这里只发布目录信息，原始数据保存在企业连接器中。"
             payload = {
                 "task_id": "TASK-20260823-0001",
                 "authorization_id": "AUTH-20260823-0001",
+                "dataset_version": 1,
+                "dataset_local_ref": dataset_local_ref,
+                "dataset_content_hash": dataset_content_hash,
                 "resource": "inventory",
                 "function": "average",
                 "start_date": "2026-08-01",
@@ -191,6 +204,8 @@ def test_connector_keeps_raw_records_local_and_signs_controlled_result(monkeypat
             assert dashboard_body["trend"]
             assert isinstance(dashboard_body["latest"]["value"], (int, float))
             assert dashboard_body["raw_records_returned"] is False
+            assert dashboard_body["audit_event"]["raw_records_returned"] is False
+            assert dashboard_body["audit_event"]["raw_data_exported"] is False
             assert dashboard_body["privacy_verification"]["mode"] == "SIGNED_CONNECTOR_NON_EXPORT"
             assert "raw_records" not in dashboard_body
             connector_key.public_key().verify(

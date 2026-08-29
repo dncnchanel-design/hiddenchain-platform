@@ -4,7 +4,7 @@ Date: 2026-08-20
 
 ## Baseline
 
-- `PROJECT_ROOT`: `D:\桌面\大创产品\hiddenchain-platform`
+- `PROJECT_ROOT`: local repository root (machine-specific path intentionally omitted)
 - Branch: `agent/deep-brand-green`
 - Local commit: `affb7ba368fb634727b5c953eb2f9be483c7176f`
 - Cached upstream commit: `7e55f511851c6c3aa7e2b4bab9c443571f3c3b26`

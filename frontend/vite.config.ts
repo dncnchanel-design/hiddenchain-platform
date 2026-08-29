@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { trustedRouteStaticBudget } from "./scripts/trusted-route-budget.mjs";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), trustedRouteStaticBudget(250 * 1024)],
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
-          charts: ["recharts"],
           icons: ["lucide-react"],
         },
       },

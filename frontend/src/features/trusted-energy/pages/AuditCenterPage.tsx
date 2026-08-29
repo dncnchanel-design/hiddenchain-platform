@@ -1,154 +1,131 @@
+import { ArrowLeft, ChevronLeft, ChevronRight, FileCheck2, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronRight, RefreshCw, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useRemote } from "../../../hooks";
-import { createIdempotencyKey } from "../../../api";
+import { labelForCode } from "../../../types";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
-import { RemoteState, Sheet } from "../components/ui-primitives";
-import { loadPrototypeAudit, restorePrototypeAudit, tamperPrototypeAudit, verifyPrototypeAudit, type PrototypeTamperEvent } from "../trusted-space-api";
+import { RemoteState } from "../components/ui-primitives";
+import {
+  loadAudit,
+  loadAuditTask,
+  type AuditRecord,
+} from "../trusted-space-api";
+import { routeForView, trustedEntityId } from "../types";
+import { auditDetailForRoute, auditListForRoute, type AuditRouteRemoteData } from "../audit-route-state";
 
-function AuditItem({ children, accent = "", onClick, ariaLabel }: { children: React.ReactNode; accent?: string; onClick?: () => void; ariaLabel?: string }) {
-  const className = ["prototype-audit-item", accent, onClick ? "is-interactive" : ""].filter(Boolean).join(" ");
-  if (onClick) {
-    return <button type="button" className={className} onClick={onClick} aria-label={ariaLabel}>{children}</button>;
-  }
-  return <div className={className}>{children}</div>;
+const PAGE_SIZE = 20;
+
+function formatDate(value?: string | null) {
+  if (!value) return "未登记时间";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).format(date);
 }
 
-function valueOrFallback(value: string | number | null | undefined) {
-  return value === null || value === undefined || value === "" ? "未登记" : String(value);
+function shortValue(value?: string | null) {
+  if (!value) return "未登记";
+  return value.length > 28 ? `${value.slice(0, 14)}…${value.slice(-10)}` : value;
+}
+
+function taskIdForRecord(item: AuditRecord) {
+  const detailTaskId = item.details?.task_id;
+  if (typeof detailTaskId === "string" && detailTaskId) return detailTaskId;
+  return item.target_type === "SETTLEMENT_TASK" ? item.target_id || undefined : undefined;
+}
+
+function AuditItem({ item, onOpenTask }: { item: AuditRecord; onOpenTask: (taskId: string) => void }) {
+  const taskId = taskIdForRecord(item);
+  const content = <>
+    <span className="prototype-audit-action">{labelForCode(item.action_code, item.record_type === "AUDIT_REPORT" ? "审计报告" : "审计事件")}</span>
+    <span> · {labelForCode(item.result, "未登记结果")}</span>
+    <small>{formatDate(item.occurred_at)} · 记录编号 <code title={item.record_id}>{shortValue(item.record_id)}</code></small>
+    {taskId && <small>任务编号 <code title={taskId}>{shortValue(taskId)}</code></small>}
+  </>;
+  return taskId
+    ? <button type="button" className="prototype-audit-item is-interactive" onClick={() => onOpenTask(taskId)} aria-label="打开任务审计详情">{content}</button>
+    : <div className="prototype-audit-item">{content}</div>;
 }
 
 export function AuditCenterPage() {
-  const remote = useRemote(() => loadPrototypeAudit(20), []);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("哈希链：未校验");
-  const [error, setError] = useState("");
-  const [selectedTamper, setSelectedTamper] = useState<PrototypeTamperEvent | null>(null);
-  const data = remote.data;
-  const tamperEvent = data?.tamper ?? null;
-  const activeTamper = Boolean(tamperEvent?.active);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const taskId = trustedEntityId(location.pathname, "audit");
+  const [page, setPage] = useState(1);
+  const remote = useRemote<AuditRouteRemoteData>(
+    (signal) => taskId
+      ? loadAuditTask(taskId, signal).then((payload) => ({ kind: "detail" as const, taskId, payload }))
+      : loadAudit({ page, pageSize: PAGE_SIZE }, signal).then((payload) => ({ kind: "list" as const, page, payload })),
+    [taskId, page],
+  );
+  const list = !taskId ? auditListForRoute(remote.data, page) : null;
+  const detail = taskId ? auditDetailForRoute(remote.data, taskId) : null;
+  const routeData = list || detail;
+  const routeError = routeData ? "" : remote.error || remote.refreshError;
+  const routeLoading = !routeData && !routeError && (remote.loading || remote.refreshing);
+  const totalPages = list ? Math.max(1, Math.ceil(list.total / list.page_size)) : 1;
 
-  async function run(action: "tamper" | "restore" | "verify" | "refresh") {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    setSelectedTamper(null);
-    try {
-      if (action === "tamper") {
-        const result = await tamperPrototypeAudit({ idempotencyKey: createIdempotencyKey("prototype-chain-tamper") });
-        setStatus(result.message);
-      } else if (action === "restore") {
-        const result = await restorePrototypeAudit({ idempotencyKey: createIdempotencyKey("prototype-chain-restore") });
-        setStatus(result.message);
-      } else if (action === "verify") {
-        const result = await verifyPrototypeAudit({ idempotencyKey: createIdempotencyKey("prototype-chain-verify") });
-        setStatus("哈希链：" + result.message);
-      }
-      await remote.reload();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "审计操作失败");
-    } finally {
-      setBusy(false);
-    }
+  function openTask(nextTaskId: string) {
+    navigate(routeForView("audit", nextTaskId));
   }
 
-  const statusText = data && status === "哈希链：未校验" ? "哈希链：" + data.chain.message : status;
-  const statusTitle = data?.chain.ok ? "哈希链校验通过" : activeTamper ? "检测到模拟篡改" : "哈希链校验未通过";
-  const affectedBlockId = tamperEvent?.block?.id;
-
   return <PrototypePageFrame className="prototype-audit-page">
-    <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
-    <section className="prototype-card prototype-audit-card">
+    <RemoteState loading={routeLoading} error={routeError} onRetry={() => void remote.reload()} />
+    {routeData && remote.refreshError && <RemoteState error={remote.refreshError} onRetry={() => void remote.reload()} />}
+    {!remote.loading && !remote.error && list && <section className="prototype-card prototype-audit-card">
       <div className="prototype-card-heading">
         <PrototypeCardTitle>审计与存证中心</PrototypeCardTitle>
+        <div className="prototype-audit-actions"><button type="button" disabled={remote.refreshing} onClick={() => void remote.reload()}><RefreshCw size={13} />刷新</button></div>
+      </div>
+      <div className="prototype-audit-stats" aria-label="审计记录摘要">
+        <div className="prototype-audit-stat"><b>{list.total}</b><span>授权范围内记录</span></div>
+        <div className="prototype-audit-stat"><b>{list.reports.length}</b><span>本页审计报告</span></div>
+        <div className="prototype-audit-stat"><b>{list.page}</b><span>当前页</span></div>
+        <div className="prototype-audit-stat"><b>{totalPages}</b><span>总页数</span></div>
+      </div>
+      <div className="prototype-chain-status is-ok" role="status"><ShieldCheck size={17} aria-hidden="true" /> 当前仅展示本账号已获授任务范围内的真实审计记录；正式审计页保持只读。</div>
+      <div className="prototype-audit-columns">
+        <div><h4>审计流水</h4>{list.items.some((item) => item.record_type !== "AUDIT_REPORT") ? list.items.filter((item) => item.record_type !== "AUDIT_REPORT").map((item) => <AuditItem key={`${item.record_type}-${item.record_id}`} item={item} onOpenTask={openTask} />) : <div className="prototype-empty">当前页暂无审计流水</div>}</div>
+        <div><h4>审计报告</h4>{list.reports.length ? list.reports.map((item) => <AuditItem key={item.record_id} item={item} onOpenTask={openTask} />) : <div className="prototype-empty">当前页暂无审计报告</div>}</div>
+      </div>
+      <div className="prototype-audit-actions" aria-label="审计记录分页">
+        <button type="button" disabled={page <= 1 || remote.refreshing} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={13} />上一页</button>
+        <button type="button" disabled={page >= totalPages || remote.refreshing} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight size={13} /></button>
+      </div>
+    </section>}
+
+    {!remote.loading && !remote.error && detail && <section className="prototype-card prototype-audit-card">
+      <div className="prototype-card-heading">
+        <PrototypeCardTitle>{detail.task.task_name || "任务审计详情"}</PrototypeCardTitle>
         <div className="prototype-audit-actions">
-          <button type="button" disabled={busy} onClick={() => void run("tamper")}><AlertTriangle size={13} />模拟篡改</button>
-          <button type="button" disabled={busy} onClick={() => void run("restore")}><RotateCcw size={13} />恢复</button>
-          <button type="button" disabled={busy} onClick={() => void run("verify")}><ShieldCheck size={13} />验证链</button>
-          <button type="button" disabled={busy} onClick={() => void run("refresh")}><RefreshCw size={13} />刷新</button>
+          <button type="button" onClick={() => navigate(routeForView("audit"))}><ArrowLeft size={13} />返回审计列表</button>
+          <button type="button" disabled={remote.refreshing} onClick={() => void remote.reload()}><RefreshCw size={13} />刷新</button>
         </div>
       </div>
-      {error && <div className="prototype-error" role="alert">{error}</div>}
-      {data && <>
-        <div className="prototype-audit-stats">
-          <div className="prototype-audit-stat"><b>{data.metrics.total}</b><span>调用总数</span></div>
-          <div className="prototype-audit-stat"><b>{data.metrics.denied}</b><span>拒绝次数</span></div>
-          <div className="prototype-audit-stat"><b>{data.metrics.controlled}</b><span>受控提供</span></div>
-          <div className={"prototype-audit-stat " + (activeTamper ? "is-tampered" : "")}><b>{data.metrics.blocks}</b><span>存证区块</span>{activeTamper && <small>发现异常标记</small>}</div>
-        </div>
-        <div className={"prototype-chain-status " + (data.chain.ok ? "is-ok" : "is-failed")} role={data.chain.ok ? "status" : "alert"} aria-live="polite">
-          <span className="prototype-chain-status-icon" aria-hidden="true">{data.chain.ok ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
-          <div className="prototype-chain-status-copy">
-            <strong>{statusTitle}</strong>
-            <span>{statusText}</span>
-            {activeTamper && <small>已定位受影响存证区块，可查询操作主体与追踪信息。</small>}
-          </div>
-          {tamperEvent && <button type="button" className="prototype-chain-status-action" onClick={() => setSelectedTamper(tamperEvent)}><Search size={14} />{activeTamper ? "查看篡改区块信息" : "查看最近篡改记录"}<ChevronRight size={14} /></button>}
-        </div>
-        <div className="prototype-audit-columns">
-          <div>
-            <h4>审计流水</h4>
-            {data.records.length ? data.records.map((item) => <AuditItem key={item.id}>
-              <span className={"prototype-audit-action is-" + item.action}>{item.action_name}</span> · {item.subject} · {item.resource}
-              <small>{item.ts} · 追踪编号 {item.trace_id}</small>
-            </AuditItem>) : <div className="prototype-empty">暂无审计记录</div>}
-          </div>
-          <div>
-            <h4>存证区块（哈希链）</h4>
-            {data.blocks.length ? data.blocks.map((item) => {
-              const isTamperBlock = item.id === affectedBlockId;
-              const blockAccent = ["is-chain", isTamperBlock && activeTamper ? "is-tampered" : "", isTamperBlock && !activeTamper ? "is-tamper-history" : ""].filter(Boolean).join(" ");
-              return <AuditItem
-                key={item.id}
-                accent={blockAccent}
-                onClick={isTamperBlock && tamperEvent ? () => setSelectedTamper(tamperEvent) : undefined}
-                ariaLabel={isTamperBlock ? "查看篡改区块信息" : undefined}
-              >
-                <span className="prototype-audit-item-heading">
-                  <span>区块 #{item.height} · 存证 {item.id}</span>
-                  {isTamperBlock && <span className={"prototype-audit-item-badge " + (activeTamper ? "is-danger" : "is-restored")}>{activeTamper ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}{activeTamper ? "已标记篡改" : "曾发生篡改"}</span>}
-                </span>
-                <small>哈希 {item.hash.slice(0, 16)}… · 交易 {item.tx_hash.slice(0, 16)}…<br />{item.created_at}</small>
-                {isTamperBlock && <span className="prototype-audit-item-link"><Search size={13} />查看篡改区块信息<ChevronRight size={13} /></span>}
-              </AuditItem>;
-            }) : <div className="prototype-empty">暂无存证区块</div>}
-          </div>
-        </div>
-      </>}
-    </section>
-    {selectedTamper && <Sheet
-      open={Boolean(selectedTamper)}
-      onOpenChange={(open) => { if (!open) setSelectedTamper(null); }}
-      title="篡改区块信息"
-      className="trusted-utility-sheet prototype-tamper-sheet"
-    >
-      <div className="prototype-tamper-sheet-toolbar">
-        <button type="button" onClick={() => setSelectedTamper(null)}><X size={14} />关闭详情</button>
+      <div className="prototype-audit-stats" aria-label="任务审计摘要">
+        <div className="prototype-audit-stat"><b>{labelForCode(detail.task.ttc_state, "未登记")}</b><span>TTC 状态</span></div>
+        <div className="prototype-audit-stat"><b>{detail.audit_chain.length}</b><span>审计事件</span></div>
+        <div className="prototype-audit-stat"><b>{detail.evidence.length}</b><span>存证记录</span></div>
+        <div className="prototype-audit-stat"><b>{detail.execution_receipts.length}</b><span>执行回执</span></div>
       </div>
-      <div className={"prototype-tamper-detail " + (selectedTamper.active ? "is-active" : "is-restored")}>
-        <div className="prototype-tamper-detail-state">
-          <span aria-hidden="true">{selectedTamper.active ? <AlertTriangle size={20} /> : <CheckCircle2 size={20} />}</span>
-          <div>
-            <strong>{selectedTamper.active ? "发现模拟篡改标记" : "最近一次模拟篡改已恢复"}</strong>
-            <small>{selectedTamper.active ? "当前验证状态未通过，建议核查该审计事件。" : "链状态已恢复，该事件仍保留在审计流水中。"}</small>
-          </div>
-        </div>
-        <dl className="prototype-tamper-detail-grid">
-          <div><dt>操作主体</dt><dd>{valueOrFallback(selectedTamper.actor_name)}</dd></div>
-          <div><dt>主体账号</dt><dd><code>{valueOrFallback(selectedTamper.actor_user_id)}</code></dd></div>
-          <div><dt>主体组织</dt><dd><code>{valueOrFallback(selectedTamper.actor_org_id)}</code></dd></div>
-          <div><dt>操作时间</dt><dd>{selectedTamper.occurred_at}</dd></div>
-          <div><dt>关联区块</dt><dd>{selectedTamper.block ? "#" + selectedTamper.block.height + " · " + selectedTamper.block.id : "未关联存证区块"}</dd></div>
-          <div><dt>区块状态</dt><dd>{selectedTamper.block ? valueOrFallback(selectedTamper.block.status) : "未登记"}</dd></div>
-          <div><dt>追踪编号</dt><dd><code>{valueOrFallback(selectedTamper.trace_id)}</code></dd></div>
-          <div><dt>事件编号</dt><dd><code>{valueOrFallback(selectedTamper.event_id)}</code></dd></div>
-        </dl>
-        {selectedTamper.block && <div className="prototype-tamper-hashes">
-          <div><span>存证哈希</span><code>{selectedTamper.block.hash}</code></div>
-          <div><span>交易哈希</span><code>{selectedTamper.block.tx_hash}</code></div>
-        </div>}
-        <div className="prototype-tamper-boundary"><ShieldCheck size={15} /><span>{selectedTamper.note}</span></div>
+      <div className="prototype-chain-status is-ok" role="status"><FileCheck2 size={17} aria-hidden="true" /> 任务编号 <code>{detail.task.task_id}</code> · 业务状态 {labelForCode(detail.task.status, "未登记")}</div>
+      <div className="prototype-audit-columns">
+        <div><h4>真实证据与核验状态</h4>{detail.evidence.length ? detail.evidence.map((item) => <div className="prototype-audit-item is-chain" key={item.evidence_id}>
+          <span>{labelForCode(item.stage, "存证阶段")} · {labelForCode(item.status, "未登记状态")}</span>
+          <small>核验：{item.verification_status === "MATCHED" ? "摘要一致" : item.verification_status === "MISMATCH" ? "摘要不一致" : "尚无核验结论"}</small>
+          <small>证据摘要 <code title={item.evidence_hash || undefined}>{shortValue(item.evidence_hash)}</code>{item.tx_hash ? <> · 外部交易回执 <code title={item.tx_hash}>{shortValue(item.tx_hash)}</code></> : " · 未返回外部链回执"}</small>
+        </div>) : <div className="prototype-empty">该任务暂无存证记录</div>}</div>
+        <div><h4>企业连接器执行回执</h4>{detail.execution_receipts.length ? detail.execution_receipts.map((item) => <div className="prototype-audit-item" key={item.receipt_id}>
+          <span>{labelForCode(item.status, "未登记状态")} · 回执 <code title={item.receipt_id}>{shortValue(item.receipt_id)}</code></span>
+          <small>{formatDate(item.executed_at)} · 节点 {item.node_code || "未登记"}</small>
+          <small>请求摘要 <code title={item.request_hash || undefined}>{shortValue(item.request_hash)}</code> · 结果摘要 <code title={item.result_hash || undefined}>{shortValue(item.result_hash)}</code></small>
+          <small>{item.audit_event_verified ? "审计事件指针已校验（不代表全链连续性）" : "尚无审计事件指针校验结论"}</small>
+        </div>) : <div className="prototype-empty">该任务暂无企业连接器执行回执</div>}</div>
       </div>
-    </Sheet>}
+      <div className="prototype-audit-columns">
+        <div><h4>审计流水</h4>{detail.audit_chain.length ? detail.audit_chain.map((item) => <AuditItem key={item.record_id} item={item} onOpenTask={openTask} />) : <div className="prototype-empty">暂无任务审计流水</div>}</div>
+        <div><h4>TTC 状态迁移</h4>{detail.transitions.length ? detail.transitions.map((item, index) => <div className="prototype-audit-item" key={String(item.transition_id || index)}><span>{labelForCode(String(item.from_state || ""), "初始状态")} → {labelForCode(String(item.to_state || ""), "未登记状态")}</span><small>{formatDate(typeof item.occurred_at === "string" ? item.occurred_at : null)}</small></div>) : <div className="prototype-empty">暂无 TTC 状态迁移记录</div>}</div>
+      </div>
+    </section>}
   </PrototypePageFrame>;
 }

@@ -27,6 +27,14 @@ export const navItems = [
 
 export const primaryNavItems = navItems;
 
+export function safeDecodeRouteSegment(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 export function routeForView(key: TrustedViewKey, id?: string) {
   if (key === "asset") return id ? `${TRUSTED_BASE}/assets/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
   if (key === "apply") return id ? `${TRUSTED_BASE}/apply/${encodeURIComponent(id)}` : `${TRUSTED_BASE}/catalog`;
@@ -59,7 +67,8 @@ export function isKnownTrustedPath(pathname: string): boolean {
   if (pathname === TRUSTED_BASE || pathname === `${TRUSTED_BASE}/`) return true;
   if (!pathname.startsWith(`${TRUSTED_BASE}/`)) return false;
   const suffix = pathname.slice(`${TRUSTED_BASE}/`.length);
-  return /^(workbench|query|identity|catalog|connector|authorizations|assets(?:\/[^/]+)?|apply(?:\/[^/]+)?|contracts(?:\/[^/]+)?|ttc(?:\/[^/]+)?|mpc(?:\/[^/]+)?|results(?:\/[^/]+)?|audit(?:\/tasks\/[^/]+)?)$/.test(suffix);
+  return /^(workbench|query|identity|catalog|connector|authorizations|assets(?:\/[^/]+)?|apply(?:\/[^/]+)?|contracts(?:\/[^/]+)?|ttc(?:\/[^/]+)?|mpc(?:\/[^/]+)?|results(?:\/[^/]+)?|audit(?:\/tasks\/[^/]+)?)$/.test(suffix)
+    && suffix.split("/").every((segment) => safeDecodeRouteSegment(segment) !== undefined);
 }
 
 export function trustedEntityId(pathname: string, segment: "assets" | "apply" | "contracts" | "ttc" | "mpc" | "results" | "audit") {
@@ -67,12 +76,12 @@ export function trustedEntityId(pathname: string, segment: "assets" | "apply" | 
     const prefix = `${TRUSTED_BASE}/audit/tasks/`;
     if (!pathname.startsWith(prefix)) return undefined;
     const value = pathname.slice(prefix.length).split("/")[0];
-    return value ? decodeURIComponent(value) : undefined;
+    return value ? safeDecodeRouteSegment(value) : undefined;
   }
   const prefix = `${TRUSTED_BASE}/${segment}/`;
   if (!pathname.startsWith(prefix)) return undefined;
   const value = pathname.slice(prefix.length).split("/")[0];
-  return value ? decodeURIComponent(value) : undefined;
+  return value ? safeDecodeRouteSegment(value) : undefined;
 }
 
 export function getTrustedView(pathname: string): TrustedViewKey {

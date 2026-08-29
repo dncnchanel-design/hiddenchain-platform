@@ -288,7 +288,7 @@ def test_quick_action_codes_and_ttc_scope_are_stable(client, auth_headers):
         "/api/trust-space/workbench", headers=auth_headers["exchange"]
     ).json()
     exchange_actions = {item["code"]: item for item in exchange["quick_action_items"]}
-    assert exchange_actions["CREATE_SETTLEMENT"]["path"] == "/settlements/new"
+    assert exchange_actions["CREATE_SETTLEMENT"]["path"] == "/trusted-space/mpc/new"
     assert exchange_actions["VIEW_PENDING_AUDIT"]["path"].startswith("/trusted-space/audit")
 
     admin = client.get(

@@ -1,5 +1,19 @@
 # Workstreams and File Ownership
 
+## Current comprehensive system upgrade release candidate — 2026-08-29
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Cross-role product completion | Main agent; all platform and Trusted Space routes plus authenticated FastAPI services | Persisted APIs, scoped pagination, deterministic states, retry/error handling and truthful capability labels | VERIFIED_LOCAL |
+| Trusted query and connector trust | Main agent; connector, query router, production restart guard and receipt model | Exact version/request/org binding, Ed25519 key fingerprint/rings, durable audit pointer, V2 replay, legacy read-only verification and metadata-only ingestion | VERIFIED_LOCAL |
+| Production Agent initialization | Independent version reviewer plus main agent; strict manifest, CLI, Tool catalog and deployment docs | Blank-volume provisioning, issuer/identity/grant conflict rollback, idempotency and readiness; 10 focused tests | VERIFIED_LOCAL |
+| Settlement and concurrency | Main agent; TTC attempts/snapshots/results, outbox and scoped audit paths | Historical attempts validate against their own snapshots; current pointer remains exact; CAS/fencing and pagination regressions included in full suite | VERIFIED_LOCAL |
+| Frontend usability and layout | Main agent; desktop and 390×844 browser review across business, regulator and admin roles | No text collision, overflow, overlap or horizontal page overflow; 149 tests, lint/typecheck/build and visual guards pass | VERIFIED_LOCAL |
+| Release safety | Independent production, configuration and publish reviewers; Git/Docker/Windows/Render boundaries | P0=0, P1=0; 323-test backend suite, 13 connector tests, static guards, secret exclusions and eight-service blueprint pass | READY_FOR_SYNC |
+| Publication | Main agent only | Same non-force commit must reach both GitHub branches, pass Actions and be reported by all eight Render services | IN_PROGRESS |
+
+Raw databases, Vault contents, secrets, logs, screenshots and runtime state are outside the publication boundary. Render is explicitly demo/review infrastructure and cannot be used as production evidence.
+
 ## Current privacy-proof and evidence-anchor batch — 2026-08-26
 
 | Workstream | Execution boundary | Evidence | Status |
@@ -199,3 +213,29 @@ Render 仍是公开演示/评审环境，不代表生产部署；企业交付后
 | Electricity/oil application channel | Business users cannot create electricity↔oil access requests; regulator exception remains explicit | `usage_domain_pair_is_closed`, `CROSS_ENERGY_APPLICATION_DISABLED` regression test | VERIFIED_LOCAL |
 | Approval to controlled settlement | Approved usage continues to require provider authorization, data commitment and usage-control gates before controlled execution | Existing settlement workflow gates plus full backend regression | VERIFIED_LOCAL |
 | GitHub and Render release | Main agent retains commit, push and Render deployment ownership | GitHub `main`/`agent/deep-brand-green` and Render review service passed version, health and energy-domain rule smoke checks | PUBLISHED_REVIEW_TEST |
+
+## 2026-08-29 全系统升级当前工作流
+
+| 工作流 | Owner / 独占范围 | 依赖 | 状态 |
+| --- | --- | --- | --- |
+| 协调与发布 | `/root`；设计/计划、共享配置、进度账本、最终 Git/GitHub/Render | 全部工作流 | IN_PROGRESS |
+| 生产路由边界 | `/root/backend_baseline`；`prototype.py`、`main.py`、相关后端测试 | 阶段 0 后端基线 | IN_PROGRESS |
+| 前端拆包与错误恢复 | `/root/frontend_baseline`；可信空间 shell、Workbench ECharts、路由错误边界及测试 | 阶段 0 前端基线 | IN_PROGRESS |
+| 秘密/生产配置 | `/root`；ignore、production guard、production compose、Render 配置 | 路由边界合并后 | PENDING |
+| 连接器本地接入 | 待当前并行槽释放后分配 | 阶段 1 安全边界 | PENDING |
+| 最终验证与发布 | 仅 `/root` 可执行 commit、push、Render 部署和发布账本收敛 | 全量测试与审查 | PENDING |
+
+共享规则：不覆盖用户现有五个 tracked 修改；不提交运行数据库、Vault、密钥、截图或临时工件；原始载荷处置未经用户单独授权不执行。
+
+## 2026-08-29 全系统升级最终候选
+
+| 工作流 | 验收证据 | 状态 |
+| --- | --- | --- |
+| 后端业务与安全边界 | 270 passed、1 optional dependency skip；production guard、compileall、`pip check` 通过 | VERIFIED_LOCAL |
+| 企业连接器 | 7 类主体部署配置；13 项连接器测试、compileall、签名与浏览器直连联调通过 | VERIFIED_LOCAL |
+| 前端功能与版式 | 149 tests、ESLint、TypeScript、生产/品牌守卫、Vite build；桌面与 390×844 多角色浏览器 QA 通过 | VERIFIED_LOCAL |
+| 发布卫生 | 敏感文件扫描、Compose 解析、Render YAML 解析、PowerShell AST、Windows 包逐文件哈希和 SHA256 通过 | VERIFIED_LOCAL |
+| GitHub 同步 | 仅允许审核白名单文件；工作分支与 `main` 非强制收敛到同一待创建提交 | READY_FOR_SYNC |
+| Render 评审环境 | 8 个服务声明 `main` + `checksPass`；待 GitHub 全绿后核对 Deployment SHA、平台版本与 7 个连接器健康 | READY_FOR_SYNC |
+
+原始 Vault 与运行数据库继续留在本机并排除，不属于本次 GitHub、Render 或 Windows 交付范围。

@@ -46,11 +46,13 @@ services:
       OPA_POLICY_PATH: /v1/data/hiddenchain/decision
       OPA_TIMEOUT_SECONDS: "1.0"
       OPA_LOCAL_FALLBACK: "true"
+      DEMO_BUSINESS_SEED: "true"
       EXECUTION_POLICY_PATH: /app/policy/energy_execution_policy.json
       EXECUTION_AUDIT_WORKERS: "2"
       CONNECTOR_TIMEOUT_SECONDS: "60"
       CONNECTOR_ENDPOINTS_JSON: '{"electricity":"http://electricity-connector:8000","coal":"http://coal-connector:8000","heat":"http://heat-connector:8000","gas":"http://gas-connector:8000","oil":"http://oil-connector:8000"}'
       SUBJECT_NODE_ENDPOINTS_JSON: '{"org-generator-t01":"http://electricity-connector:8000","org-retailer-t01":"http://electricity-retailer-connector:8000","org-exchange-t01":"http://electricity-exchange-connector:8000","org-coal-t01":"http://coal-connector:8000","org-heat-t01":"http://heat-connector:8000","org-gas-t01":"http://gas-connector:8000","org-oil-t01":"http://oil-connector:8000"}'
+      SUBJECT_NODE_BROWSER_ENDPOINTS_JSON: '{"org-generator-t01":"http://127.0.0.1:8101","org-retailer-t01":"http://127.0.0.1:8106","org-exchange-t01":"http://127.0.0.1:8107","org-coal-t01":"http://127.0.0.1:8102","org-heat-t01":"http://127.0.0.1:8103","org-gas-t01":"http://127.0.0.1:8104","org-oil-t01":"http://127.0.0.1:8105"}'
       CONNECTOR_PUBLIC_KEYS_JSON: '{}'
       DEEPSEEK_ENABLED: "false"
     volumes:
@@ -67,7 +69,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:8080"
 
   electricity-connector:
     build:
@@ -76,11 +78,15 @@ services:
     environment:
       ENERGY_DOMAIN: electricity
       CONNECTOR_NAME: 电力企业连接器
-      CONNECTOR_ID: connector-electricity
+      CONNECTOR_ID: local-node-org-generator-t01
       ORGANIZATION_ID: org-generator-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/electricity.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8101:8000"
     volumes:
       - electricity-connector-runtime:/app/runtime
     healthcheck: &connector-health
@@ -96,11 +102,15 @@ services:
     environment:
       ENERGY_DOMAIN: coal
       CONNECTOR_NAME: 煤炭企业连接器
-      CONNECTOR_ID: connector-coal
+      CONNECTOR_ID: local-node-org-coal-t01
       ORGANIZATION_ID: org-coal-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/coal.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${COAL_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8102:8000"
     volumes:
       - coal-connector-runtime:/app/runtime
     healthcheck: *connector-health
@@ -112,11 +122,15 @@ services:
     environment:
       ENERGY_DOMAIN: heat
       CONNECTOR_NAME: 热能企业连接器
-      CONNECTOR_ID: connector-heat
+      CONNECTOR_ID: local-node-org-heat-t01
       ORGANIZATION_ID: org-heat-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/heat.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${HEAT_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8103:8000"
     volumes:
       - heat-connector-runtime:/app/runtime
     healthcheck: *connector-health
@@ -128,11 +142,15 @@ services:
     environment:
       ENERGY_DOMAIN: gas
       CONNECTOR_NAME: 天然气企业连接器
-      CONNECTOR_ID: connector-gas
+      CONNECTOR_ID: local-node-org-gas-t01
       ORGANIZATION_ID: org-gas-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/gas.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${GAS_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8104:8000"
     volumes:
       - gas-connector-runtime:/app/runtime
     healthcheck: *connector-health
@@ -144,11 +162,15 @@ services:
     environment:
       ENERGY_DOMAIN: oil
       CONNECTOR_NAME: 石油企业连接器
-      CONNECTOR_ID: connector-oil
+      CONNECTOR_ID: local-node-org-oil-t01
       ORGANIZATION_ID: org-oil-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/oil.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${OIL_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8105:8000"
     volumes:
       - oil-connector-runtime:/app/runtime
     healthcheck: *connector-health
@@ -161,10 +183,14 @@ services:
       ENERGY_DOMAIN: electricity
       ORGANIZATION_ID: org-retailer-t01
       CONNECTOR_NAME: 售电企业本地节点
-      CONNECTOR_ID: node-org-retailer-t01
+      CONNECTOR_ID: local-node-org-retailer-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/retailer.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_RETAILER_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8106:8000"
     volumes:
       - electricity-retailer-connector-runtime:/app/runtime
     healthcheck: *connector-health
@@ -177,10 +203,14 @@ services:
       ENERGY_DOMAIN: electricity
       ORGANIZATION_ID: org-exchange-t01
       CONNECTOR_NAME: 电力交易中心本地节点
-      CONNECTOR_ID: node-org-exchange-t01
+      CONNECTOR_ID: local-node-org-exchange-t01
       CONNECTOR_DATABASE_PATH: /app/runtime/exchange.db
       CONNECTOR_SIGNING_PRIVATE_KEY: ${ELECTRICITY_EXCHANGE_CONNECTOR_SIGNING_PRIVATE_KEY}
       ALLOW_DEMO_KEY_REGISTRATION: "true"
+      CONNECTOR_SEED_SYNTHETIC_DATA: "true"
+      CONNECTOR_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8107:8000"
     volumes:
       - electricity-exchange-connector-runtime:/app/runtime
     healthcheck: *connector-health

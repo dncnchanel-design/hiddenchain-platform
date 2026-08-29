@@ -1,4 +1,4 @@
-import { ApiError, api, downloadBlob, post, postForm, type ApiCommandOptions } from "../../api";
+import { ApiError, api, post, type ApiCommandOptions } from "../../api";
 
 export type CapabilityEnvelope = {
   capability_state?: string;
@@ -507,10 +507,111 @@ export type PrototypeQueryPayload = {
   raw_data_returned: boolean;
 };
 
-export type PrototypeResource = { id: string; name: string; level: string; connector: string; rows: number; version?: number };
-export type PrototypeConnectorPayload = {
-  connectors: Array<{ id: string; name: string; available: boolean }>;
-  resources: PrototypeResource[];
+export type ConnectorEnergyDomain = "electricity" | "coal" | "heat" | "gas" | "oil";
+export type ConnectorClassification = "L1" | "L2" | "L3";
+
+export type ConnectorCatalogResource = {
+  resource_id: string;
+  resource_name: string;
+  unit: string;
+  schema_version: string;
+  required_columns: string[];
+  optional_columns: string[];
+  current_version: number | null;
+  record_count: number | null;
+  status: string;
+};
+
+export type ConnectorCatalogPayload = {
+  connector: {
+    connector_id: string;
+    organization_id: string;
+    organization_name: string;
+    energy_domain: ConnectorEnergyDomain;
+    endpoint: string;
+    status: string;
+    capability_state: string;
+  };
+  resources: ConnectorCatalogResource[];
+  upload_contract: {
+    mode: string;
+    file_format: "csv";
+    max_bytes: number;
+    ticket_lifetime_seconds: number;
+  };
+};
+
+export type ConnectorTicket = {
+  claims: {
+    iss: "hiddenchain-platform";
+    jti: string;
+    subject_user_id: string;
+    organization_id: string;
+    connector_id: string;
+    energy_domain: ConnectorEnergyDomain;
+    resource_id: string;
+    resource_name: string;
+    classification: ConnectorClassification;
+    schema_version: "connector-csv-v1";
+    file_format: "csv";
+    max_bytes: number;
+    purpose: "LOCAL_DATASET_INGEST";
+    issued_at: number;
+    expires_at: number;
+  };
+  signature: string;
+  public_key: string;
+  algorithm: "Ed25519";
+};
+
+export type ConnectorTicketPayload = {
+  ticket: ConnectorTicket;
+  upload_url: string;
+  receipt_lookup_url: string;
+  connector: {
+    connector_id: string;
+    organization_id: string;
+    energy_domain: ConnectorEnergyDomain;
+  };
+};
+
+export type ConnectorSignedReceipt = {
+  receipt_id: string;
+  ticket_id: string;
+  connector_id: string;
+  organization_id: string;
+  energy_domain: string;
+  resource_id: string;
+  resource_name: string;
+  version: number;
+  schema_version: string;
+  schema_hash: string;
+  content_hash: string;
+  record_count: number;
+  byte_size: number;
+  local_ref: string;
+  audit_sequence: number;
+  audit_hash: string;
+  issued_at: string;
+  signature: string;
+  public_key: string;
+  signature_algorithm: "Ed25519";
+  signature_valid: true;
+};
+
+export type ConnectorReceiptPayload = {
+  ticket_id: string;
+  status: string;
+  receipt_id: string | null;
+  connector_id?: string;
+  organization_id?: string;
+  energy_domain?: string;
+  resource_id?: string;
+  resource_name?: string;
+  registered_at?: string;
+  asset?: { asset_id: string; asset_version_id: string; version: number };
+  raw_data_centrally_stored: false;
+  idempotent_replay?: boolean;
 };
 
 export type PrototypePolicyRule = { role: string; purposes: string[]; action: string; fields: string[]; min_granularity?: string | null; delay_hours?: number | null; rule_id?: string };
@@ -582,8 +683,71 @@ export type ControlledQueryResult = {
     raw_records_returned?: boolean;
     raw_data_exported?: boolean;
   };
+  connector_audit?: {
+    status?: string;
+    pointer_verified?: boolean;
+    event_hash_verified?: boolean;
+    verification_scope?: "SINGLE_SIGNED_EVENT_POINTER" | string;
+    sequence?: number;
+    previous_hash?: string;
+    audit_hash?: string;
+  };
   idempotent_replay?: boolean;
 };
+
+export type TrustedQueryTaskStatus = "QUEUED" | "RUNNING" | "PENDING_RETRY" | "SUCCEEDED" | "FAILED";
+
+export type TrustedQueryTask = {
+  task_id: string;
+  status: TrustedQueryTaskStatus;
+  status_url: string;
+  result_url: string | null;
+  attempt: number;
+  max_attempts: number;
+  failure_code: string | null;
+  failure_summary: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  idempotent_replay: boolean;
+};
+
+const TRUSTED_QUERY_TASK_STATUSES = new Set<TrustedQueryTaskStatus>([
+  "QUEUED",
+  "RUNNING",
+  "PENDING_RETRY",
+  "SUCCEEDED",
+  "FAILED",
+]);
+
+function trustedQueryTaskPayload(value: unknown): TrustedQueryTask {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("可信查询任务状态响应格式无效", 502, undefined, { code: "TRUSTED_QUERY_TASK_INVALID" });
+  }
+  const task = value as Record<string, unknown>;
+  const status = task.status;
+  const nullableStrings = ["failure_code", "failure_summary", "created_at", "started_at", "completed_at"];
+  const valid = typeof task.task_id === "string"
+    && task.task_id.length > 0
+    && typeof status === "string"
+    && TRUSTED_QUERY_TASK_STATUSES.has(status as TrustedQueryTaskStatus)
+    && typeof task.status_url === "string"
+    && task.status_url.length > 0
+    && (task.result_url === null || typeof task.result_url === "string")
+    && typeof task.attempt === "number"
+    && Number.isInteger(task.attempt)
+    && task.attempt >= 0
+    && typeof task.max_attempts === "number"
+    && Number.isInteger(task.max_attempts)
+    && task.max_attempts > 0
+    && nullableStrings.every((field) => task[field] === null || typeof task[field] === "string")
+    && typeof task.idempotent_replay === "boolean"
+    && (status === "SUCCEEDED" ? typeof task.result_url === "string" && task.result_url.length > 0 : task.result_url === null);
+  if (!valid) {
+    throw new ApiError("可信查询任务状态响应格式无效", 502, undefined, { code: "TRUSTED_QUERY_TASK_INVALID" });
+  }
+  return task as TrustedQueryTask;
+}
 
 export type OrganizationRef = {
   org_id: string;
@@ -870,6 +1034,7 @@ export type ResultEvidence = {
   block_height?: number | null;
   chain_code?: string | null;
   status?: string | null;
+  verification_status?: "MATCHED" | "MISMATCH" | string | null;
   external_receipt_verified?: boolean;
   external_publication?: boolean;
 };
@@ -948,6 +1113,7 @@ export type AuditListPayload = CapabilityEnvelope & {
   total: number;
   page: number;
   page_size: number;
+  empty_state: boolean;
 };
 
 export type AuditTaskPayload = CapabilityEnvelope & {
@@ -962,6 +1128,19 @@ export type AuditTaskPayload = CapabilityEnvelope & {
   transitions: Array<Record<string, unknown>>;
   reports: Array<Record<string, unknown>>;
   evidence: ResultEvidence[];
+  execution_receipts: Array<{
+    receipt_id: string;
+    provider_org_id?: string | null;
+    request_hash?: string | null;
+    result_hash?: string | null;
+    node_code?: string | null;
+    status?: string | null;
+    executed_at?: string | null;
+    audit_sequence?: number | null;
+    previous_audit_hash?: string | null;
+    connector_audit_hash?: string | null;
+    audit_event_verified?: boolean;
+  }>;
 };
 
 export type AssistantSession = CapabilityEnvelope & {
@@ -1198,16 +1377,160 @@ export function askPrototypeQuery(text: string, options: ApiCommandOptions = {})
   return post<PrototypeQueryPayload>("/prototype/query", { text }, options);
 }
 
-export function loadPrototypeConnector(signal?: AbortSignal) {
-  return api<PrototypeConnectorPayload>("/prototype/connector", { signal, cacheTtlMs: 1_500 });
+export function loadConnectorCatalog(signal?: AbortSignal) {
+  return api<ConnectorCatalogPayload>("/trust-space/connectors/catalog", { signal, cache: "no-store" });
 }
 
-export function uploadPrototypeResource(connector: string, form: FormData, options: ApiCommandOptions = {}) {
-  return postForm<{ resource: PrototypeResource; status: string; evidence_id: string }>(`/prototype/connector/${encodeURIComponent(connector)}/resources/upload`, form, options);
+export function issueConnectorUploadTicket(
+  resourceId: string,
+  classification: ConnectorClassification,
+  options: ApiCommandOptions = {},
+) {
+  return post<ConnectorTicketPayload>("/trust-space/connectors/tickets", {
+    resource_id: resourceId,
+    classification,
+  }, options);
 }
 
-export function downloadPrototypeSample(options: ApiCommandOptions = {}) {
-  return downloadBlob("/prototype/connector/sample.csv", options);
+export function registerConnectorReceipt(receipt: ConnectorSignedReceipt, options: ApiCommandOptions = {}) {
+  return post<ConnectorReceiptPayload>("/trust-space/connectors/receipts", receipt, options);
+}
+
+export function loadConnectorReceipt(ticketId: string, signal?: AbortSignal) {
+  return api<ConnectorReceiptPayload>(`/trust-space/connectors/receipts/${encodeURIComponent(ticketId)}`, {
+    signal,
+    cache: "no-store",
+  });
+}
+
+const CONNECTOR_DIRECT_TIMEOUT_MS = 60_000;
+
+function connectorEndpoint(value: string): string {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) throw new Error("unsafe URL");
+    return url.toString();
+  } catch {
+    throw new ApiError("企业连接器地址配置无效，请联系管理员", 503, undefined, { code: "CONNECTOR_ENDPOINT_INVALID" });
+  }
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof Error && reason.name === "AbortError";
+}
+
+function connectorHttpError(status: number, operation: "upload" | "lookup"): ApiError {
+  if (operation === "lookup" && status === 404) {
+    return new ApiError("连接器尚未生成该票据的签名回执，请稍后再试；请勿重复上传", 404, undefined, { code: "CONNECTOR_RECEIPT_PENDING" });
+  }
+  if (operation === "lookup" && (status === 400 || status === 422)) {
+    return new ApiError("签名回执补查凭证未通过连接器校验，请刷新目录后重试", status, undefined, { code: "CONNECTOR_TICKET_INVALID" });
+  }
+  if (status === 400 || status === 413 || status === 422) {
+    return new ApiError("CSV 未通过企业连接器校验，请核对列名、格式和数据内容", status, undefined, { code: "CONNECTOR_VALIDATION" });
+  }
+  if (status === 401 || status === 403 || status === 410) {
+    return new ApiError("一次性上传凭证无效、已过期或不属于当前连接器，请重新获取", status, undefined, { code: "CONNECTOR_TICKET_INVALID" });
+  }
+  if (status === 409) {
+    return new ApiError("该一次性上传凭证可能已使用，请先恢复签名回执；请勿重复上传", status, undefined, { code: "CONNECTOR_TICKET_USED" });
+  }
+  if (status >= 500) {
+    return new ApiError("企业连接器暂时离线或不可用，请稍后重试", status, undefined, { code: "CONNECTOR_UNAVAILABLE" });
+  }
+  return new ApiError("企业连接器拒绝了本次请求，请刷新目录后重试", status, undefined, { code: "CONNECTOR_REQUEST_REJECTED" });
+}
+
+function isConnectorSignedReceipt(value: unknown): value is ConnectorSignedReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Record<string, unknown>;
+  const stringFields = [
+    "receipt_id", "ticket_id", "connector_id", "organization_id", "energy_domain", "resource_id",
+    "resource_name", "schema_version", "schema_hash", "content_hash", "local_ref", "audit_hash",
+    "issued_at", "signature", "public_key",
+  ];
+  return stringFields.every((field) => typeof receipt[field] === "string" && receipt[field] !== "")
+    && ["version", "record_count", "byte_size", "audit_sequence"].every((field) => typeof receipt[field] === "number")
+    && receipt.signature_algorithm === "Ed25519"
+    && receipt.signature_valid === true;
+}
+
+async function directConnectorReceipt(
+  urlValue: string,
+  init: RequestInit,
+  operation: "upload" | "lookup",
+  expectedStatus: number,
+  signal?: AbortSignal,
+): Promise<ConnectorSignedReceipt> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, CONNECTOR_DIRECT_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  try {
+    const response = await fetch(connectorEndpoint(urlValue), {
+      ...init,
+      signal: controller.signal,
+      credentials: "omit",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    });
+    if (response.status !== expectedStatus) throw connectorHttpError(response.status, operation);
+    if (!response.headers.get("Content-Type")?.toLowerCase().includes("application/json")) {
+      throw new ApiError("企业连接器返回格式无效，未登记任何中央元数据", 502, undefined, { code: "CONNECTOR_INVALID_RESPONSE" });
+    }
+    let value: unknown;
+    try {
+      value = await response.json();
+    } catch {
+      throw new ApiError("企业连接器返回格式无效，未登记任何中央元数据", 502, undefined, { code: "CONNECTOR_INVALID_RESPONSE" });
+    }
+    if (!isConnectorSignedReceipt(value)) {
+      throw new ApiError("企业连接器返回的签名回执不完整，未登记任何中央元数据", 502, undefined, { code: "CONNECTOR_INVALID_RECEIPT" });
+    }
+    return value;
+  } catch (reason) {
+    if (reason instanceof ApiError) throw reason;
+    if (isAbortError(reason)) {
+      if (timedOut) throw new ApiError("企业连接器响应超时，请稍后恢复签名回执；请勿重复上传", 408, undefined, { code: "CONNECTOR_TIMEOUT" });
+      throw reason;
+    }
+    if (reason instanceof TypeError) {
+      throw new ApiError("浏览器无法直连企业连接器，请确认连接器在线且已允许当前站点跨域访问", 503, undefined, { code: "CONNECTOR_NETWORK_OR_CORS" });
+    }
+    throw new ApiError("企业连接器请求失败，请稍后重试", 503, undefined, { code: "CONNECTOR_UNAVAILABLE" });
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
+export function uploadConnectorCsv(
+  uploadUrl: string,
+  ticket: ConnectorTicket,
+  file: File,
+  signal?: AbortSignal,
+) {
+  const form = new FormData();
+  form.append("ticket", JSON.stringify(ticket));
+  form.append("file", file);
+  return directConnectorReceipt(uploadUrl, { method: "POST", body: form }, "upload", 201, signal);
+}
+
+export function lookupConnectorReceipt(
+  receiptLookupUrl: string,
+  ticket: ConnectorTicket,
+  signal?: AbortSignal,
+) {
+  return directConnectorReceipt(receiptLookupUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ticket),
+  }, "lookup", 200, signal);
 }
 
 export function loadPrototypePolicy(signal?: AbortSignal) {
@@ -1248,8 +1571,8 @@ export function confirmTrustedQuery(body: {
   end_date: string;
   region?: string;
   decimals: number;
-}) {
-  return post<QueryConfirmation>("/trust-space/query/confirm", body);
+}, signal?: AbortSignal) {
+  return post<QueryConfirmation>("/trust-space/query/confirm", body, { signal });
 }
 
 export function executeTrustedQuery(body: {
@@ -1266,8 +1589,28 @@ export function executeTrustedQuery(body: {
   group_by?: string;
   decimals: number;
   confirmation_token: string;
-}) {
-  return post<ControlledQueryResult>("/trust-space/query/execute", body);
+}, idempotencyKey: string, signal?: AbortSignal) {
+  return post<unknown>("/trust-space/query/execute", body, {
+    idempotencyKey,
+    signal,
+    timeoutMs: 20_000,
+  }).then(trustedQueryTaskPayload);
+}
+
+export function loadTrustedQueryTask(taskId: string, signal?: AbortSignal) {
+  return api<unknown>(`/trust-space/query/tasks/${encodeURIComponent(taskId)}`, {
+    signal,
+    cache: "no-store",
+    retry: 0,
+  }).then(trustedQueryTaskPayload);
+}
+
+export function loadTrustedQueryResult(taskId: string, signal?: AbortSignal) {
+  return api<ControlledQueryResult>(`/trust-space/query/tasks/${encodeURIComponent(taskId)}/result`, {
+    signal,
+    cache: "no-store",
+    retry: 0,
+  });
 }
 
 export type UsageRequestAction = "review" | "approve" | "reject" | "withdraw" | "revoke";
@@ -1368,8 +1711,8 @@ export function controlComputation(
   );
 }
 
-export function loadResults(params: { page?: number; pageSize?: number }, signal?: AbortSignal) {
-  return api<ResultListPayload>(`/trust-space/results${queryString({ page: params.page ?? 1, page_size: params.pageSize ?? 20 })}`, { signal, cacheTtlMs: 1_500 });
+export function loadResults(params: { page?: number; pageSize?: number; taskId?: string }, signal?: AbortSignal) {
+  return api<ResultListPayload>(`/trust-space/results${queryString({ page: params.page ?? 1, page_size: params.pageSize ?? 20, task_id: params.taskId })}`, { signal, cacheTtlMs: 1_500 });
 }
 
 export function loadResult(resultId: string, signal?: AbortSignal) {

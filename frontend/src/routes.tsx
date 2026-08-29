@@ -1,60 +1,29 @@
-import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import { retryableLazyNamed, type RetryableLazyComponent } from "./components/RetryableLazy";
+import { LoginPage } from "./pages/LoginPage";
 
-type Loader = () => Promise<Record<string, unknown>>;
-type LazyPage<P = any> = LazyExoticComponent<ComponentType<P>> & { preload: () => Promise<unknown> };
-function lazyNamed<P>(loader: Loader, exportName: string): LazyPage<P> {
-  let promise: Promise<{ default: ComponentType<P> }> | undefined;
-  const load = () => {
-    promise ||= loader().then((module) => ({ default: module[exportName] as ComponentType<P> }));
-    return promise;
-  };
-  const component = lazy(load) as LazyPage<P>;
-  component.preload = load;
-  return component;
-}
+type LazyPage = RetryableLazyComponent;
+
+const eagerLoginPage = Object.assign(LoginPage, {
+  preload: () => Promise.resolve(LoginPage),
+}) satisfies RetryableLazyComponent;
 
 export const pages = {
-  agents: lazyNamed(() => import("./pages/AgentsPage"), "AgentsPage"),
-  anomalies: lazyNamed(() => import("./pages/AnomaliesPage"), "AnomaliesPage"),
-  audit: lazyNamed(() => import("./pages/AuditPage"), "AuditPage"),
-  compute: lazyNamed(() => import("./pages/ComputePage"), "ComputePage"),
-  dataSpace: lazyNamed(() => import("./pages/DataSpacePage"), "DataSpacePage"),
-  evidence: lazyNamed(() => import("./pages/EvidencePage"), "EvidencePage"),
-  login: lazyNamed(() => import("./pages/LoginPage"), "LoginPage"),
-  logs: lazyNamed(() => import("./pages/LogsPage"), "LogsPage"),
-  metrics: lazyNamed(() => import("./pages/MetricsPage"), "MetricsPage"),
-  overview: lazyNamed(() => import("./pages/OverviewPage"), "OverviewPage"),
-  reports: lazyNamed(() => import("./pages/ReportsPage"), "ReportsPage"),
-  results: lazyNamed(() => import("./pages/ResultsPage"), "ResultsPage"),
-  rules: lazyNamed(() => import("./pages/RulesPage"), "RulesPage"),
-  settlement: lazyNamed(() => import("./pages/SettlementPage"), "SettlementPage"),
-  settlementCreate: lazyNamed(() => import("./pages/SettlementCreatePage"), "SettlementCreatePage"),
-  settlementDetail: lazyNamed(() => import("./pages/SettlementDetailPage"), "SettlementDetailPage"),
-  system: lazyNamed(() => import("./pages/SystemPage"), "SystemPage"),
-  trustedExecution: lazyNamed(() => import("./pages/TrustedExecutionPage"), "TrustedExecutionPage"),
-  workbench: lazyNamed(() => import("./pages/WorkbenchPage"), "WorkbenchPage"),
-  trustedSpace: lazyNamed(() => import("./features/trusted-energy/layout/TrustedSpaceShell"), "TrustedSpaceShell"),
+  agents: retryableLazyNamed(() => import("./pages/AgentsPage"), "AgentsPage"),
+  // Authentication is the boot path and must never depend on an async route chunk.
+  login: eagerLoginPage,
+  logs: retryableLazyNamed(() => import("./pages/LogsPage"), "LogsPage"),
+  metrics: retryableLazyNamed(() => import("./pages/MetricsPage"), "MetricsPage"),
+  overview: retryableLazyNamed(() => import("./pages/OverviewPage"), "OverviewPage"),
+  system: retryableLazyNamed(() => import("./pages/SystemPage"), "SystemPage"),
+  trustedSpace: retryableLazyNamed(() => import("./features/trusted-energy/layout/TrustedSpaceShell"), "TrustedSpaceShell"),
 };
 
 const routePages: Array<[string, LazyPage]> = [
   ["/agents", pages.agents],
-  ["/anomalies", pages.anomalies],
-  ["/audit", pages.audit],
-  ["/compute", pages.compute],
-  ["/data-space", pages.dataSpace],
-  ["/evidence", pages.evidence],
   ["/logs", pages.logs],
   ["/metrics", pages.metrics],
   ["/overview", pages.overview],
-  ["/reports", pages.reports],
-  ["/results", pages.results],
-  ["/rules", pages.rules],
-  ["/settlements/new", pages.settlementCreate],
-  ["/settlements/", pages.settlementDetail],
-  ["/settlements", pages.settlement],
   ["/system", pages.system],
-  ["/trusted-execution", pages.trustedExecution],
-  ["/workbench", pages.workbench],
 ];
 
 export function preloadRoute(path: string) {

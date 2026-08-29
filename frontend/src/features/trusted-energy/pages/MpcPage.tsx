@@ -3,7 +3,7 @@ import { ArrowRight, CheckCircle2, Cpu, Link2, Network, Plus, Radio, RefreshCw, 
 import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError, createIdempotencyKey, shortHash } from "../../../api";
 import { useAuth } from "../../../auth";
-import { useRemote } from "../../../hooks";
+import { commandPollingRetryDelay, MAX_CONSECUTIVE_POLLING_FAILURES, shouldRetryCommandPolling, shouldStopCommandPolling, useRemote, useScopedRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, Progress, RemoteState, StatusBadge, SurfaceHeader } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { controlComputation, loadComputation, loadComputationEvents, loadComputations, type ComputationDetailPayload, type ComputationEvent, type ComputationListPayload, type ComputationAction } from "../trusted-space-api";
@@ -33,11 +33,12 @@ export function MpcPage() {
   const [listPage, setListPage] = useState(1);
   const listRemote = useRemote<ComputationListPayload | null>((signal) => routeJobId ? Promise.resolve(null) : loadComputations({ page: listPage, pageSize: 12, status: statusFilter || undefined }, signal), [routeJobId, listPage, statusFilter]);
   const selectedJobId = routeJobId;
-  const remote = useRemote<ComputationDetailPayload | null>((signal) => selectedJobId ? loadComputation(selectedJobId, signal) : Promise.resolve(null), [selectedJobId]);
+  const remote = useScopedRemote<ComputationDetailPayload | null>(selectedJobId || "", (signal) => selectedJobId ? loadComputation(selectedJobId, signal) : Promise.resolve(null));
   const detail = remote.data;
   const [logsEnabled, setLogsEnabled] = useState(false);
   const [logRetryNonce, setLogRetryNonce] = useState(0);
-  const [logItems, setLogItems] = useState<ComputationEvent[]>([]);
+  const [logState, setLogState] = useState<{ jobId: string; items: ComputationEvent[] }>({ jobId: "", items: [] });
+  const logItems = logState.jobId === selectedJobId ? logState.items : [];
   const [logError, setLogError] = useState("");
   const [controlBusy, setControlBusy] = useState<ComputationAction | "">("");
   const [controlError, setControlError] = useState("");
@@ -46,33 +47,66 @@ export function MpcPage() {
   useEffect(() => {
     if (!logsEnabled || !selectedJobId) return undefined;
     let active = true;
+    let inFlight = false;
+    let consecutiveFailures = 0;
     let timer: number | undefined;
     const controller = new AbortController();
     cursorRef.current = undefined;
-    const poll = async () => {
+    const clearTimer = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+    };
+    const schedule = (delay: number) => {
       if (!active) return;
+      clearTimer();
+      timer = window.setTimeout(() => void poll(), delay);
+    };
+    const poll = async () => {
+      if (!active || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
       try {
         const payload = await loadComputationEvents(selectedJobId, { cursor: cursorRef.current, limit: 50 }, controller.signal);
         if (!active) return;
-        setLogItems((previous) => {
+        setLogState((current) => {
+          const previous = current.jobId === selectedJobId ? current.items : [];
           const known = new Set(previous.map((item) => item.sequence_no));
-          return [...previous, ...payload.items.filter((item) => !known.has(item.sequence_no))];
+          return { jobId: selectedJobId, items: [...previous, ...payload.items.filter((item) => !known.has(item.sequence_no))] };
         });
         const offset = Number(cursorRef.current || 0) || 0;
         cursorRef.current = payload.next_cursor || String(offset + payload.items.length);
+        consecutiveFailures = 0;
         setLogError("");
-        timer = window.setTimeout(() => void poll(), 1_500);
+        schedule(1_500);
       } catch (error) {
         if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
-        setLogError(error instanceof ApiError ? error.message : "计算日志读取失败");
-        timer = window.setTimeout(() => void poll(), 4_000);
+        const message = error instanceof ApiError ? error.message : "计算日志读取失败";
+        const status = error instanceof ApiError ? error.status : null;
+        if (shouldStopCommandPolling(status) || !shouldRetryCommandPolling(status)) {
+          setLogError(`${message}；自动轮询已停止。`);
+          return;
+        }
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLLING_FAILURES) {
+          setLogError(`${message}；有限重试已用完，请手动重试。`);
+          return;
+        }
+        setLogError(message);
+        schedule(commandPollingRetryDelay(consecutiveFailures));
+      } finally {
+        inFlight = false;
       }
     };
+    const handleVisibility = () => {
+      clearTimer();
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     void poll();
     return () => {
       active = false;
       controller.abort();
-      if (timer !== undefined) window.clearTimeout(timer);
+      clearTimer();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [logRetryNonce, logsEnabled, selectedJobId]);
 
@@ -101,6 +135,7 @@ export function MpcPage() {
     {fallbackError && <RemoteState error={fallbackError} onRetry={() => void listRemote.reload()} />}
     {remote.loading && !detail && !fallbackLoading && !fallbackError && <RemoteState loading />}
     {remote.error && !detail && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
+    {detail && remote.refreshError && <RemoteState error={remote.refreshError} onRetry={() => void remote.reload()} />}
     {listRemote.data && !routeJobId && !detail && <Card><CardHeader><SurfaceHeader title="计算任务列表" description="从真实隐私计算任务记录中选择任务" action={<select aria-label="按计算状态筛选" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setListPage(1); }}><option value="">全部状态</option><option value="QUEUED">排队中</option><option value="RUNNING">执行中</option><option value="SUCCESS">已完成</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option></select>} /></CardHeader><CardContent>{listRemote.data.items.length ? <div className="trusted-task-list">{listRemote.data.items.map((job) => <button type="button" className="trusted-task-row" key={job.job_id} onClick={() => navigate(routeForView("mpc", job.job_id))}><span className="trusted-task-icon"><Network size={15} /></span><span className="trusted-task-copy"><strong>{job.task_name || job.job_id}</strong><small><code>{job.job_id}</code> · {job.task_kind === "TRUSTED_QUERY" ? "智能查询" : "结算计算"} · {statusLabel(job.status)}</small></span><StatusBadge value={statusLabel(job.status)} /></button>)}</div> : <div className="trusted-empty-actions"><RemoteState empty emptyLabel="当前主体暂无可见计算任务" />{canStartQuery && <Button variant="primary" onClick={() => navigate(routeForView("query"))}><Plus size={14} />发起智能计算</Button>}</div>}<div className="trusted-submit-actions"><Button variant="secondary" size="sm" disabled={listPage <= 1} onClick={() => setListPage((value) => Math.max(1, value - 1))}>上一页</Button><span className="trusted-muted">第 {listRemote.data.page} 页 · 共 {listRemote.data.total} 项</span><Button variant="secondary" size="sm" disabled={listPage * listRemote.data.page_size >= listRemote.data.total} onClick={() => setListPage((value) => value + 1)}>下一页</Button></div></CardContent></Card>}
     {detail && <>
       <div className="trusted-mpc-alert"><ShieldCheck size={16} /><div><strong>能力边界提示</strong><span>参与方、回执和日志来自后端任务登记；外部多方安全计算或可信执行环境未配置时，保持“适配器能力”或“已阻断”，不推断生产连接。</span></div><Badge tone={capabilityTone(detail.external_execution.capability_state)}>{capabilityLabel(detail.external_execution.capability_state)}</Badge></div>

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Cable, ChevronDown, Database, FileSignature, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
+import { retryableLazyNamed, type RetryableLazyComponent } from "../../../components/RetryableLazy";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { AgentSheet } from "../components/AgentSheet";
 import { ROLE_LABELS, labelForCode } from "../../../types";
@@ -10,20 +11,28 @@ import { cn } from "../utils";
 import { Badge, Button, IconButton, Sheet } from "../components/ui-primitives";
 import { RemoteState } from "../components/ui-primitives";
 import { useTrustedSpaceContext } from "../trusted-space-context";
-import { WorkbenchPage } from "../pages/WorkbenchPage";
-import { IdentityPage } from "../pages/IdentityPage";
-import { CatalogPage } from "../pages/CatalogPage";
-import { AssetPassportPage } from "../pages/AssetPassportPage";
-import { ApplyPage } from "../pages/ApplyPage";
-import { AuthorizationsPage } from "../pages/AuthorizationsPage";
-import { ContractPage } from "../pages/ContractPage";
-import { TtcPage } from "../pages/TtcPage";
-import { MpcPage } from "../pages/MpcPage";
-import { ResultsEvidencePage } from "../pages/ResultsEvidencePage";
-import { AuditCenterPage } from "../pages/AuditCenterPage";
-import { QueryPage } from "../pages/QueryPage";
-import { ConnectorPage } from "../pages/ConnectorPage";
 import { ForbiddenPage, NotFoundPage } from "../../../pages/StatusPages";
+import { productDocumentTitle, useProductConfig } from "../../../branding";
+import { canCreateSettlement } from "../../../access";
+
+const trustedPages: Record<TrustedViewKey, RetryableLazyComponent> = {
+  workbench: retryableLazyNamed(() => import("../pages/WorkbenchPage"), "WorkbenchPage"),
+  query: retryableLazyNamed(() => import("../pages/QueryPage"), "QueryPage"),
+  identity: retryableLazyNamed(() => import("../pages/IdentityPage"), "IdentityPage"),
+  catalog: retryableLazyNamed(() => import("../pages/CatalogPage"), "CatalogPage"),
+  connector: retryableLazyNamed(() => import("../pages/ConnectorPage"), "ConnectorPage"),
+  authorizations: retryableLazyNamed(() => import("../pages/AuthorizationsPage"), "AuthorizationsPage"),
+  asset: retryableLazyNamed(() => import("../pages/AssetPassportPage"), "AssetPassportPage"),
+  apply: retryableLazyNamed(() => import("../pages/ApplyPage"), "ApplyPage"),
+  contract: retryableLazyNamed(() => import("../pages/ContractPage"), "ContractPage"),
+  ttc: retryableLazyNamed(() => import("../pages/TtcPage"), "TtcPage"),
+  mpc: retryableLazyNamed(() => import("../pages/MpcPage"), "MpcPage"),
+  results: retryableLazyNamed(() => import("../pages/ResultsEvidencePage"), "ResultsEvidencePage"),
+  audit: retryableLazyNamed(() => import("../pages/AuditCenterPage"), "AuditCenterPage"),
+};
+
+const settlementCreatePage = retryableLazyNamed(() => import("../../../pages/SettlementCreatePage"), "SettlementCreatePage");
+const settlementCreatePath = `${TRUSTED_BASE}/mpc/new`;
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -48,27 +57,22 @@ const prototypeChromeViews = new Set<TrustedViewKey>([
   "audit",
 ]);
 
-function renderView(view: TrustedViewKey) {
-  switch (view) {
-    case "query": return <QueryPage />;
-    case "identity": return <IdentityPage />;
-    case "catalog": return <CatalogPage />;
-    case "connector": return <ConnectorPage />;
-    case "authorizations": return <AuthorizationsPage />;
-    case "asset": return <AssetPassportPage />;
-    case "apply": return <ApplyPage />;
-    case "contract": return <ContractPage />;
-    case "ttc": return <TtcPage />;
-    case "mpc": return <MpcPage />;
-    case "results": return <ResultsEvidencePage />;
-    case "audit": return <AuditCenterPage />;
-    case "workbench":
-    default: return <WorkbenchPage />;
+function renderView(view: TrustedViewKey, pathname: string) {
+  if (pathname === settlementCreatePath) {
+    const SettlementCreatePage = settlementCreatePage;
+    return <SettlementCreatePage />;
   }
+  const Page = trustedPages[view];
+  return <Page />;
+}
+
+function preloadView(view: TrustedViewKey) {
+  void trustedPages[view].preload().catch(() => undefined);
 }
 
 export function TrustedSpaceShell() {
   const { session, logout } = useAuth();
+  const productConfig = useProductConfig();
   const trustedContext = useTrustedSpaceContext();
   const location = useLocation();
   const navigate = useNavigate();
@@ -76,12 +80,16 @@ export function TrustedSpaceShell() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const view = getTrustedView(location.pathname);
+  const isSettlementCreate = location.pathname === settlementCreatePath;
   const context = trustedContext.context;
   const targetChrome = prototypeChromeViews.has(view);
+  const visibleMenuCodes = useMemo(() => {
+    const sessionMenus = new Set((session?.menus || []).map((menu) => `${menu.code}:${menu.path}`));
+    return new Set((context?.visible_menus || []).filter((menu) => sessionMenus.has(`${menu.code}:${menu.path}`)).map((menu) => menu.code));
+  }, [context?.visible_menus, session?.menus]);
   const quickLinks = useMemo(() => {
-    const visibleMenuCodes = new Set((context?.visible_menus ?? []).map((menu) => menu.code));
     return primaryNavItems.filter((item) => visibleMenuCodes.has(item.menuCode)).map((item) => ({ ...item, Icon: iconMap[item.icon] }));
-  }, [context?.visible_menus]);
+  }, [visibleMenuCodes]);
 
   useEffect(() => {
     const openAgent = () => setAgentOpen(true);
@@ -89,10 +97,20 @@ export function TrustedSpaceShell() {
     return () => window.removeEventListener("trusted-energy:agent-open", openAgent);
   }, []);
 
+  useEffect(() => {
+    const viewTitle = isSettlementCreate
+      ? "发起结算任务"
+      : view === "identity"
+        ? "主体中心"
+        : primaryNavItems.find((item) => item.key === view)?.label || "可信数据空间";
+    document.title = productDocumentTitle(productConfig, viewTitle);
+    window.scrollTo(0, 0);
+  }, [isSettlementCreate, productConfig, view]);
+
   if (trustedContext.loading) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState loading /></div>;
   if (trustedContext.error || !context) return <div className="trusted-space-shell tw-min-h-screen"><RemoteState error={trustedContext.error || "可信数据空间上下文不可用"} onRetry={() => void trustedContext.reload()} /></div>;
   if (!isKnownTrustedPath(location.pathname)) return <div className="trusted-space-shell tw-min-h-screen"><NotFoundPage /></div>;
-  const visibleMenuCodes = new Set(context.visible_menus.map((menu) => menu.code));
+  if (isSettlementCreate && (!session || !canCreateSettlement(session) || !visibleMenuCodes.has("compute"))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
   if (!visibleMenuCodes.has(trustedMenuCodeForView(view))) return <div className="trusted-space-shell tw-min-h-screen"><ForbiddenPage /></div>;
   const subjectName = context.current_subject.org_name || context.actor.display_name || session?.user?.username || "当前主体";
   const roleLabel = context.actor.role_label || ROLE_LABELS[context.actor.role_code as keyof typeof ROLE_LABELS] || labelForCode(context.actor.role_code, "未登记角色");
@@ -113,7 +131,7 @@ export function TrustedSpaceShell() {
     <header className="trusted-system-bar">
       <div className="trusted-system-left">
         <IconButton className="trusted-mobile-menu" label="打开左侧导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={17} /></IconButton>
-        <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onClick={() => setNavigationOpen(false)}>
+        <Link className="trusted-brand" to={`${TRUSTED_BASE}/workbench`} onMouseEnter={() => preloadView("workbench")} onFocus={() => preloadView("workbench")} onClick={() => setNavigationOpen(false)}>
           <span className="trusted-brand-mark"><ShieldCheck size={20} strokeWidth={2.1} /></span>
           <span><strong>隐链明算</strong></span>
         </Link>
@@ -131,7 +149,7 @@ export function TrustedSpaceShell() {
             <ChevronDown size={13} aria-hidden="true" />
           </summary>
           <div className="trusted-user-menu-panel">
-            <Link className="trusted-subject-center-link" to={routeForView("identity")} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setNavigationOpen(false); }}><UserRound size={14} /><span><strong>主体中心</strong><small>身份与能力管理</small></span></Link>
+            {visibleMenuCodes.has("participants") && <Link className="trusted-subject-center-link" to={routeForView("identity")} onMouseEnter={() => preloadView("identity")} onFocus={() => preloadView("identity")} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setNavigationOpen(false); }}><UserRound size={14} /><span><strong>主体中心</strong><small>身份与能力管理</small></span></Link>}
             <div><span>账号</span><strong>{context.actor.username}</strong></div>
             <div><span>当前组织</span><strong>{subjectName}</strong></div>
             <div><span>当前角色</span><strong>{roleLabel}</strong></div>
@@ -144,18 +162,20 @@ export function TrustedSpaceShell() {
 
     <Sheet open={navigationOpen} onOpenChange={setNavigationOpen} title="可信数据空间导航" side="left" className="trusted-navigation-sheet">
       <nav className="trusted-drawer-nav" aria-label="左侧可信数据空间导航">
-        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-drawer-nav-item", view === key && "trusted-drawer-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={16} strokeWidth={1.8} /><span>{label}</span></button>)}
+        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-drawer-nav-item", view === key && "trusted-drawer-nav-item-active")} onMouseEnter={() => preloadView(key)} onFocus={() => preloadView(key)} onClick={() => goTo(routeForView(key))}><Icon size={16} strokeWidth={1.8} /><span>{label}</span></button>)}
       </nav>
     </Sheet>
 
     <nav className="trusted-primary-nav" aria-label="可信数据空间主导航">
       <div className="trusted-nav-inner tw-flex tw-items-center">
-        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
+        {quickLinks.map(({ key, label, Icon }) => <button key={key} type="button" aria-current={view === key ? "page" : undefined} className={cn("trusted-nav-item", view === key && "trusted-nav-item-active")} onMouseEnter={() => preloadView(key)} onFocus={() => preloadView(key)} onClick={() => goTo(routeForView(key))}><Icon size={15} strokeWidth={1.8} /><span>{label}</span></button>)}
         <span className="trusted-nav-spacer" />
       </div>
     </nav>
 
-    <main className={cn("trusted-main", targetChrome && "prototype-container")} key={location.pathname}>{renderView(view)}</main>
+    <main className={cn("trusted-main", targetChrome && "prototype-container")} key={location.pathname}>
+      <Suspense fallback={<RemoteState loading />}>{renderView(view, location.pathname)}</Suspense>
+    </main>
     <AgentSheet open={agentOpen} onOpenChange={setAgentOpen} />
   </div>;
 }

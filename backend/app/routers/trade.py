@@ -343,6 +343,17 @@ def _record_ttc_run_failure(
             "retryable": target == TTCState.FAILED,
         },
     )
+    anomaly_dedupe = f"settlement-failure:{task.task_id}:{task.current_attempt}"
+    if not db.scalar(select(AnomalyEvent.event_id).where(AnomalyEvent.dedupe_key == anomaly_dedupe)):
+        db.add(AnomalyEvent(
+            task_id=task.task_id,
+            event_type="TRUSTED_SETTLEMENT_ATTEMPT_FAILED",
+            risk_level="HIGH",
+            title="可信结算执行失败",
+            description=str(error)[:1000] or "可信结算执行失败",
+            evidence_json={"ttc_state": target.value, "error_type": type(error).__name__},
+            dedupe_key=anomaly_dedupe,
+        ))
     db.commit()
 
 

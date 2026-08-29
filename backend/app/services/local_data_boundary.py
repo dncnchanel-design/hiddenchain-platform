@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from ..config import parse_subject_map, settings
 from ..models import AccessRule, LocalSubjectNode, User
 
 
@@ -83,16 +82,6 @@ def can_manage_subject_rule(user: User, owner_org_id: str) -> bool:
     )
 
 
-def parse_subject_map(raw: str) -> dict[str, str]:
-    try:
-        value = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): str(endpoint) for key, endpoint in value.items() if endpoint}
-
-
 def subject_node_config(db: Session, provider_org_id: str) -> dict[str, Any] | None:
     node = db.scalar(
         select(LocalSubjectNode)
@@ -105,14 +94,24 @@ def subject_node_config(db: Session, provider_org_id: str) -> dict[str, Any] | N
     key_map = parse_subject_map(
         getattr(settings, "subject_node_public_keys_json", settings.connector_public_keys_json)
     )
+    if settings.app_env == "production":
+        endpoint = endpoint_map.get(provider_org_id)
+        public_key = key_map.get(provider_org_id)
+        connector_id = parse_subject_map(settings.subject_node_ids_json).get(provider_org_id)
+        if not endpoint or not public_key or not connector_id:
+            return None
+    else:
+        endpoint = node.endpoint_ref if node and node.endpoint_ref else endpoint_map.get(provider_org_id)
+        public_key = node.public_key if node and node.public_key else key_map.get(provider_org_id)
+        connector_id = node.node_code if node else f"subject-node-{provider_org_id}"
     if node is None and provider_org_id not in endpoint_map:
         return None
     return {
         "org_id": provider_org_id,
         "node_id": node.node_id if node else None,
-        "node_code": node.node_code if node else f"subject-node-{provider_org_id}",
-        "endpoint": (node.endpoint_ref if node and node.endpoint_ref else endpoint_map.get(provider_org_id)),
-        "public_key": (node.public_key if node and node.public_key else key_map.get(provider_org_id)),
+        "node_code": connector_id,
+        "endpoint": endpoint,
+        "public_key": public_key,
         "environment": node.environment if node else "DEMO_ADAPTER",
     }
 

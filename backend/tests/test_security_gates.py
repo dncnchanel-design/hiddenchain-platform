@@ -417,7 +417,11 @@ def test_audit_gate_open_anomaly_and_confirmation_replay_are_fail_closed(
 
     resolved = client.post(
         f"/api/anomalies/{anomaly_id}/resolve",
-        headers=auth_headers["regulator"],
+        headers={
+            **auth_headers["regulator"],
+            "If-Match": '"1"',
+            "Idempotency-Key": f"resolve-{anomaly_id}",
+        },
         json={"resolution": "已复核证据并关闭异常"},
     )
     final = client.post(

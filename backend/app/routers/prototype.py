@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import base64
-import csv
-import hashlib
-import io
 import math
 import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -27,13 +24,19 @@ from ..security import canonical_json, sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
 from ..services.local_data_boundary import subject_node_config
-from ..services.privacy_attestation import PrivacyAttestationError, verify_signed_connector_non_export
+from ..services.privacy_attestation import (
+    ConnectorAuditError,
+    PrivacyAttestationError,
+    verify_dashboard_audit_pointer,
+    verify_signed_connector_non_export,
+)
 from ..services.trust_space import workbench as trusted_workbench
-from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
+from ..trust_models import DataAsset, DataAssetVersion
 from .trusted_query import DOMAIN_LABELS, FUNCTION_LABELS, _connector_failure, _manual_parse, _platform_private_key, _platform_public_key
 
 
 router = APIRouter(prefix="/prototype", tags=["target-prototype"])
+demo_router = APIRouter(prefix="/prototype", tags=["target-prototype-demo"])
 
 ROLE_LABELS = {
     "GENERATOR": "发电企业",
@@ -473,7 +476,7 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
             {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
             {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "证据复核"},
         ]
-        primary_action = {"label": "发起结算任务", "path": "/settlements/new"}
+        primary_action = {"label": "发起结算任务", "path": "/trusted-space/mpc/new"}
         scope_label = f"{energy_label}交易协同视角"
     else:
         kind = "enterprise"
@@ -585,6 +588,51 @@ def _regulator_metric(view: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _dashboard_connector_public_key(
+    *,
+    endpoint: str,
+    node: dict[str, Any],
+    provider_org_id: str,
+    energy_domain: str,
+) -> tuple[str, str]:
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("主体连接器身份发现端点不安全")
+    if settings.app_env not in {"demo", "development", "test"} and parsed.scheme != "https":
+        raise ValueError("生产环境主体连接器端点必须使用 HTTPS")
+    public_key = str(node.get("public_key") or "")
+    key_source = "PRECONFIGURED_PUBLIC_KEY"
+    if not public_key:
+        if settings.app_env not in {"demo", "development", "test"}:
+            raise ValueError("主体连接器公钥未登记")
+        try:
+            response = httpx.get(
+                f"{endpoint.rstrip('/')}/health",
+                timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
+            )
+        except httpx.HTTPError as exc:
+            raise ValueError("主体连接器身份发现暂不可用") from exc
+        if response.status_code >= 400:
+            raise ValueError("主体连接器身份发现失败")
+        try:
+            health = response.json()
+        except ValueError as exc:
+            raise ValueError("主体连接器身份信息无效") from exc
+        if not isinstance(health, dict) or (
+            health.get("connector_id") != node.get("node_code")
+            or health.get("organization_id") != provider_org_id
+            or health.get("energy_domain") != energy_domain
+        ):
+            raise ValueError("主体连接器身份与登记节点不一致")
+        public_key = str(health.get("public_key") or "")
+        key_source = "VERIFIED_HEALTH_DISCOVERY"
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key, validate=True))
+    except Exception as exc:
+        raise ValueError("主体连接器公钥无效") from exc
+    return public_key, key_source
+
+
 def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[str, Any]:
     if view["kind"] == "regulator":
         return _regulator_metric(view)
@@ -617,6 +665,12 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
 
     try:
         today = utc_now().date()
+        expected_public_key, key_source = _dashboard_connector_public_key(
+            endpoint=str(endpoint),
+            node=node or {},
+            provider_org_id=user.org_id,
+            energy_domain=view["energy_domain"],
+        )
         connector_payload = {
             "request_id": f"dashboard-{new_id()}",
             "provider_org_id": user.org_id,
@@ -654,13 +708,8 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
         result = response.json()
         if not isinstance(result, dict):
             raise ValueError("主体连接器返回格式无效")
-        expected_public_key = node.get("public_key") if node else None
-        if expected_public_key and result.get("public_key") != expected_public_key:
+        if result.get("public_key") != expected_public_key:
             raise ValueError("主体连接器签名公钥与登记信息不一致")
-        if not expected_public_key and settings.app_env == "demo":
-            expected_public_key = str(result.get("public_key") or "")
-        if not expected_public_key:
-            raise ValueError("主体连接器公钥未登记")
         signed_result = {
             key: value
             for key, value in result.items()
@@ -683,6 +732,17 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             )
         except PrivacyAttestationError as exc:
             raise ValueError("主体连接器未提供可验证的不出域证明") from exc
+        try:
+            connector_audit = verify_dashboard_audit_pointer(
+                signed_result,
+                connector_payload,
+                expected_connector_id=str((node or {}).get("node_code") or ""),
+                expected_provider_org_id=user.org_id,
+                expected_energy_domain=view["energy_domain"],
+            )
+        except ConnectorAuditError as exc:
+            raise ValueError("主体连接器审计事件指针校验失败") from exc
+        connector_audit["key_source"] = key_source
 
         trend: list[dict[str, Any]] = []
         raw_trend = result.get("trend")
@@ -717,6 +777,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             "message": f"已接收 {latest['date']} 日度受控汇总",
             "raw_records_returned": False,
             "privacy_verification": privacy_verification,
+            "connector_audit": connector_audit,
         }
     except Exception:
         return _empty_subject_metric(
@@ -870,7 +931,7 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     }
 
 
-@router.post("/query")
+@demo_router.post("/query")
 def query(payload: PrototypeQueryRequest, user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     text = payload.text.strip()
     translation = _manual_parse(text)
@@ -926,62 +987,25 @@ def connector(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
     return {"connectors": [{"id": "power", "name": "电力连接器", "available": user.role_code in {"GENERATOR", "RETAILER", "EXCHANGE"}}, {"id": "coal", "name": "煤炭连接器", "available": user.role_code == "COAL_ENTERPRISE"}], "resources": [{"id": str((item.metadata_json or {}).get("resource_id") or item.asset_code), "name": item.asset_name, "level": item.sensitivity_level, "connector": (item.metadata_json or {}).get("connector", "power"), "rows": db.scalar(select(DataAssetVersion.record_count).where(DataAssetVersion.version_id == item.current_version_id)) or 0} for item in assets if (item.metadata_json or {}).get("dynamic")]}
 
 
-@router.get("/connector/sample.csv")
+@demo_router.get("/connector/sample.csv")
 def connector_sample(user: User = Depends(require_roles(*BUSINESS_ROLES))) -> Response:
     content = "day,supply_kt,consumption_kt,inventory_kt\n2026-06-01,120,110,5515.6\n2026-06-02,121,112,5524.6\n"
     filename = quote("电煤库存示例.csv")
     return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="energy-sample.csv"; filename*=UTF-8\'\'{filename}'})
 
 
-@router.post("/connector/{connector}/resources/upload")
-async def upload_resource(connector: str, connector_name: str = Form(default=""), resource_id: str = Form(default=""), name: str = Form(default=""), level: str = Form(default=""), time_column: str = Form(default=""), numeric_fields: str = Form(default=""), file: UploadFile = File(...), user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")) -> dict[str, Any]:
-    allowed_roles = {"power": {"GENERATOR", "RETAILER", "EXCHANGE"}, "coal": {"COAL_ENTERPRISE"}}
-    if connector not in allowed_roles or user.role_code not in allowed_roles[connector]:
-        raise HTTPException(403, "当前账号不能使用该连接器")
-    if not resource_id.strip() or not name.strip() or not time_column.strip():
-        raise HTTPException(422, "资源编号、资源名称和时间字段不能为空")
-    raw = await file.read()
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(413, "CSV 文件不能超过 5MB")
-    try:
-        rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))))
-    except (UnicodeDecodeError, csv.Error) as exc:
-        raise HTTPException(422, "CSV 文件必须是 UTF-8 编码且格式有效") from exc
-    if not rows:
-        raise HTTPException(422, "CSV 文件没有可注册的数据行")
-    fields = [item.strip() for item in numeric_fields.split(",") if item.strip()]
-    missing = [item for item in [time_column, *fields] if item not in (rows[0] or {})]
-    if missing:
-        raise HTTPException(422, f"CSV 缺少字段：{'、'.join(missing)}")
-    source_code = f"PROTOTYPE-{connector.upper()}-{user.org_id}"
-    source = db.scalar(select(DataSource).where(DataSource.source_code == source_code))
-    if source is None:
-        source = DataSource(source_code=source_code, source_name=f"{name.strip()}连接器", owner_org_id=user.org_id, source_type="ENTERPRISE_CONNECTOR", connector_type="TRUSTED_DATA_SPACE_CONNECTOR", endpoint_ref=f"connector://{user.org_id}/{connector}", security_domain=connector, capability_label="LOCAL_REAL", status="ACTIVE", metadata_json={"dynamic": True, "raw_data_centrally_stored": False})
-        db.add(source)
-        db.flush()
-    asset = db.scalar(select(DataAsset).where(DataAsset.owner_org_id == user.org_id, DataAsset.asset_code == f"PROTOTYPE_{connector.upper()}_{resource_id.strip().upper()}"))
-    if asset is None:
-        asset = DataAsset(source_id=source.source_id, owner_org_id=user.org_id, asset_code=f"PROTOTYPE_{connector.upper()}_{resource_id.strip().upper()}", asset_name=name.strip(), asset_type="DYNAMIC_CONNECTOR_RESOURCE", classification="ENTERPRISE_DATA_PRODUCT", sensitivity_level=level.split("-")[0] if level else "L3", status="ACTIVE", metadata_json={"dynamic": True, "connector": connector, "resource_id": resource_id.strip(), "domain": "electricity" if connector == "power" else "coal", "raw_data_centrally_stored": False, "time_column": time_column, "numeric_fields": fields})
-        db.add(asset)
-        db.flush()
-    else:
-        asset.asset_name = name.strip()
-        asset.status = "ACTIVE"
-    previous = db.scalar(select(func.max(DataAssetVersion.version_no)).where(DataAssetVersion.asset_id == asset.asset_id)) or 0
-    data_hash = hashlib.sha256(raw).hexdigest()
-    version = DataAssetVersion(asset_id=asset.asset_id, version_no=int(previous) + 1, schema_version="prototype-v1", schema_json={"fields": list(rows[0].keys()), "time_column": time_column, "numeric_fields": fields}, data_ref=f"connector://{user.org_id}/{connector}/{resource_id.strip()}", data_hash=data_hash, commitment=sha256_json({"data_hash": data_hash, "owner_org_id": user.org_id}), record_count=len(rows), immutable_hash=sha256_json({"asset_id": asset.asset_id, "version": int(previous) + 1, "data_hash": data_hash}), status="ACTIVE")
-    db.add(version)
-    db.flush()
-    asset.current_version_id = version.version_id
-    did = _current_did(db, user)
-    db.add(DataAssetPassport(asset_version_id=version.version_id, owner_did=did, provenance_json={"source": "企业侧连接器", "raw_data_centrally_stored": False}, classification_json={"level": asset.sensitivity_level}, permitted_use_json={"default_action": "deny", "raw_data_export": False}, policy_refs_json=[f"prototype:{resource_id.strip()}"], evidence_refs_json=[], passport_hash=sha256_json({"asset_id": asset.asset_id, "version_id": version.version_id, "data_hash": data_hash}), status="ACTIVE"))
-    add_audit_log(db, action="PROTOTYPE_RESOURCE_REGISTERED", target_type="DATA_ASSET", target_id=asset.asset_id, result="SUCCESS", user=user, details={"prototype_action": "allow", "resource_id": resource_id.strip(), "resource_name": name.strip(), "connector": connector, "rows": len(rows), "idempotency_key": idempotency_key, "raw_data_centrally_stored": False})
-    evidence = _prototype_evidence(db, user, action="allow", target_type="DATA_ASSET", target_id=asset.asset_id, payload={"resource_id": resource_id.strip(), "version_id": version.version_id, "data_hash": data_hash, "raw_data_centrally_stored": False})
-    db.commit()
-    return {"resource": {"id": resource_id.strip(), "name": name.strip(), "level": level or asset.sensitivity_level, "connector": connector, "rows": len(rows), "version": version.version_no}, "status": "已注册，默认拒绝", "evidence_id": evidence.evidence_id}
+@demo_router.post("/connector/{connector}/resources/upload")
+def upload_resource(
+    connector: str,
+    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+) -> None:
+    raise HTTPException(
+        status_code=410,
+        detail="中央平台原始文件上传已下线，请在企业连接器本地导入",
+    )
 
 
-@router.get("/policy")
+@demo_router.get("/policy")
 def policy(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     matrix = _static_policy() + _dynamic_policy(db)
     applications = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(100)).all()
@@ -1000,7 +1024,7 @@ def _can_manage_dynamic(user: User, asset: DataAsset) -> bool:
     return user.role_code == "REGULATOR" or user.org_id == asset.owner_org_id
 
 
-@router.post("/policy/rules")
+@demo_router.post("/policy/rules")
 def add_policy_rule(payload: PrototypeRuleRequest, user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     asset = _dynamic_asset_for_rule(db, payload.resource_id)
     if not _can_manage_dynamic(user, asset):
@@ -1023,7 +1047,7 @@ def add_policy_rule(payload: PrototypeRuleRequest, user: User = Depends(require_
     return {"rule_id": rule.rule_id, "evidence_id": evidence.evidence_id}
 
 
-@router.delete("/policy/rules")
+@demo_router.delete("/policy/rules")
 def delete_policy_rule(resource_id: str = Query(...), role: str = Query(...), user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     asset = _dynamic_asset_for_rule(db, resource_id)
     if not _can_manage_dynamic(user, asset):
@@ -1041,7 +1065,7 @@ def delete_policy_rule(resource_id: str = Query(...), role: str = Query(...), us
 
 
 @router.get("/audit")
-def audit(limit: int = Query(default=20, ge=1, le=200), user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
+def audit(limit: int = Query(default=20, ge=1, le=200), user: User = Depends(require_roles("REGULATOR")), db: Session = Depends(get_db)) -> dict[str, Any]:
     records = _audit_records(db, limit)
     blocks = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.desc()).limit(limit)).all()
     ok, message = _chain_state(db)
@@ -1050,15 +1074,15 @@ def audit(limit: int = Query(default=20, ge=1, le=200), user: User = Depends(req
 
 
 @router.post("/audit/verify")
-def verify_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
+def verify_audit(user: User = Depends(require_roles("REGULATOR")), db: Session = Depends(get_db)) -> dict[str, Any]:
     ok, message = _chain_state(db)
     add_audit_log(db, action="PROTOTYPE_CHAIN_VERIFY", target_type="EVIDENCE_CHAIN", target_id="prototype", result="SUCCESS" if ok else "FAILED", user=user, details={"ok": ok})
     db.commit()
     return {"ok": ok, "message": message, "checked": db.scalar(select(func.count(BlockchainEvidence.evidence_id))) or 0}
 
 
-@router.post("/audit/tamper")
-def tamper_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
+@demo_router.post("/audit/tamper")
+def tamper_audit(user: User = Depends(require_roles("REGULATOR")), db: Session = Depends(get_db)) -> dict[str, Any]:
     evidence = db.scalars(select(BlockchainEvidence).order_by(BlockchainEvidence.block_height.desc())).first()
     event = add_audit_log(
         db,
@@ -1084,8 +1108,8 @@ def tamper_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Sessi
     }
 
 
-@router.post("/audit/restore")
-def restore_audit(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
+@demo_router.post("/audit/restore")
+def restore_audit(user: User = Depends(require_roles("REGULATOR")), db: Session = Depends(get_db)) -> dict[str, Any]:
     event = add_audit_log(
         db,
         action="PROTOTYPE_CHAIN_RESTORE",

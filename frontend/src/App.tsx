@@ -1,33 +1,21 @@
 import { Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { canAccessRouteView, canCreateSettlement, getDefaultPath } from "./access";
+import { canAccessRouteView, getDefaultPath } from "./access";
 import { useAuth } from "./auth";
 import { AppShell } from "./components/layout";
 import { LoadingState } from "./components/ui";
 import { ForbiddenPage, NotFoundPage, SessionExpiredPage, UnavailablePage } from "./pages/StatusPages";
 import { pages } from "./routes";
 import { TrustedSpaceProvider } from "./features/trusted-energy/trusted-space-context";
+import { canUseLegacyDestination, legacyBusinessDestination } from "./legacy-routes";
 
 const {
   agents: AgentsPage,
-  anomalies: AnomaliesPage,
-  audit: AuditPage,
-  compute: ComputePage,
-  dataSpace: DataSpacePage,
-  evidence: EvidencePage,
   login: LoginPage,
   logs: LogsPage,
   metrics: MetricsPage,
   overview: OverviewPage,
-  reports: ReportsPage,
-  results: ResultsPage,
-  rules: RulesPage,
-  settlement: SettlementPage,
-  settlementCreate: SettlementCreatePage,
-  settlementDetail: SettlementDetailPage,
   system: SystemPage,
-  trustedExecution: TrustedExecutionPage,
-  workbench: WorkbenchPage,
   trustedSpace: TrustedSpaceShell,
 } = pages;
 
@@ -53,6 +41,9 @@ function TrustedSpaceGate() {
   if (sessionExpired) return <Navigate to="/session-expired" replace />;
   if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
   if (!session) return <Navigate to="/login" replace />;
+  if (!session.menus.some((menu) => menu.path.startsWith("/trusted-space/"))) {
+    return <Navigate to="/403?path=%2Ftrusted-space" replace />;
+  }
   return <Suspense fallback={<div className="boot-screen"><LoadingState label="正在加载可信数据空间" /></div>}><TrustedSpaceProvider><TrustedSpaceShell /></TrustedSpaceProvider></Suspense>;
 }
 
@@ -65,11 +56,20 @@ function Allowed({ path, children }: { path: string; children: React.ReactNode }
     : <Navigate to={`/403?path=${encodeURIComponent(deniedPath)}`} replace state={{ deniedPath }} />;
 }
 
-function ExchangeOnly({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth();
-  return session && canCreateSettlement(session)
-    ? children
-    : <Navigate to="/403?path=%2Fsettlements%2Fnew" replace />;
+function LegacyBusinessRedirect() {
+  const { session, loading, sessionExpired, sessionError } = useAuth();
+  const location = useLocation();
+  if (loading) return <div className="boot-screen"><LoadingState label="正在迁移旧地址" /></div>;
+  if (sessionExpired) return <Navigate to="/session-expired" replace />;
+  if (sessionError) return <div className="public-state-screen"><UnavailablePage message={sessionError} /></div>;
+  if (!session) return <Navigate to="/login" replace state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }} />;
+  const target = legacyBusinessDestination(location);
+  if (!target) return <NotFoundPage />;
+  if (!canUseLegacyDestination(session, target)) {
+    const deniedPath = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/403?path=${encodeURIComponent(deniedPath)}`} replace state={{ deniedPath }} />;
+  }
+  return <Navigate to={target.to} replace state={location.state} />;
 }
 
 function WorkspaceHome() {
@@ -88,29 +88,30 @@ export default function App() {
       <Route path="/login" element={<LoginGate />} />
       <Route path="/session-expired" element={<SessionExpiredGate />} />
       <Route path="/trusted-space/*" element={<TrustedSpaceGate />} />
+      <Route path="/workbench" element={<LegacyBusinessRedirect />} />
+      <Route path="/data/upload" element={<LegacyBusinessRedirect />} />
+      <Route path="/data/generation" element={<LegacyBusinessRedirect />} />
+      <Route path="/data/retail" element={<LegacyBusinessRedirect />} />
+      <Route path="/data-space" element={<LegacyBusinessRedirect />} />
+      <Route path="/rules" element={<LegacyBusinessRedirect />} />
+      <Route path="/settlements" element={<LegacyBusinessRedirect />} />
+      <Route path="/settlements/new" element={<LegacyBusinessRedirect />} />
+      <Route path="/settlements/:taskId" element={<LegacyBusinessRedirect />} />
+      <Route path="/compute" element={<LegacyBusinessRedirect />} />
+      <Route path="/results" element={<LegacyBusinessRedirect />} />
+      <Route path="/evidence" element={<LegacyBusinessRedirect />} />
+      <Route path="/audit" element={<LegacyBusinessRedirect />} />
+      <Route path="/anomalies" element={<LegacyBusinessRedirect />} />
+      <Route path="/trusted-execution" element={<LegacyBusinessRedirect />} />
+      <Route path="/reports" element={<LegacyBusinessRedirect />} />
+      <Route path="/contracts/:contractId" element={<LegacyBusinessRedirect />} />
       <Route element={<ProtectedShell />}>
           <Route index element={<WorkspaceHome />} />
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="/overview" element={<Allowed path="/overview"><OverviewPage /></Allowed>} />
-          <Route path="/workbench" element={<Allowed path="/workbench"><WorkbenchPage /></Allowed>} />
-          <Route path="/data/upload" element={<Navigate to="/trusted-space/connector" replace />} />
-          <Route path="/data/generation" element={<Navigate to="/trusted-space/connector" replace />} />
-          <Route path="/data/retail" element={<Navigate to="/trusted-space/connector" replace />} />
-          <Route path="/data-space" element={<Allowed path="/data-space"><DataSpacePage /></Allowed>} />
-          <Route path="/rules" element={<Allowed path="/rules"><RulesPage /></Allowed>} />
-          <Route path="/settlements" element={<Allowed path="/settlements"><SettlementPage /></Allowed>} />
-          <Route path="/settlements/new" element={<Allowed path="/settlements/new"><ExchangeOnly><SettlementCreatePage /></ExchangeOnly></Allowed>} />
-          <Route path="/settlements/:taskId" element={<Allowed path="/settlements/:taskId"><SettlementDetailPage /></Allowed>} />
-          <Route path="/compute" element={<Allowed path="/compute"><ComputePage /></Allowed>} />
-          <Route path="/results" element={<Allowed path="/results"><ResultsPage /></Allowed>} />
-          <Route path="/evidence" element={<Allowed path="/evidence"><EvidencePage /></Allowed>} />
-          <Route path="/audit" element={<Allowed path="/audit"><AuditPage /></Allowed>} />
           <Route path="/agents" element={<Allowed path="/agents"><AgentsPage /></Allowed>} />
-          <Route path="/anomalies" element={<Allowed path="/anomalies"><AnomaliesPage /></Allowed>} />
           <Route path="/logs" element={<Allowed path="/logs"><LogsPage /></Allowed>} />
           <Route path="/system" element={<Allowed path="/system"><SystemPage /></Allowed>} />
-          <Route path="/trusted-execution" element={<Allowed path="/trusted-execution"><TrustedExecutionPage /></Allowed>} />
-          <Route path="/reports" element={<Allowed path="/reports"><ReportsPage /></Allowed>} />
           <Route path="/metrics" element={<Allowed path="/metrics"><MetricsPage /></Allowed>} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

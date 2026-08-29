@@ -42,10 +42,10 @@ powershell -ExecutionPolicy Bypass -File .\start-offline-demo.ps1 -OpenBrowser
 
 ## 第一步：导入这组原始数据并启动首轮计算
 
-当前系统的整包导入入口是测试环境专用接口，界面负责后续业务操作。登录交易中心后，在 PowerShell 执行下面的命令：
+当前系统的整包导入入口是测试环境专用接口，界面负责后续业务操作。登录交易中心后，先在 PowerShell 进入仓库根目录，再执行下面的命令：
 
 ```powershell
-$root = "D:\桌面\大创产品\hiddenchain-platform"
+$root = (Get-Location).Path
 $login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/auth/login" -ContentType "application/json" -Body (@{ username = "exchange"; password = "exchange123" } | ConvertTo-Json)
 $headers = @{ Authorization = "Bearer $($login.access_token)" }
 $fixture = Get-Content -Raw "$root\demo-data\2026-08-full-settlement-simulation.json"
