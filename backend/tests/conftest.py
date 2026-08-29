@@ -21,6 +21,7 @@ os.environ["APP_ENV"] = "test"
 os.environ["TEST_FIXTURE_SEED"] = "true"
 os.environ["TEST_COMPUTE_DELAY_MS"] = "0"
 os.environ["DEEPSEEK_ENABLED"] = "false"
+os.environ["PLATFORM_SIGNING_PRIVATE_KEY"] = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 
 from app.database import SessionLocal, ensure_runtime_schema, engine  # noqa: E402
 from app.main import app  # noqa: E402
