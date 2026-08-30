@@ -16,7 +16,7 @@
 
 ### Release boundary
 
-- The fix is uncommitted local work. No GitHub or Render synchronization was requested in this check.
+- The fix is committed as `74c7fbf7eb16a9923d3004df7ba001080b9c025f`; both GitHub branches and all eight Render review services were synchronized and verified at that SHA.
 - The current demo database and the user's untracked video-script file were preserved.
 
 ## Current comprehensive system upgrade release candidate — 2026-08-29

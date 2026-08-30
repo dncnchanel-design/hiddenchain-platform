@@ -5,9 +5,9 @@
 ```text
 LOCAL_CHANGE = isolate backend test Vault writes from the shared historical/demo Vault
 LOCAL_VERIFICATION = PASS (backend 324 normal-order tests; backend 324 fixed-seed random-order tests; connector 13 tests; frontend 149 tests; ESLint; TypeScript; Vite build; production/brand guards; compileall; dependency check; production guard; diff check)
-LOCAL_COMMIT_SHA = UNCOMMITTED_WORKTREE
-GITHUB_PUSH = NOT_REQUESTED
-RENDER_DEPLOYMENT = NOT_REQUESTED
+LOCAL_COMMIT_SHA = 74c7fbf7eb16a9923d3004df7ba001080b9c025f
+GITHUB_PUSH = PASS (main and agent/deep-brand-green point to LOCAL_COMMIT_SHA)
+RENDER_DEPLOYMENT = PASS (platform plus seven connector services report LOCAL_COMMIT_SHA and healthy status)
 RELEASE_BOUNDARY = historical Vault and demo database preserved; no raw payload or backup moved; user's untracked video-script file preserved
 ```
 
