@@ -1,5 +1,24 @@
 # Progress Ledger
 
+## Current test-boundary fix — 2026-08-30
+
+### Completed in this batch
+
+- Fixed the backend test fixture boundary: test seeding now uses a session-scoped temporary Vault under `backend/runtime/.pytest-vault-*` instead of the shared `backend/runtime/vault`.
+- Added a release-hygiene regression assertion that prevents tests from silently targeting the shared demo Vault.
+
+### Verification evidence
+
+- Backend: 324 tests passed in normal order and with fixed-seed random order; Python compileall, dependency check and production guard passed.
+- Connector: 13 tests passed.
+- Frontend: 149 tests, ESLint, TypeScript, production/brand guards and Vite production build passed.
+- Boundary: the historical central Vault remained at 1,545 JSON files / 259,045 bytes throughout verification; no migration or deletion was performed.
+
+### Release boundary
+
+- The fix is uncommitted local work. No GitHub or Render synchronization was requested in this check.
+- The current demo database and the user's untracked video-script file were preserved.
+
 ## Current comprehensive system upgrade release candidate — 2026-08-29
 
 ### Completed in this batch
@@ -12,7 +31,7 @@
 
 ### Verification evidence
 
-- Backend: 323 tests collected and the frozen full suite passed; production readiness, release hygiene, Agent provisioning, compileall, dependency consistency and production guard passed.
+- Backend: 324 tests collected and the frozen full suite passed; production readiness, release hygiene, Agent provisioning, compileall, dependency consistency and production guard passed.
 - Connector: 13 tests and compileall passed; health now reports the deployed build SHA and `raw_data_centrally_stored=false`.
 - Frontend: 21 test files / 149 tests, ESLint, TypeScript, production and brand guards, Vite production build and production dependency audit passed.
 - Release configuration: PowerShell 7 and Windows PowerShell 5.1 parsing, production Compose rendering, Render eight-service validation, `git diff --check` and three independent P0/P1 reviews passed.

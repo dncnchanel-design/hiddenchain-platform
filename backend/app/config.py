@@ -12,7 +12,9 @@ from urllib.parse import urlparse
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BASE_DIR.parent
 RUNTIME_DIR = BASE_DIR / "runtime"
-VAULT_DIR = RUNTIME_DIR / "vault"
+VAULT_DIR = Path(
+    os.getenv("HIDDENCHAIN_VAULT_DIR", str(RUNTIME_DIR / "vault"))
+)
 
 
 def _load_local_env() -> None:

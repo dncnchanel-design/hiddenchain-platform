@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,19 @@ TEST_DB = Path(
 )
 if TEST_DB.exists():
     TEST_DB.unlink()
+
+# Keep fixture payloads out of the shared development/demo Vault.  The
+# directory is session-scoped because app.config reads HIDDENCHAIN_VAULT_DIR
+# during import, before pytest fixtures are available.
+TEST_RUNTIME_DIR = Path(__file__).resolve().parents[1] / "runtime"
+TEST_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+_TEST_VAULT_RUNTIME = TemporaryDirectory(
+    prefix=".pytest-vault-",
+    dir=TEST_RUNTIME_DIR,
+)
+os.environ["HIDDENCHAIN_VAULT_DIR"] = str(
+    Path(_TEST_VAULT_RUNTIME.name) / "vault"
+)
 
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
 os.environ["APP_ENV"] = "test"

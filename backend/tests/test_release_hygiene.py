@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config import Settings
+from app.config import RUNTIME_DIR, Settings, VAULT_DIR
 from app.production import assert_production_runtime_clean
 
 
@@ -47,6 +47,13 @@ def test_production_env_is_excluded_from_git_and_docker_context() -> None:
     assert "backend/frontend_dist" in dockerignore
     for local_artifact in ("output", "outputs", "qa", "release", "tmp"):
         assert local_artifact in dockerignore
+
+
+def test_backend_tests_use_a_session_vault_outside_shared_runtime_vault() -> None:
+    """Fixture seeding must never append payloads to the shared demo Vault."""
+    assert VAULT_DIR.resolve() != (RUNTIME_DIR / "vault").resolve()
+    assert VAULT_DIR.resolve().is_relative_to(RUNTIME_DIR.resolve())
+    assert VAULT_DIR.name == "vault"
 
 
 def test_internal_agent_metadata_and_env_suffix_files_are_git_ignored() -> None:

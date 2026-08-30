@@ -1,5 +1,16 @@
 # Release Synchronization
 
+## Current test-boundary fix — 2026-08-30
+
+```text
+LOCAL_CHANGE = isolate backend test Vault writes from the shared historical/demo Vault
+LOCAL_VERIFICATION = PASS (backend 324 normal-order tests; backend 324 fixed-seed random-order tests; connector 13 tests; frontend 149 tests; ESLint; TypeScript; Vite build; production/brand guards; compileall; dependency check; production guard; diff check)
+LOCAL_COMMIT_SHA = UNCOMMITTED_WORKTREE
+GITHUB_PUSH = NOT_REQUESTED
+RENDER_DEPLOYMENT = NOT_REQUESTED
+RELEASE_BOUNDARY = historical Vault and demo database preserved; no raw payload or backup moved; user's untracked video-script file preserved
+```
+
 ## Current privacy-proof and evidence-anchor release — 2026-08-26
 
 ```text

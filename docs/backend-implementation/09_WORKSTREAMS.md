@@ -1,5 +1,14 @@
 # Workstreams and File Ownership
 
+## Current test-boundary fix — 2026-08-30
+
+| Workstream | Execution boundary | Evidence | Status |
+| --- | --- | --- | --- |
+| Test Vault isolation | Backend pytest bootstrap and release-hygiene regression | Session-scoped temporary Vault; normal and fixed-seed random 324-test runs pass; shared historical Vault unchanged | VERIFIED_LOCAL |
+| Cross-component verification | Backend, connector and frontend toolchains | Backend 324; connector 13; frontend 149; compile, lint, typecheck, build and production/brand guards pass | VERIFIED_LOCAL |
+
+Raw historical payloads, the demo database and unrelated untracked user work remain outside the change boundary.
+
 ## Current comprehensive system upgrade release candidate — 2026-08-29
 
 | Workstream | Execution boundary | Evidence | Status |
@@ -9,7 +18,7 @@
 | Production Agent initialization | Independent version reviewer plus main agent; strict manifest, CLI, Tool catalog and deployment docs | Blank-volume provisioning, issuer/identity/grant conflict rollback, idempotency and readiness; 10 focused tests | VERIFIED_LOCAL |
 | Settlement and concurrency | Main agent; TTC attempts/snapshots/results, outbox and scoped audit paths | Historical attempts validate against their own snapshots; current pointer remains exact; CAS/fencing and pagination regressions included in full suite | VERIFIED_LOCAL |
 | Frontend usability and layout | Main agent; desktop and 390×844 browser review across business, regulator and admin roles | No text collision, overflow, overlap or horizontal page overflow; 149 tests, lint/typecheck/build and visual guards pass | VERIFIED_LOCAL |
-| Release safety | Independent production, configuration and publish reviewers; Git/Docker/Windows/Render boundaries | P0=0, P1=0; 323-test backend suite, 13 connector tests, static guards, secret exclusions and eight-service blueprint pass | READY_FOR_SYNC |
+| Release safety | Independent production, configuration and publish reviewers; Git/Docker/Windows/Render boundaries | P0=0, P1=0; 324-test backend suite, 13 connector tests, static guards, secret exclusions and eight-service blueprint pass | READY_FOR_SYNC |
 | Publication | Main agent only | Same non-force commit must reach both GitHub branches, pass Actions and be reported by all eight Render services | IN_PROGRESS |
 
 Raw databases, Vault contents, secrets, logs, screenshots and runtime state are outside the publication boundary. Render is explicitly demo/review infrastructure and cannot be used as production evidence.
