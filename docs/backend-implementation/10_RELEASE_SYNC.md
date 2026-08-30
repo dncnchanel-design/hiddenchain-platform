@@ -6,9 +6,9 @@
 LOCAL_CHANGE = isolate backend test Vault writes from the shared historical/demo Vault
 LOCAL_VERIFICATION = PASS (backend 324 normal-order tests; backend 324 fixed-seed random-order tests; connector 13 tests; frontend 149 tests; ESLint; TypeScript; Vite build; production/brand guards; compileall; dependency check; production guard; diff check)
 LOCAL_CODE_COMMIT_SHA = 74c7fbf7eb16a9923d3004df7ba001080b9c025f
-LOCAL_RELEASE_HEAD = b626ac052710a9a18a4fbbd3edfa30c8ac0275d1
-GITHUB_PUSH = PASS (main and agent/deep-brand-green point to LOCAL_RELEASE_HEAD)
-RENDER_DEPLOYMENT = PASS (platform plus seven connector services report LOCAL_RELEASE_HEAD and healthy status)
+LOCAL_RELEASE_HEAD = verified current GitHub main/agent/deep-brand-green heads and Render /api/version at publication time
+GITHUB_PUSH = PASS (main and agent/deep-brand-green converge)
+RENDER_DEPLOYMENT = PASS (platform plus seven connector services converge and report healthy status)
 RELEASE_BOUNDARY = historical Vault and demo database preserved; no raw payload or backup moved; user's untracked video-script file preserved
 ```
 

@@ -16,7 +16,7 @@
 
 ### Release boundary
 
-- The fix is in code commit `74c7fbf7eb16a9923d3004df7ba001080b9c025f`; the release/documentation head `b626ac052710a9a18a4fbbd3edfa30c8ac0275d1` is synchronized across both GitHub branches and all eight Render review services.
+- The fix is in code commit `74c7fbf7eb16a9923d3004df7ba001080b9c025f`; the current GitHub `main`/`agent/deep-brand-green` heads and all eight Render review services were verified to converge after publication.
 - The current demo database and the user's untracked video-script file were preserved.
 
 ## Current comprehensive system upgrade release candidate — 2026-08-29
