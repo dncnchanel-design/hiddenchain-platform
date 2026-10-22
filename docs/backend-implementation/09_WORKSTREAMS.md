@@ -1,5 +1,16 @@
 # Workstreams and File Ownership
 
+## 电力交易计算聊天窗口 — 2026-10-22
+
+| 工作项 | 文件范围 | 状态 |
+| --- | --- | --- |
+| 计算与权限 | 新增 electricity_calculation 服务、路由及回归测试；main.py 注册路由 | 333 项完整后端回归通过 |
+| 聊天交互 | AgentSheet、ElectricityChat、电力计算 API 与独立 CSS | 150 项测试及构建通过；桌面、手机与独立审查通过 |
+| 发布补丁 | backend/requirements.txt | 将 PyJWT 更新到 2.14.0，修复现有远端安全扫描阻断 |
+| 发布 | 协调 Agent 负责本次变更 commit / push 与 Render SHA 核对 | 依赖补丁定向回归后执行；最终状态见 Actions / Deployments |
+
+既有未提交 README、RELEASE_MANIFEST、打包脚本及未跟踪文档不属于本次修改范围。
+
 ## Current test-boundary fix — 2026-08-30
 
 | Workstream | Execution boundary | Evidence | Status |

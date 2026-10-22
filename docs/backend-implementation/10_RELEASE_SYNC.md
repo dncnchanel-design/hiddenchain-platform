@@ -1,5 +1,22 @@
 # Release Synchronization
 
+## 电力交易计算聊天窗口 — 2026-10-22
+
+```text
+CHANGE = AI 助手新增独立电力交易计算对话；依据、公式、参数确认、逐步验算、案例保存与复用、结果表导出
+LOCAL_VERIFICATION = PASS（333 后端完整回归；150 前端测试；13 连接器测试；TypeScript、ESLint、生产/品牌检查、构建；桌面/手机交互；独立审查 ship）
+RELEASE_DEPENDENCY_FIX = PyJWT 2.13.0 -> 2.14.0（现有 Trivy 扫描报告的安全修复版本）
+GITHUB_TARGET = main + agent/deep-brand-green
+RENDER_TARGET = hiddenchain-platform-review
+GITHUB_VERIFICATION = 本次发布提交的 Actions 与远端分支 SHA
+RENDER_VERIFICATION = 本次发布提交的 Deployments 与线上 /api/version.build_sha
+USER_COPY_REQUIREMENT = 界面不增加额外演示/示例标注
+DATA_BOUNDARY = 用户自行输入并确认的计算参数；不读取或搬运企业原始数据
+EXCLUDED = 既有未提交改动、附件、数据库、Vault、密钥、日志与截图
+```
+
+本条记录已验证的本地功能及发布核对方法。最终远端状态动态记录于 GitHub Actions / Deployments 和线上健康、版本接口；不得仅根据此文档判断已经完成部署。
+
 ## Current test-boundary fix — 2026-08-30
 
 ```text

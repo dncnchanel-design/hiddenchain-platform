@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Cable, ChevronDown, Database, FileSignature, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
+import { Bot, Cable, ChevronDown, Database, FileSignature, LayoutDashboard, LogOut, Menu, Network, ScanSearch, Search, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
 import { useAuth } from "../../../auth";
 import { retryableLazyNamed, type RetryableLazyComponent } from "../../../components/RetryableLazy";
 import { NotificationCenter } from "../components/NotificationCenter";
@@ -78,6 +78,7 @@ export function TrustedSpaceShell() {
   const navigate = useNavigate();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [agentMode, setAgentMode] = useState<"business" | "electricity">("business");
   const [logoutBusy, setLogoutBusy] = useState(false);
   const view = getTrustedView(location.pathname);
   const isSettlementCreate = location.pathname === settlementCreatePath;
@@ -92,7 +93,10 @@ export function TrustedSpaceShell() {
   }, [visibleMenuCodes]);
 
   useEffect(() => {
-    const openAgent = () => setAgentOpen(true);
+    const openAgent = (event: Event) => {
+      setAgentMode((event as CustomEvent<{ mode?: string }>).detail?.mode === "electricity" ? "electricity" : "business");
+      setAgentOpen(true);
+    };
     window.addEventListener("trusted-energy:agent-open", openAgent);
     return () => window.removeEventListener("trusted-energy:agent-open", openAgent);
   }, []);
@@ -141,6 +145,7 @@ export function TrustedSpaceShell() {
       <div className="trusted-system-right">
         <Badge tone="success" dot>{context.environment.name === "DEMO" ? "公开演示环境" : context.environment.name === "TEST" ? "本地测试环境" : "受控运行环境"}</Badge>
         <span className="trusted-system-pulse"><i />{context.current_subject.status === "ACTIVE" ? "主体状态正常" : "主体状态异常"}</span>
+        <IconButton label="打开AI助手" onClick={() => { setAgentMode("business"); setAgentOpen(true); }}><Bot size={18} /></IconButton>
         <NotificationCenter />
         <details className="trusted-user-menu">
           <summary aria-label="打开主体中心和账号菜单">
@@ -176,6 +181,6 @@ export function TrustedSpaceShell() {
     <main className={cn("trusted-main", targetChrome && "prototype-container")} key={location.pathname}>
       <Suspense fallback={<RemoteState loading />}>{renderView(view, location.pathname)}</Suspense>
     </main>
-    <AgentSheet open={agentOpen} onOpenChange={setAgentOpen} />
+    <AgentSheet open={agentOpen} onOpenChange={setAgentOpen} mode={agentMode} onModeChange={setAgentMode} />
   </div>;
 }

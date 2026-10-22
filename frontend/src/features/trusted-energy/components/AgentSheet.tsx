@@ -8,6 +8,7 @@ import { isLatestRun, resolveOnce, retryTransient } from "../assistant-state";
 import { ACTION_LABELS, labelForCode } from "../../../types";
 import { capabilityLabel } from "../trusted-space-labels";
 import { safeDecodeRouteSegment } from "../types";
+import { ElectricityChat } from "./ElectricityChat";
 
 const SHORTCUTS = [
   { label: "检查资产完整性", icon: FileSearch },
@@ -46,7 +47,7 @@ function capabilityTone(value?: string) {
   return "info" as const;
 }
 
-export function AgentSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function AgentSheet({ open, onOpenChange, mode, onModeChange: setMode }: { open: boolean; onOpenChange: (open: boolean) => void; mode: "business" | "electricity"; onModeChange: (mode: "business" | "electricity") => void }) {
   const location = useLocation();
   const [session, setSession] = useState<AssistantSession | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -157,8 +158,10 @@ export function AgentSheet({ open, onOpenChange }: { open: boolean; onOpenChange
   }
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="energy-agent-sheet">
+    <DialogContent className={`trusted-space-shell energy-agent-sheet${mode === "electricity" ? " energy-agent-sheet-electricity" : ""}`}>
       <div className="energy-agent-heading"><div className="energy-agent-title"><span className="energy-agent-icon"><Bot size={17} /></span><div><DialogTitle>隐链智能助手</DialogTitle></div></div><IconButton label="关闭智能助手" onClick={() => onOpenChange(false)}><X size={16} /></IconButton></div>
+      <div className="energy-agent-modes" role="group" aria-label="选择助手窗口"><Button variant="ghost" aria-pressed={mode === "business"} onClick={() => setMode("business")}>业务助手</Button><Button variant="ghost" aria-pressed={mode === "electricity"} onClick={() => setMode("electricity")}>电力交易计算</Button></div>
+      {mode === "electricity" ? <ElectricityChat onFinish={() => onOpenChange(false)} /> : <>
       <div className="energy-agent-body">
         {loading && <RemoteState loading />}
         {error && <RemoteState error={error} onRetry={() => { setError(""); setSession(null); sessionRef.current = null; sessionPromiseRef.current = null; setBootNonce((value) => value + 1); }} />}
@@ -176,6 +179,7 @@ export function AgentSheet({ open, onOpenChange }: { open: boolean; onOpenChange
         {AGENT_NAV.map(({ label, icon: Icon, command }) => <button type="button" key={label} disabled={busy || !session} aria-busy={busy || undefined} onClick={() => send(command)}><Icon size={14} /><span>{label}</span></button>)}
       </nav>
       <footer className="energy-agent-footer"><span><span className="energy-status-dot" />{capabilityLabel(session?.capability_state)}</span><span>{session?.state_version ? `会话 V${session.state_version}` : "会话未建立"}</span><CornerDownLeft size={13} /></footer>
+      </>}
     </DialogContent>
   </Dialog>;
 }

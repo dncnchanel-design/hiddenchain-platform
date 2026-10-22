@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Calculator } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ApiError, createIdempotencyKey } from "../../../api";
 import { commandPollingRetryDelay, MAX_CONSECUTIVE_POLLING_FAILURES, shouldRetryCommandPolling, shouldStopCommandPolling } from "../../../hooks";
@@ -29,6 +30,7 @@ import {
 } from "../query-task-lifecycle";
 import { routeForView } from "../types";
 import { useTrustedSpaceContext } from "../trusted-space-context";
+import { Button } from "../components/ui-primitives";
 
 const EXAMPLES = [
   "查一下6月份各地区的电网负荷，用于运行监测",
@@ -551,7 +553,7 @@ export function QueryPage() {
     <div className="prototype-query-layout">
       <div className="prototype-query-main">
         <section className="prototype-card prototype-query-entry">
-          <PrototypeCardTitle>对话式问数</PrototypeCardTitle>
+          <PrototypeCardTitle action={<Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent("trusted-energy:agent-open", { detail: { mode: "electricity" } }))}><Calculator size={15} />电力交易计算</Button>}>对话式问数</PrototypeCardTitle>
           <div className="prototype-chat-input"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void ask(); }} placeholder="用自然语言描述你的数据需求，例如：查一下6月份各地区的电网负荷，用于运行监测" /><button type="button" disabled={busy !== "" || !question.trim() || Boolean(pendingTask)} onClick={() => void ask()}>{busy === "parsing" ? "AI解析中…" : "发送"}</button></div>
           <div className="prototype-query-examples" aria-label="快捷提问">{EXAMPLES.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
         </section>
