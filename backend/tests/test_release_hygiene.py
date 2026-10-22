@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,25 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def _read(relative_path: str) -> str:
     return (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_unpatched_braces_is_confined_to_trusted_frontend_builds() -> None:
+    config = tomllib.loads(_read("frontend/osv-scanner.toml"))
+    assert len(config["IgnoredVulns"]) == 1
+    exception = config["IgnoredVulns"][0]
+    assert exception["id"] == "GHSA-vfj7-8cjw-p6xm"
+    assert exception["ignoreUntil"].isoformat() == "2026-11-22"
+    manifest = json.loads(_read("frontend/package.json"))
+    assert "tailwindcss" in manifest["devDependencies"]
+    assert not {"braces", "chokidar", "micromatch", "tailwindcss"} & set(manifest["dependencies"])
+    for path in (PROJECT_ROOT / "frontend/src").rglob("*"):
+        if path.suffix in {".ts", ".tsx", ".js", ".jsx"}:
+            assert not re.search(r'''(?:from\s*|import\s*\(|require\s*\()['"](?:braces|micromatch|chokidar|tailwindcss)(?:/|['"])''', path.read_text(encoding="utf-8")), str(path)
+    final_stage = _read("Dockerfile").rsplit("\nFROM ", 1)[1]
+    assert final_stage.startswith("python:")
+    assert "COPY --from=frontend-builder /app/frontend/dist ./frontend_dist" in final_stage
+    assert not re.search(r"(?:COPY|RUN).*\b(?:node_modules|npm|pnpm|node:|bun)\b", final_stage)
+    assert 'content: ["./src/features/trusted-energy/**/*.{ts,tsx}"]' in _read("frontend/tailwind.config.js")
 
 
 def test_production_env_is_excluded_from_git_and_docker_context() -> None:

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 计算与权限 | 新增 electricity_calculation 服务、路由及回归测试；main.py 注册路由 | 333 项完整后端回归通过 |
 | 聊天交互 | AgentSheet、ElectricityChat、电力计算 API 与独立 CSS | 150 项测试及构建通过；桌面、手机与独立审查通过 |
-| 发布补丁 | backend/requirements.txt | 将 PyJWT 更新到 2.14.0，修复现有远端安全扫描阻断 |
+| 发布补丁 | 后端依赖；前端清单、锁文件与 overrides；发布边界测试 | PyJWT 2.15.1、Vite 6.4.5、Vitest 4.1.12 及间接依赖安全修复；单项编译期 braces 例外到期复查，扫描保持启用 |
 | 发布 | 协调 Agent 负责本次变更 commit / push 与 Render SHA 核对 | 依赖补丁定向回归后执行；最终状态见 Actions / Deployments |
 
 既有未提交 README、RELEASE_MANIFEST、打包脚本及未跟踪文档不属于本次修改范围。

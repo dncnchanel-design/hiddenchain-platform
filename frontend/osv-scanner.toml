@@ -1,0 +1,11 @@
+# Scope: this directory's lockfile only. All other findings remain enforced.
+# Upstream: https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+# No patched braces release exists as of 2026-10-22. It is used solely by
+# Tailwind's chokidar/micromatch build tooling (pnpm why braces), with patterns
+# from the repository's fixed tailwind.config.js, not from public requests.
+# Dockerfile's final Python stage copies only frontend/dist; neither Node.js
+# nor node_modules nor braces ships. Re-evaluate on expiry or pipeline changes.
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2026-11-22
+reason = "Build-only Tailwind dependency, absent from the deployed Python image and browser bundle; public users cannot supply its glob patterns. No upstream patch is available. Boundary enforced by test_release_hygiene.py."

@@ -5,7 +5,8 @@
 ```text
 CHANGE = AI 助手新增独立电力交易计算对话；依据、公式、参数确认、逐步验算、案例保存与复用、结果表导出
 LOCAL_VERIFICATION = PASS（333 后端完整回归；150 前端测试；13 连接器测试；TypeScript、ESLint、生产/品牌检查、构建；桌面/手机交互；独立审查 ship）
-RELEASE_DEPENDENCY_FIX = PyJWT 2.13.0 -> 2.14.0（现有 Trivy 扫描报告的安全修复版本）
+RELEASE_DEPENDENCY_FIX = PyJWT 2.15.1；Vite 6.4.5；Vitest 4.1.12；间接依赖修复（以本次远端 OSV / Trivy 门禁验证）
+BUILD_ONLY_EXCEPTION = GHSA-vfj7-8cjw-p6xm；仅 frontend 锁文件；2026-11-22 到期；上游无修复；不进入 Python 运行镜像；边界测试与独立审查通过
 GITHUB_TARGET = main + agent/deep-brand-green
 RENDER_TARGET = hiddenchain-platform-review
 GITHUB_VERIFICATION = 本次发布提交的 Actions 与远端分支 SHA
