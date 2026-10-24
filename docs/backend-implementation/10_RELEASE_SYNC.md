@@ -1,5 +1,22 @@
 # Release Synchronization
 
+## 全账号功能故障排查与修复 — 2026-10-24
+
+```text
+BASELINE_RELEASE = 9b11ce50e4077c1ac937aa4ba6af9b0bb0e1e9ee
+ONLINE_BASELINE = 13 logins pass; 249 read calls; 8 reachable same-SHA services
+CONFIRMED_FAILURES = expired synthetic catalog versions; dashboard date coverage; unreachable workflow actions; stale authorization details; query/permission edge cases
+DATA_BOUNDARY = synthetic/isolated verification only; historical Vault and user work preserved
+LOCAL_WORKFLOW_VERIFICATION = PASS; 49 real HTTP workflows; 13 accounts; 89 browser page visits
+FRONTEND_VERIFICATION = PASS; 177 tests; lint; types; production/brand guards; production build
+BACKEND_LOCAL_VERIFICATION = PASS; 424 passed / 1 skipped full run; 95 final combined auth/assistant/query/account checks; production guard; pip check; compileall
+CONNECTOR_VERIFICATION = PASS; 14 tests; signed old/new request compatibility and version/privacy boundaries
+RELEASE_STATE = code changes and local workflow verification recorded; live state must be read from same-commit Actions, Deployments and health endpoints
+RELEASE_GATE = full local checks + independent review + same GitHub branch SHA + all deployment/health SHA + live workflow verification
+```
+
+本次修复范围与账号验收矩阵见 [11_ALL_ACCOUNT_ACCEPTANCE.md](11_ALL_ACCOUNT_ACCEPTANCE.md)。最终 GitHub / Render 状态须核对实际发布提交，不根据源码中的静态记录推断线上成功。
+
 ## 电力交易计算聊天窗口 — 2026-10-22
 
 ```text

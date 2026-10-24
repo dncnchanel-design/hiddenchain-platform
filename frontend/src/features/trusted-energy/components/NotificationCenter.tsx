@@ -2,16 +2,19 @@ import { Bell, CheckCheck, ExternalLink, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, formatDate } from "../../../api";
+import { useAuth } from "../../../auth";
 import { useRemote } from "../../../hooks";
 import { Badge, Button, IconButton, RemoteState, Sheet } from "./ui-primitives";
 import { loadNotifications, markAllNotificationsRead, markNotificationRead, type TrustedNotification } from "../trusted-space-api";
 import { notificationPath } from "../trusted-space-ui";
 
-function notificationRouteHint(notification: TrustedNotification) {
-  return notificationPath(notification) ? "打开关联记录" : "该通知暂未登记直接详情路由";
+function notificationRouteHint(notification: TrustedNotification, canViewAudit: boolean) {
+  return notificationPath(notification, canViewAudit) ? "打开关联记录" : "查看通知摘要";
 }
 
 export function NotificationCenter() {
+  const { session } = useAuth();
+  const canViewAudit = Boolean(session?.menus.some((menu) => menu.code === "audit"));
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export function NotificationCenter() {
 
   async function openNotification(notification: TrustedNotification) {
     await markRead(notification);
-    const path = notificationPath(notification);
+    const path = notificationPath(notification, canViewAudit);
     if (path) {
       setOpen(false);
       navigate(path);
@@ -84,15 +87,18 @@ export function NotificationCenter() {
         {remote.loading && !payload && <RemoteState loading />}
         {remote.error && !payload && <RemoteState error={remote.error} onRetry={remote.reload} />}
         {payload && payload.empty_state && <RemoteState empty emptyLabel="当前主体暂无通知" />}
-        {payload && !payload.empty_state && <div className="trusted-notification-list">{payload.items.map((notification) => <div className={`trusted-notification-row ${notification.read_at ? "is-read" : "is-unread"}`} key={notification.notification_id}>
-          <button type="button" className="trusted-notification-item" onClick={() => openNotification(notification)} aria-busy={busyId === notification.notification_id || undefined} disabled={Boolean(busyId) && busyId !== notification.notification_id}>
+        {payload && !payload.empty_state && <div className="trusted-notification-list">{payload.items.map((notification) => {
+          const path = notificationPath(notification, canViewAudit);
+          const content = <>
             <span className="trusted-notification-dot" aria-hidden="true" />
-            <span className="trusted-notification-copy"><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.created_at)} · {notificationRouteHint(notification)}</small></span>
-            <ExternalLink size={14} aria-hidden="true" />
-          </button>
+            <span className="trusted-notification-copy"><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.created_at)} · {notificationRouteHint(notification, canViewAudit)}</small></span>
+            {path && <ExternalLink size={14} aria-hidden="true" />}
+          </>;
+          return <div className={`trusted-notification-row ${notification.read_at ? "is-read" : "is-unread"}`} key={notification.notification_id}>
+          {path ? <button type="button" className="trusted-notification-item" onClick={() => openNotification(notification)} aria-busy={busyId === notification.notification_id || undefined} disabled={Boolean(busyId) && busyId !== notification.notification_id}>{content}</button> : <div className="trusted-notification-item">{content}</div>}
           {!notification.read_at && <Button variant="link" size="sm" disabled={Boolean(busyId)} busy={busyId === notification.notification_id} onClick={() => markRead(notification)}>标记已读</Button>}
           {notification.read_at && <Badge tone="neutral">已读</Badge>}
-        </div>)}</div>}
+        </div>; })}</div>}
         {payload && <div className="trusted-step-footer" aria-label="通知分页"><span>第 {payload.page} 页 · 共 {payload.total} 条</span><div><Button variant="secondary" size="sm" disabled={!canGoPrevious || remote.loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</Button><Button variant="secondary" size="sm" disabled={!canGoNext || remote.loading} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div>}
       </div>
     </Sheet>

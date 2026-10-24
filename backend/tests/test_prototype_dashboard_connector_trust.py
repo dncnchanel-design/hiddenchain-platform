@@ -332,3 +332,20 @@ def test_dashboard_audit_validator_rejects_missing_raw_export_flag():
             expected_provider_org_id="org-generator-t01",
             expected_energy_domain="electricity",
         )
+
+
+@pytest.mark.parametrize("advertised", [True, False])
+def test_registered_dashboard_key_still_negotiates_the_latest_window(monkeypatch, advertised):
+    registered = _public_key(Ed25519PrivateKey.generate())
+    monkeypatch.setattr(prototype, "settings", replace(prototype.settings, app_env="production"))
+    monkeypatch.setattr(prototype.httpx, "get", lambda *_args, **_kwargs: _JsonResponse({
+        "connector_id": "local-node-org-generator-t01", "organization_id": "org-generator-t01",
+        "energy_domain": "electricity", "public_key": registered,
+        "capabilities": {"dashboard_latest_available": advertised},
+    }))
+    key, source, supports_latest = prototype._dashboard_connector_public_key(
+        endpoint="https://connector.example", node={"node_code": "local-node-org-generator-t01", "public_key": registered},
+        provider_org_id="org-generator-t01", energy_domain="electricity",
+    )
+    assert (key, source) == (registered, "PRECONFIGURED_PUBLIC_KEY")
+    assert supports_latest is advertised

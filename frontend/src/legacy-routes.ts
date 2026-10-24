@@ -79,7 +79,11 @@ export function legacyBusinessDestination({ pathname, search = "", hash = "" }: 
   }
   if (["/evidence", "/audit", "/reports", "/anomalies"].includes(routePath)) {
     const taskId = querySegment(new URLSearchParams(search).get("task_id"));
-    return destination(`${TRUSTED}/audit${taskId ? `/tasks/${taskId}` : ""}`, search, hash, "audit", `${TRUSTED}/audit`);
+    const params = new URLSearchParams(search);
+    if (routePath === "/reports") params.set("view", "reports");
+    if (routePath === "/anomalies") params.set("view", "anomalies");
+    const nextSearch = params.size ? `?${params.toString()}` : "";
+    return destination(`${TRUSTED}/audit${taskId ? `/tasks/${taskId}` : ""}`, nextSearch, hash, "audit", `${TRUSTED}/audit`);
   }
 
   const contractMatch = /^\/contracts\/([^/]+)$/.exec(routePath);

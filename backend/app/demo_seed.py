@@ -24,6 +24,7 @@ from .schemas import DataUsageRequestCreate
 from .seed import ORGS, USERS, _seed_upload
 from .services.adapters import AdaptivePrivacyRouter
 from .services.data_usage_requests import create_request
+from .services.common import add_audit_log
 from .services.workflow import run_privacy_analysis, run_settlement_workflow
 from .trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 
@@ -501,7 +502,7 @@ def _seed_catalog(db: Session) -> None:
                     else 1460
                 ),
                 effective_from=datetime(2025, 9, 1),
-                effective_until=datetime(2026, 8, 31, 23, 59, 59),
+                effective_until=None,
                 immutable_hash=sha256_json({"asset": asset_id, "version": 1, "data_hash": data_hash}),
                 status="ACTIVE",
             )
@@ -534,6 +535,33 @@ def _seed_catalog(db: Session) -> None:
 
 def seed_demo_catalog(db: Session) -> None:
     if db.scalar(select(Organization.org_id).limit(1)):
+        repaired = []
+        for domain, definitions in RESOURCE_DEFINITIONS.items():
+            for resource, _name, _unit in definitions:
+                version = db.get(DataAssetVersion, f"version-{domain}-{resource}-1")
+                owner = _electricity_owner(resource) if domain == "electricity" else OWNER_BY_DOMAIN[domain]
+                if (
+                    version is not None
+                    and version.asset_id == f"asset-{domain}-{resource}"
+                    and version.schema_version == DEMO_SEED_VERSION
+                    and version.status == "ACTIVE"
+                    and version.version_no == 1
+                    and version.data_ref == f"connector://local-node-{owner}/{resource}/versions/1"
+                    and version.data_hash == demo_seed_content_hash(owner, domain, resource)
+                    and version.effective_until == datetime(2026, 8, 31, 23, 59, 59)
+                ):
+                    version.effective_until = None
+                    repaired.append(version.version_id)
+        if repaired:
+            add_audit_log(
+                db,
+                action="DEMO_CATALOG_VALIDITY_REPAIRED",
+                target_type="DATA_ASSET_VERSION",
+                target_id=DEMO_SEED_VERSION,
+                result="SUCCESS",
+                details={"version_ids": repaired, "raw_data_accessed": False, "content_changed": False},
+            )
+            db.commit()
         return
     _seed_participants(db)
     _seed_catalog(db)
@@ -567,7 +595,6 @@ def seed_demo_authorization_request(db: Session) -> None:
             requested_scope={
                 "max_uses": 10,
                 "output_mode": "AGGREGATE_ONLY",
-                "region": "山东省",
             },
             requested_fields=["日期", "地区", "用电负荷"],
             duration_days=30,

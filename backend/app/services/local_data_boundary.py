@@ -121,7 +121,19 @@ def _scope_matches(rule: AccessRule, requested_scope: dict[str, Any]) -> bool:
     requested = requested_scope if isinstance(requested_scope, dict) else {}
     if requested.get("raw_data_export"):
         return False
-    for key in ("granularity", "region", "output_mode"):
+    for location_scope in (limits, rule.scope_json if isinstance(rule.scope_json, dict) else {}):
+        for key in ("region", "regions", "allowed_regions"):
+            allowed = location_scope.get(key)
+            if allowed is not None:
+                regions = allowed if isinstance(allowed, list) else [allowed]
+                region = requested.get("region")
+                # An unfiltered request includes a forbidden region, but cannot
+                # claim containment in a region-limited positive authorization.
+                if rule.mode == RULE_FORBIDDEN and region in (None, ""):
+                    continue
+                if not isinstance(region, str) or not region or region not in regions:
+                    return False
+    for key in ("granularity", "output_mode"):
         allowed = limits.get(key)
         if allowed is not None and requested.get(key) not in (None, allowed):
             return False

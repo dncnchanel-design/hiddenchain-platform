@@ -2,10 +2,41 @@ import json
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
+from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy import select
 
 from app.config import settings
-from app.database import SessionLocal
-from app.models import DidIdentity
+from app.database import SessionLocal, engine
+from app.main import app
+from app.models import AuditLog, Base, DidIdentity, DidLoginChallenge, Organization, User
+from app.services.rate_limit import limiter
+
+
+@pytest.fixture(autouse=True)
+def reset_test_database():
+    """DID authentication needs identity metadata, never raw-data fixtures."""
+    limiter.reset()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        org_id = "org-generator-t01"
+        db.add(Organization(org_id=org_id, org_type="GENERATOR", org_name="签名登录测试企业", energy_domain="electricity"))
+        db.flush()
+        db.add(User(user_id="user-generator", org_id=org_id, username="generator", password_hash="unused", display_name="测试账号", role_code="GENERATOR", is_org_owner=True))
+        db.add(DidIdentity(did_id=f"did:hiddenchain:org:{org_id}", owner_type="ORG", owner_id=org_id, org_id=org_id, public_key_fingerprint="metadata-only", credential_status="VALID"))
+        db.commit()
+    yield
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+
+@pytest.fixture
+def client():
+    # Metadata are initialized above; do not enter fixture-seeding lifespan.
+    instance = TestClient(app, raise_server_exceptions=False)
+    yield instance
+    instance.close()
 
 
 def _sign_challenge(challenge: dict, account) -> str:
@@ -89,6 +120,35 @@ def test_did_wallet_login_rejects_wrong_signature(client):
     )
     assert response.status_code == 401
     assert response.json()["code"] == "DID_LOGIN_SIGNATURE_INVALID"
+
+
+@pytest.mark.parametrize("signature", ["0x" + "0" * 130, "0x" + f"{5:064x}{1:064x}1b"])
+def test_unrecoverable_wallet_signatures_are_audited_without_consuming_the_challenge(client, signature):
+    account = Account.create()
+    with SessionLocal() as db:
+        identity = db.get(DidIdentity, "did:hiddenchain:org:org-generator-t01")
+        identity.chain_address = account.address
+        db.commit()
+    challenge_response = client.post("/api/auth/did/challenge", json={"wallet_address": account.address})
+    assert challenge_response.status_code == 200, challenge_response.text
+    challenge = challenge_response.json()
+    body = {"challenge": challenge["challenge"], "wallet_address": account.address, "signature": signature}
+
+    rejected = client.post("/api/auth/did/verify", json=body)
+    assert rejected.status_code == 401, rejected.text
+    assert rejected.json()["code"] == "DID_LOGIN_SIGNATURE_INVALID"
+    with SessionLocal() as db:
+        assert db.get(DidLoginChallenge, challenge["challenge"]).used_at is None
+        failure = db.scalar(select(AuditLog).where(AuditLog.action_code == "LOGIN_DID", AuditLog.result == "FAILED", AuditLog.target_id == account.address.lower()))
+        assert failure is not None
+        assert failure.details_json["reason"] == "INVALID_SIGNATURE"
+
+    body["signature"] = _sign_challenge(challenge, account)
+    accepted = client.post("/api/auth/did/verify", json=body)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["user"]["username"] == "generator"
+    with SessionLocal() as db:
+        assert db.get(DidLoginChallenge, challenge["challenge"]).used_at is not None
 
 
 def test_did_wallet_login_rejects_unregistered_wallet(client):

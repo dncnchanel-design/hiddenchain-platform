@@ -19,11 +19,11 @@ const SHORTCUTS = [
 ] as const;
 
 const AGENT_NAV = [
-  { label: "常用指令", icon: FileSearch, command: "检查资产完整性" },
-  { label: "数据查询", icon: Database, command: "查询当前数据资产" },
-  { label: "任务创建", icon: ClipboardList, command: "查看可创建的结算任务" },
-  { label: "报告生成", icon: FileText, command: "解释审计报告" },
-  { label: "帮助", icon: ShieldCheck, command: "查看当前助手能力边界" },
+  { label: "资产检查", icon: FileSearch, command: "检查资产完整性" },
+  { label: "授权查询", icon: Database, command: "查询授权申请状态" },
+  { label: "任务状态", icon: ClipboardList, command: "检查可信任务状态" },
+  { label: "审计解释", icon: FileText, command: "解释审计报告" },
+  { label: "证据核验", icon: ShieldCheck, command: "核验证据摘要" },
 ] as const;
 
 function entityContext(pathname: string) {

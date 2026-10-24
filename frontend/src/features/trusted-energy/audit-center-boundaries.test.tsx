@@ -14,12 +14,20 @@ const mocks = vi.hoisted(() => ({
   refreshing: false,
   error: "",
   refreshError: "",
+  search: "",
+  role: "REGULATOR",
+  reportProps: null as { taskId?: string; reportId?: string } | null,
+  anomalyProps: null as { taskId?: string; eventId?: string } | null,
 }));
 
 vi.mock("react-router-dom", () => ({
   useLocation: () => ({ pathname: mocks.pathname }),
   useNavigate: () => mocks.navigate,
+  useSearchParams: () => [new URLSearchParams(mocks.search), vi.fn()],
 }));
+vi.mock("../../auth", () => ({ useAuth: () => ({ session: { user: { role_code: mocks.role } } }) }));
+vi.mock("../../pages/ReportsPage", () => ({ ReportsPage: (props: { taskId?: string; reportId?: string }) => { mocks.reportProps = props; return <div>报告审核界面</div>; } }));
+vi.mock("../../pages/AnomaliesPage", () => ({ AnomaliesPage: (props: { taskId?: string; eventId?: string }) => { mocks.anomalyProps = props; return <div>风险处置界面</div>; } }));
 vi.mock("../../hooks", () => ({
   useRemote: (loader: (signal?: AbortSignal) => Promise<unknown>) => {
     mocks.loaders.push(loader);
@@ -43,6 +51,10 @@ describe("trusted audit center boundaries", () => {
     mocks.refreshing = false;
     mocks.error = "";
     mocks.refreshError = "";
+    mocks.search = "";
+    mocks.role = "REGULATOR";
+    mocks.reportProps = null;
+    mocks.anomalyProps = null;
     mocks.data = { kind: "list", page: 1, payload: {
       items: [], reports: [], total: 0, page: 1, page_size: 20, empty_state: true,
     } };
@@ -56,6 +68,26 @@ describe("trusted audit center boundaries", () => {
     expect(markup).toContain("正式审计页保持只读");
     expect(markup).not.toContain("模拟篡改");
     expect(markup).not.toContain("恢复");
+  });
+
+  it("restores report approval at its existing task and report destination", () => {
+    mocks.pathname = "/trusted-space/audit/tasks/task-real";
+    mocks.search = "view=reports&report_id=report-real";
+    expect(renderToStaticMarkup(<AuditCenterPage />)).toContain("报告审核界面");
+    expect(mocks.reportProps).toEqual({ taskId: "task-real", reportId: "report-real" });
+  });
+
+  it("restores anomaly disposition without adding a main navigation route", () => {
+    mocks.search = "view=anomalies&task_id=task-real&event_id=event-real";
+    expect(renderToStaticMarkup(<AuditCenterPage />)).toContain("风险处置界面");
+    expect(mocks.anomalyProps).toEqual({ taskId: "task-real", eventId: "event-real" });
+  });
+
+  it("does not mount report writes when the current account is not a regulator", () => {
+    mocks.role = "EXCHANGE";
+    mocks.search = "view=reports";
+    renderToStaticMarkup(<AuditCenterPage />);
+    expect(mocks.reportProps).toBeNull();
   });
 
   it("consumes the deep-linked task id and renders evidence receipt state", async () => {

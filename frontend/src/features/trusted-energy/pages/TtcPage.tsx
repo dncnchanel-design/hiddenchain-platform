@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Check, ClipboardList, FileClock, ListChecks, Logs, ShieldCheck } from "lucide-react";
+import { Activity, Check, ClipboardList, FileClock, ListChecks, Logs, Play, RefreshCw, ShieldCheck } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, formatDate, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
 import { commandPollingRetryDelay, MAX_CONSECUTIVE_POLLING_FAILURES, shouldRetryCommandPolling, shouldStopCommandPolling, useRemote, useScopedRemote } from "../../../hooks";
@@ -8,6 +8,9 @@ import { PageFrame } from "../components/PageFrame";
 import { loadTtc, loadTtcEvents, loadTtcList, transitionTtc, type TtcDetailPayload, type TtcEvent, type TtcListPayload } from "../trusted-space-api";
 import { ACTION_LABELS, TTC_STATE_LABELS, labelForCode } from "../../../types";
 import { routeForView, trustedEntityId } from "../types";
+import { useAuth } from "../../../auth";
+import { ConfirmDialog } from "../../../components/ui";
+import { canRunSettlementTask, loadSettlementTask, runSettlementTask, type SettlementTaskSummary } from "../workflow-api";
 
 function stateLabel(value: string) {
   return ({ INIT: "初始化", IDENTITY_VERIFY: "身份校验", DATA_AUTH: "数据授权", RULE_FROZEN: "规则冻结", COMPUTE_EXEC: "受控计算", RESULT_CONFIRM: "结果确认", EVIDENCE_ANCHOR: "证据锚定", ARCHIVED: "已归档", HUMAN_REVIEW: "人工复核", REWORK: "返工", INTERRUPTED: "已中断", CANCELLED: "已取消" } as Record<string, string>)[value] || TTC_STATE_LABELS[value] || labelForCode(value, "未知状态");
@@ -33,6 +36,8 @@ function eventText(event: TtcEvent) {
 }
 
 export function TtcPage() {
+  const { session } = useAuth();
+  const role = session?.user.role_code || "";
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -46,6 +51,16 @@ export function TtcPage() {
   const selectedTaskId = routeTaskId;
   const remote = useScopedRemote<TtcDetailPayload | null>(selectedTaskId || "", (signal) => selectedTaskId ? loadTtc(selectedTaskId, signal) : Promise.resolve(null));
   const detail = remote.data;
+  const taskEtag = useRef<{ taskId: string; value: string } | null>(null);
+  const settlementRemote = useScopedRemote<SettlementTaskSummary | null>(selectedTaskId || "", (signal) => selectedTaskId && role === "EXCHANGE"
+    ? loadSettlementTask(selectedTaskId, { signal, onResponseMetadata: (metadata) => { if (metadata.etag) taskEtag.current = { taskId: selectedTaskId, value: metadata.etag }; } })
+    : Promise.resolve(null), [role]);
+  const settlement = settlementRemote.data;
+  const canRun = !settlementRemote.error && !settlementRemote.refreshError && canRunSettlementTask(role, settlement);
+  const [confirmRun, setConfirmRun] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
+  const [runError, setRunError] = useState("");
+  const runLock = useRef(false);
   const listPayload = listRemote.data;
   const listItems = listPayload?.items ?? [];
   const [logsOpen, setLogsOpen] = useState(false);
@@ -131,6 +146,29 @@ export function TtcPage() {
   const timeline = useMemo(() => detail ? eventTimeline(detail) : [], [detail]);
   const transitionActions = (detail?.allowed_actions || []).filter((action) => action.startsWith("transition:"));
 
+  async function runSettlement() {
+    if (!settlement || !selectedTaskId || !canRun || runLock.current) return;
+    runLock.current = true;
+    setRunBusy(true);
+    setRunError("");
+    const version = taskEtag.current?.taskId === selectedTaskId ? taskEtag.current.value : `"${settlement.state_version}"`;
+    const fingerprint = `${selectedTaskId}:${version}`;
+    const key = prepareIdempotencyKey(idempotencyKeys.current[fingerprint], "settlement-run", fingerprint);
+    idempotencyKeys.current[fingerprint] = key;
+    try {
+      await runSettlementTask(selectedTaskId, { ifMatch: version, idempotencyKey: key.key });
+      setConfirmRun(false);
+      await Promise.all([remote.reload(), settlementRemote.reload(), listRemote.reload()]);
+      window.dispatchEvent(new Event("trusted-energy:data-refresh"));
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : "结算执行失败，请刷新后重试。");
+      setConfirmRun(false);
+    } finally {
+      runLock.current = false;
+      setRunBusy(false);
+    }
+  }
+
   async function runTransition(target: string) {
     if (!detail || !selectedTaskId || !transitionReason.trim()) {
       setTransitionError("执行状态动作前请填写理由。");
@@ -175,11 +213,21 @@ export function TtcPage() {
     {routeTaskId && remote.error && !detail && <RemoteState error={remote.error} onRetry={() => void remote.reload()} />}
     {detail && remote.refreshError && <RemoteState error={remote.refreshError} onRetry={() => void remote.reload()} />}
     {detail && <>
+      <div className="trusted-submit-actions tw-flex-wrap">
+        <Button variant="secondary" onClick={() => navigate(`${routeForView("results")}?task_id=${encodeURIComponent(detail.task.task_id)}`)}>查看计算结果</Button>
+        {role === "REGULATOR" && <Button variant="secondary" onClick={() => navigate(routeForView("audit", detail.task.task_id))}>查看审计与风险</Button>}
+        {role === "EXCHANGE" && <Button variant="secondary" busy={settlementRemote.refreshing} onClick={settlementRemote.reload}><RefreshCw size={14} />刷新执行条件</Button>}
+        {canRun && <Button variant="primary" busy={runBusy} disabled={settlementRemote.refreshing} onClick={() => setConfirmRun(true)}><Play size={14} />{settlement?.allowed_actions?.includes("RETRY_SETTLEMENT") ? "重试结算" : "启动结算"}</Button>}
+      </div>
+      {role === "EXCHANGE" && (settlementRemote.error || settlementRemote.refreshError) && <RemoteState error={settlementRemote.error || settlementRemote.refreshError} onRetry={settlementRemote.reload} />}
+      {role === "EXCHANGE" && settlement && !canRun && settlement.readiness?.preflight_blockers?.map((blocker) => <p className="trusted-inline-status" key={blocker}>{blocker}</p>)}
+      {runError && <p className="trusted-muted" role="alert">{runError}</p>}
       <Card className="trusted-task-banner"><CardContent><div><small>任务编号</small><strong><code>{detail.task.task_id}</code></strong></div><div><small>任务名称</small><strong>{detail.task.task_name}</strong></div><div><small>当前状态</small><strong>{stateLabel(detail.task.ttc_state)}</strong></div><div><small>当前尝试</small><strong>{detail.task.current_attempt ?? "—"}</strong></div><div><small>状态版本</small><strong><code>V{detail.task.state_version}</code></strong></div><div><small>能力来源</small><Badge tone="warning">{labelForCode(detail.source_of_truth, "结算任务记录")}</Badge></div></CardContent></Card>
       <Card className="trusted-state-card"><CardHeader><SurfaceHeader title="状态轨迹" description="只展示后端持久化的状态转移，不补造未发生节点" action={<Badge tone="info" dot>{stateLabel(detail.task.ttc_state)}</Badge>} /></CardHeader><CardContent>{timeline.length ? <div className="trusted-state-tracker">{timeline.map((event, index) => <div className={`trusted-state-node trusted-state-${event.state}`} key={event.id}><span className="trusted-state-marker">{event.state === "done" ? <Check size={13} /> : <Activity size={13} />}</span><strong>{event.label}</strong><small>{event.time}</small>{index < timeline.length - 1 && <i className="trusted-state-connector" />}</div>)}</div> : <RemoteState empty emptyLabel="暂无状态转移记录" />}</CardContent></Card>
       <div className="trusted-ttc-grid"><Card><CardHeader><SurfaceHeader title="节点事件" description="真实状态转移与时间戳" action={<FileClock size={16} />} /></CardHeader><CardContent>{timeline.length ? <Timeline events={timeline} /> : <RemoteState empty emptyLabel="暂无节点事件" />}</CardContent></Card><Card><CardHeader><SurfaceHeader title="任务属性" description="事实字段、规则冻结与执行快照" action={<ClipboardList size={16} />} /></CardHeader><CardContent><dl className="trusted-definition-list"><div><dt>任务类型</dt><dd>{labelForCode(detail.task.capsule_id, "—")}</dd></div><div><dt>当前阶段</dt><dd>{labelForCode(detail.task.current_stage, "") || stateLabel(detail.task.ttc_state)}</dd></div><div><dt>执行快照</dt><dd><code>{detail.task.execution_snapshot_id || "未登记"}</code></dd></div><div><dt>快照哈希</dt><dd><code>{detail.task.execution_snapshot_hash || "—"}</code></dd></div><div><dt>尝试记录</dt><dd>{detail.attempts.length}</dd></div><div><dt>参与方</dt><dd>{detail.participants.length}</dd></div></dl><Progress value={detail.task.phase_progress_estimate?.value ?? 0} label={detail.task.phase_progress_estimate?.label || "阶段估算（非实时执行进度）"} /><small className="trusted-muted">来源：{labelForCode(detail.task.phase_progress_estimate?.source, "状态阶段估算")}</small></CardContent></Card></div>
       <Card><CardHeader><SurfaceHeader title="当前责任" description="系统动作仅在后端明确返回可用动作时提供写操作" action={<ListChecks size={16} />} /></CardHeader><CardContent><div className="trusted-next-action"><span className="trusted-next-icon"><ShieldCheck size={17} /></span><div><strong>{stateLabel(detail.task.ttc_state)}</strong><p>{detail.transitions.at(-1)?.reason || "暂无最近状态理由；前端不会自行推进状态。"}</p></div><div className="trusted-submit-actions">{transitionActions.map((action) => <Button key={action} variant="primary" busy={transitionBusy} onClick={() => runTransition(action.slice("transition:".length))}>推进至 {stateLabel(action.slice("transition:".length))}</Button>)}{!transitionActions.length && <Button variant="secondary" disabled title="后端当前只返回查看权限，状态推进需由系统服务端完成">状态推进不可用</Button>}</div></div>{transitionActions.length > 0 && <div className="trusted-option-grid"><Input value={transitionReason} onChange={(event) => setTransitionReason(event.target.value)} placeholder="状态转移理由" aria-label="状态转移理由" />{transitionError && <p className="trusted-muted" role="alert">{transitionError}</p>}</div>}</CardContent></Card>
     </>}
     <Dialog open={logsOpen} onOpenChange={setLogsOpen}><DialogContent className="energy-log-dialog"><DialogTitle>实时任务日志</DialogTitle>{logLoading && !logItems.length && <RemoteState loading />}{logError && <RemoteState error={logError} onRetry={() => { setLogError(""); setLogRetryNonce((value) => value + 1); }} />}{!logError && !logLoading && !logItems.length && <RemoteState empty emptyLabel="暂无实时事件" />}<div className="trusted-log-stream">{logItems.map((event) => <div key={event.event_id}><time>{formatDate(event.occurred_at)}</time><code>{eventText(event)}</code></div>)}</div><Button variant="secondary" onClick={() => setLogsOpen(false)}>关闭</Button></DialogContent></Dialog>
+    <ConfirmDialog open={confirmRun && canRun} title={settlement?.allowed_actions?.includes("RETRY_SETTLEMENT") ? "确认重试结算" : "确认启动结算"} objectName={settlement?.task_name || selectedTaskId || "当前任务"} currentState={settlement?.status} consequence="确认后按当前规则和已授权数据执行受控计算，并记录本次执行尝试。" confirmLabel="确认执行" busy={runBusy} onCancel={() => setConfirmRun(false)} onConfirm={runSettlement} />
   </PageFrame>;
 }

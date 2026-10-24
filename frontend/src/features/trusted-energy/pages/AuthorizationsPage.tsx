@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, ClipboardList, LockKeyhole, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
-import { useRemote } from "../../../hooks";
+import { useRemote, useScopedRemote } from "../../../hooks";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, RemoteState, StatusBadge, SurfaceHeader } from "../components/ui-primitives";
 import { PageFrame } from "../components/PageFrame";
 import { useTrustedSpaceContext } from "../trusted-space-context";
@@ -29,11 +29,11 @@ export function AuthorizationsPage() {
     [view, page],
   );
   const selectedFromList = useMemo(() => listRemote.data?.items.find((item) => item.request_id === selectedId) || null, [listRemote.data, selectedId]);
-  const detailRemote = useRemote(
+  const detailRemote = useScopedRemote(
+    selectedId || "",
     (signal) => selectedId ? loadUsageRequest(selectedId, signal) : Promise.resolve<UsageRequest | null>(null),
-    [selectedId],
   );
-  const detail = detailRemote.data || selectedFromList;
+  const detail = detailRemote.data || (!detailRemote.error ? selectedFromList : null);
   const [reason, setReason] = useState("");
   const [busyAction, setBusyAction] = useState<UsageRequestAction | null>(null);
   const [actionError, setActionError] = useState("");
@@ -63,7 +63,7 @@ export function AuthorizationsPage() {
   }
 
   async function performAction(action: UsageRequestAction) {
-    if (!detail) return;
+    if (!detail || detail.request_id !== selectedId || busyAction || detailRemote.loading || detailRemote.error) return;
     if ((action === "approve" || action === "reject") && !reason.trim()) {
       setActionError("批准或拒绝必须填写理由。");
       return;
@@ -111,13 +111,14 @@ export function AuthorizationsPage() {
           <CardContent>
             {detailRemote.loading && <RemoteState loading />}
             {!detailRemote.loading && detailRemote.error && <RemoteState error={detailRemote.error} onRetry={() => void detailRemote.reload()} />}
+            {detail && detailRemote.refreshError && <RemoteState error={detailRemote.refreshError} onRetry={() => void detailRemote.reload()} />}
             {!detailRemote.loading && !detailRemote.error && !detail && <RemoteState empty emptyLabel="选择一条申请查看详情" />}
             {detail && <div className="trusted-definition-list"><div><dt>申请编号</dt><dd><code>{detail.request_id}</code></dd></div><div><dt>资产</dt><dd><strong>{detail.asset.asset_name || detail.asset.asset_code || "—"}</strong><small><code>{detail.asset.asset_id}</code></small></dd></div><div><dt>申请方</dt><dd>{detail.applicant.org_name}<small>{detail.applicant.did}</small></dd></div><div><dt>提供方</dt><dd>{detail.provider.org_name}<small>{detail.provider.did}</small></dd></div><div><dt>用途 / 方式</dt><dd>{purposeLabel(detail.purpose)}<small>{usageModeLabel(detail.usage_mode)}</small></dd></div>{typeof detail.terms?.regulatory_basis === "string" && <div><dt>监管法律依据</dt><dd>{detail.terms.regulatory_basis}</dd></div>}{typeof detail.terms?.authority_ref === "string" && <div><dt>监管事项编号</dt><dd><code>{detail.terms.authority_ref}</code></dd></div>}<div><dt>期限 / 策略</dt><dd>{detail.duration_days} 日<small>{policySourceLabel(detail.duration_policy?.source)} · {policyVersionLabel(detail.duration_policy?.policy_version)}</small></dd></div><div><dt>提交时间</dt><dd>{formatTime(detail.submitted_at)}</dd></div><div><dt>状态 / 版本</dt><dd><StatusBadge value={requestStatusLabel(detail.status)} /> <span className="trusted-muted">状态版本 {detail.state_version}</span></dd></div><div><dt>能力状态</dt><dd><Badge tone="warning">{capabilityLabel(detail.capability?.decision)}</Badge><small>{signatureLabel(detail.capability?.signature)} · {externalAnchorLabel(detail.capability?.external_anchor)}</small></dd></div>{detail.decision_reason && <div><dt>处理意见</dt><dd>{detail.decision_reason}</dd></div>}{detail.revocation_reason && <div><dt>撤销原因</dt><dd>{detail.revocation_reason}</dd></div>}</div>}
           </CardContent>
         </Card>
         {detail && detail.actions.length > 0 && <Card>
           <CardHeader><CardTitle>{isInbox ? "审核操作" : "申请操作"}</CardTitle></CardHeader>
-          <CardContent><div className="trusted-option-grid"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={isInbox ? "填写审核意见（批准或拒绝必填）" : "填写撤回或撤销原因（可选）"} aria-label={isInbox ? "审核意见" : "申请处理原因"} />{actionError && <p role="alert" className="trusted-muted">{actionError}</p>}<div className="trusted-submit-actions">{detail.actions.map((action) => <Button key={action} variant={action === "reject" || action === "revoke" ? "danger" : "primary"} size="sm" busy={busyAction === action} onClick={() => performAction(action as UsageRequestAction)}>{action === "approve" ? <Check size={14} /> : action === "reject" || action === "revoke" ? <X size={14} /> : <ShieldCheck size={14} />}{actionLabel(action, view, detail.status)}</Button>)}</div><small className="trusted-muted"><LockKeyhole size={13} /> {isInbox ? "批准或拒绝必须填写明确理由；操作依据当前状态版本提交。" : "申请提交后可在提供方处理前撤回；已授权申请可由有权主体撤销。"}</small></div></CardContent>
+          <CardContent><div className="trusted-option-grid"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={isInbox ? "填写审核意见（批准或拒绝必填）" : "填写撤回或撤销原因（可选）"} aria-label={isInbox ? "审核意见" : "申请处理原因"} />{actionError && <p role="alert" className="trusted-muted">{actionError}</p>}<div className="trusted-submit-actions">{detail.actions.map((action) => <Button key={action} variant={action === "reject" || action === "revoke" ? "danger" : "primary"} size="sm" busy={busyAction === action} disabled={Boolean(busyAction) || detailRemote.loading || Boolean(detailRemote.error)} onClick={() => performAction(action as UsageRequestAction)}>{action === "approve" ? <Check size={14} /> : action === "reject" || action === "revoke" ? <X size={14} /> : <ShieldCheck size={14} />}{actionLabel(action, view, detail.status)}</Button>)}</div><small className="trusted-muted"><LockKeyhole size={13} /> {isInbox ? "批准或拒绝必须填写明确理由；操作依据当前状态版本提交。" : "申请提交后可在提供方处理前撤回；已授权申请可由有权主体撤销。"}</small></div></CardContent>
         </Card>}
         {detail && detail.actions.length === 0 && <Card><CardHeader><CardTitle>当前无可执行操作</CardTitle></CardHeader><CardContent><p className="trusted-muted">当前角色只能查看这条记录，后续处理由对应责任主体完成。</p></CardContent></Card>}
       </div>

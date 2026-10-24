@@ -476,7 +476,11 @@ def _dashboard_view(db: Session, user: User, projection: dict[str, Any] | None) 
             {"label": "计算任务", "value": trusted_kpis["compute_jobs"], "meta": "受控执行"},
             {"label": "审计报告", "value": trusted_kpis["audit_reports"], "meta": "证据复核"},
         ]
-        primary_action = {"label": "发起结算任务", "path": "/trusted-space/mpc/new"}
+        primary_action = (
+            {"label": "发起结算任务", "path": "/trusted-space/mpc/new"}
+            if domain == "electricity"
+            else {"label": "发起智能计算", "path": "/trusted-space/query"}
+        )
         scope_label = f"{energy_label}交易协同视角"
     else:
         kind = "enterprise"
@@ -594,7 +598,7 @@ def _dashboard_connector_public_key(
     node: dict[str, Any],
     provider_org_id: str,
     energy_domain: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     parsed = urlparse(endpoint)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("主体连接器身份发现端点不安全")
@@ -602,35 +606,42 @@ def _dashboard_connector_public_key(
         raise ValueError("生产环境主体连接器端点必须使用 HTTPS")
     public_key = str(node.get("public_key") or "")
     key_source = "PRECONFIGURED_PUBLIC_KEY"
-    if not public_key:
-        if settings.app_env not in {"demo", "development", "test"}:
-            raise ValueError("主体连接器公钥未登记")
-        try:
-            response = httpx.get(
-                f"{endpoint.rstrip('/')}/health",
-                timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
-            )
-        except httpx.HTTPError as exc:
-            raise ValueError("主体连接器身份发现暂不可用") from exc
+    latest_window_supported = False
+    if not public_key and settings.app_env not in {"demo", "development", "test"}:
+        raise ValueError("主体连接器公钥未登记")
+    health = None
+    try:
+        response = httpx.get(
+            f"{endpoint.rstrip('/')}/health",
+            timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
+        )
         if response.status_code >= 400:
-            raise ValueError("主体连接器身份发现失败")
-        try:
-            health = response.json()
-        except ValueError as exc:
-            raise ValueError("主体连接器身份信息无效") from exc
+            raise httpx.HTTPError("connector health unavailable")
+        health = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        if not public_key:
+            raise ValueError("主体连接器身份发现暂不可用") from exc
+    if health is not None:
         if not isinstance(health, dict) or (
             health.get("connector_id") != node.get("node_code")
             or health.get("organization_id") != provider_org_id
             or health.get("energy_domain") != energy_domain
         ):
             raise ValueError("主体连接器身份与登记节点不一致")
-        public_key = str(health.get("public_key") or "")
-        key_source = "VERIFIED_HEALTH_DISCOVERY"
+        discovered_key = str(health.get("public_key") or "")
+        if public_key:
+            if discovered_key != public_key:
+                raise ValueError("主体连接器签名公钥与登记信息不一致")
+        else:
+            public_key = discovered_key
+            key_source = "VERIFIED_HEALTH_DISCOVERY"
+        capabilities = health.get("capabilities")
+        latest_window_supported = isinstance(capabilities, dict) and capabilities.get("dashboard_latest_available") is True
     try:
         Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key, validate=True))
     except Exception as exc:
         raise ValueError("主体连接器公钥无效") from exc
-    return public_key, key_source
+    return public_key, key_source, latest_window_supported
 
 
 def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[str, Any]:
@@ -665,7 +676,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
 
     try:
         today = utc_now().date()
-        expected_public_key, key_source = _dashboard_connector_public_key(
+        expected_public_key, key_source, latest_window_supported = _dashboard_connector_public_key(
             endpoint=str(endpoint),
             node=node or {},
             provider_org_id=user.org_id,
@@ -680,6 +691,8 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             "end_date": today.isoformat(),
             "decimals": 2,
         }
+        if latest_window_supported:
+            connector_payload["data_window"] = "latest_available"
         timestamp = str(int(datetime.now(ZoneInfo("UTC")).timestamp()))
         nonce = new_id()
         signed_request = {"timestamp": timestamp, "nonce": nonce, "payload": connector_payload}

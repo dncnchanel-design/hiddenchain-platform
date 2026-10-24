@@ -320,7 +320,7 @@ ROLE_CAPABILITIES: dict[str, dict[str, Any]] = {
         "can_discover_cross_domain_metadata": False,
         "cross_domain_usage_requires_provider_approval": True,
         "can_request_usage": True,
-        "can_review_inbound_requests": False,
+        "can_review_inbound_requests": True,
         "can_revoke_own_authorizations": True,
         "can_create_settlement": True,
         "can_confirm_own_result": False,
@@ -546,10 +546,21 @@ def _request_summary(request: DataUsageRequest, organizations: dict[str, Organiz
     }
 
 
+def _role_capabilities(user: User, energy_domain: str | None) -> dict[str, Any]:
+    role = dict(ROLE_CAPABILITIES.get(user.role_code, {}))
+    role["can_review_inbound_requests"] = bool(role.get("can_review_inbound_requests") and _has_permission(user, "APPROVE_AUTHORIZATION"))
+    role["can_create_settlement"] = bool(
+        role.get("can_create_settlement")
+        and energy_domain == "electricity"
+        and _has_permission(user, "CREATE_COMPUTE_TASK")
+    )
+    return role
+
+
 def role_context(db: Session, user: User) -> dict[str, Any]:
     organization = db.get(Organization, user.org_id)
     did = _actor_did(db, user)
-    role = ROLE_CAPABILITIES.get(user.role_code, {})
+    role = _role_capabilities(user, organization.energy_domain if organization else None)
     visible_menus = [item for item in TRUST_SPACE_MENUS if user.role_code in item["roles"]]
     credential_status = did.credential_status if did else "NOT_CONFIGURED"
     connector_sources = db.scalars(
@@ -635,7 +646,8 @@ def contextual_help(db: Session, user: User, view: str) -> dict[str, Any]:
     item = TRUST_SPACE_HELP.get(view.strip().lower())
     if item is None:
         raise ValueError("HELP_VIEW_NOT_SUPPORTED")
-    role = ROLE_CAPABILITIES.get(user.role_code, {})
+    organization = db.get(Organization, user.org_id)
+    role = _role_capabilities(user, organization.energy_domain if organization else None)
     entries = [
         {
             **entry,
@@ -709,6 +721,7 @@ def _quick_action(
 def _quick_action_items(
     user: User,
     *,
+    energy_domain: str | None,
     asset_count: int,
     inbound_count: int,
     audit_count: int,
@@ -751,10 +764,11 @@ def _quick_action_items(
                 disabled_reason="当前没有可申请的数据资产" if not has_assets else None,
             ),
             _quick_action(
-                code="CREATE_SETTLEMENT",
-                label="发起结算任务",
-                path="/trusted-space/mpc/new",
-                allowed=True,
+                code="CREATE_SETTLEMENT" if energy_domain == "electricity" else "CREATE_CONTROLLED_QUERY",
+                label="发起结算任务" if energy_domain == "electricity" else "发起智能计算",
+                path="/trusted-space/mpc/new" if energy_domain == "electricity" else "/trusted-space/query",
+                allowed=_has_permission(user, "CREATE_COMPUTE_TASK"),
+                disabled_reason="当前账号没有创建计算任务的权限",
             ),
             _quick_action(
                 code="VIEW_PENDING_AUDIT",
@@ -977,6 +991,7 @@ def workbench(db: Session, user: User) -> dict[str, Any]:
     ]
     quick_action_items = _quick_action_items(
         user,
+        energy_domain=current_organization.energy_domain if current_organization else None,
         asset_count=asset_count,
         inbound_count=inbound_count,
         audit_count=audit_count,

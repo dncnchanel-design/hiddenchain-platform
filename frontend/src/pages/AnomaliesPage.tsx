@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, RefreshCw } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, post } from "../api";
+import { api, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../api";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, FilterBar, IdText, LoadingState, Metric, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
+import { resolveAuditAnomaly } from "../features/trusted-energy/workflow-api";
+import { routeForView } from "../features/trusted-energy/types";
 
 const eventLabels: Record<string, string> = {
   HASH_MISMATCH: "证据摘要不一致",
@@ -14,37 +16,49 @@ const eventLabels: Record<string, string> = {
   POLICY_DENIED: "用途策略拒绝",
 };
 
-export function AnomaliesPage() {
+export function AnomaliesPage({ taskId: scopedTaskId, eventId }: { taskId?: string; eventId?: string } = {}) {
   const { session } = useAuth();
   const [searchParams] = useSearchParams();
-  const taskId = searchParams.get("task_id") || "";
+  const taskId = scopedTaskId || searchParams.get("task_id") || "";
   const [statusFilter, setStatusFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [resolveTarget, setResolveTarget] = useState<JsonRecord | null>(null);
   const [resolution, setResolution] = useState("");
+  const [disposition, setDisposition] = useState<"ACK" | "IGNORE" | "REWORK">("ACK");
   const [confirmResolve, setConfirmResolve] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"success" | "warning">("success");
+  const commandKeys = useRef<Record<string, IdempotencyKeyRecord>>({});
+  const resolveLock = useRef(false);
   const { data, loading, refreshing, error, reload } = useRemote<JsonRecord[]>(
     (signal) => api("/anomalies", { signal, timeoutMs: 12000, cache: "no-store" }), [],
   );
   const canResolve = session!.user.role_code === "REGULATOR";
-  const rows = useMemo(() => (data || []).filter((item) => (!taskId || item.task_id === taskId) && (!statusFilter || item.status === statusFilter) && (!riskFilter || item.risk_level === riskFilter)), [data, riskFilter, statusFilter, taskId]);
+  const rows = useMemo(() => (data || []).filter((item) => (!taskId || item.task_id === taskId) && (!eventId || item.event_id === eventId) && (!statusFilter || item.status === statusFilter) && (!riskFilter || item.risk_level === riskFilter)), [data, eventId, riskFilter, statusFilter, taskId]);
 
   async function resolve() {
-    if (!resolveTarget || resolution.trim().length < 2) return;
+    if (!resolveTarget || resolution.trim().length < 2 || resolveLock.current || !canResolve) return;
+    if (!Number.isInteger(resolveTarget.state_version)) { setMessageTone("warning"); setMessage("当前事件版本缺失，请刷新后重试。"); return; }
+    resolveLock.current = true;
     setBusy(resolveTarget.event_id);
     setMessage("");
+    const fingerprint = JSON.stringify([resolveTarget.event_id, resolveTarget.state_version, resolution.trim(), disposition]);
+    const key = prepareIdempotencyKey(commandKeys.current[fingerprint], "anomaly-resolve", fingerprint);
+    commandKeys.current[fingerprint] = key;
     try {
-      await post(`/anomalies/${resolveTarget.event_id}/resolve`, { resolution: resolution.trim() });
+      await resolveAuditAnomaly(resolveTarget.event_id, { resolution: resolution.trim(), disposition }, resolveTarget.state_version, { idempotencyKey: key.key });
+      setMessageTone("success");
       setMessage("风险事件已处置并记录处置意见。");
       setResolveTarget(null);
       setResolution("");
       await reload();
     } catch (reason) {
+      setMessageTone("warning");
       setMessage(reason instanceof Error ? reason.message : "处置失败");
     } finally {
+      resolveLock.current = false;
       setBusy("");
     }
   }
@@ -54,8 +68,8 @@ export function AnomaliesPage() {
 
   return (
     <>
-      <PageHeader title="风险处置" actions={<>{taskId && <Link className="button button-secondary" to={`/settlements/${taskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
-      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={`/settlements/${taskId}`}>{taskId}</Link></div>}
+      <PageHeader title="风险处置" actions={<>{taskId && <Link className="button button-secondary" to={routeForView("ttc", taskId)}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={routeForView("ttc", taskId)}>{taskId}</Link></div>}
       <div className="metrics-grid three">
         <Metric label="待处置事件" value={data.filter((item) => item.status === "OPEN").length} tone="red" />
         <Metric label="待处置高风险" value={data.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length} tone="amber" />
@@ -65,24 +79,24 @@ export function AnomaliesPage() {
         <label><span>处置状态</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">全部状态</option><option value="OPEN">待处置</option><option value="RESOLVED">已处理</option></select></label>
         <label><span>风险等级</span><select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}><option value="">全部等级</option><option value="HIGH">高风险</option><option value="MEDIUM">中风险</option><option value="LOW">低风险</option></select></label>
       </FilterBar>
-      {message && <Notice tone={message.includes("失败") ? "warning" : "success"}>{message}</Notice>}
+      {message && <Notice tone={messageTone}>{message}</Notice>}
       <Surface title="风险事件清单" meta={`${rows.length} 项`}>
         <DataTable
           keyField="event_id" rows={rows} label="风险事件清单"
           columns={[
             { key: "title", label: "事件", minWidth: 220, render: (row) => <button className="table-link risk-title" type="button" onClick={() => setSelected(row)}><AlertTriangle size={16} />{row.title || "—"}</button> },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} /></Link> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={routeForView("ttc", String(row.task_id))}><IdText value={row.task_id} /></Link> },
             { key: "event_type", label: "检测规则", minWidth: 150, render: (row) => eventLabels[row.event_type] || row.event_type || "—" },
             { key: "risk_level", label: "风险等级", render: (row) => <StatusTag value={row.risk_level} /> },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
             { key: "created_at", label: "发现时间", minWidth: 165, render: (row) => <DateTimeText value={row.created_at} /> },
-            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <div className="inline-actions"><Button icon={Eye} onClick={() => setSelected(row)}>详情</Button>{row.status === "OPEN" && canResolve && <Button icon={CheckCircle2} busy={busy === row.event_id} onClick={() => { setResolveTarget(row); setResolution(""); }}>处置</Button>}</div> },
+            { key: "action", label: "操作", sortable: false, hideable: false, sticky: "right", render: (row) => <div className="inline-actions"><Button icon={Eye} onClick={() => setSelected(row)}>详情</Button>{row.status === "OPEN" && canResolve && <Button icon={CheckCircle2} busy={busy === row.event_id} onClick={() => { setResolveTarget(row); setResolution(""); setDisposition("ACK"); }}>处置</Button>}</div> },
           ]}
         />
       </Surface>
 
       {selected && <DetailDrawer title="风险事件详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
-        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
+        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><Link className="text-link" to={routeForView("ttc", String(selected.task_id))}><IdText value={selected.task_id} /></Link></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
         <div className="detail-section"><h3>事件说明</h3><p>{selected.description || "—"}</p></div>
         {selected.resolution && <div className="detail-section"><h3>处置意见</h3><p>{selected.resolution}</p></div>}
         {selected.evidence_json && <details className="secondary-details"><summary>查看关联证据</summary><pre className="json-view">{JSON.stringify(selected.evidence_json, null, 2)}</pre></details>}
@@ -90,11 +104,11 @@ export function AnomaliesPage() {
 
       {resolveTarget && <Modal title="填写处置意见" onClose={() => setResolveTarget(null)} footer={<><Button onClick={() => setResolveTarget(null)}>取消</Button><Button variant="primary" disabled={resolution.trim().length < 2} onClick={() => setConfirmResolve(true)}>下一步</Button></>}>
         <div className="detail-grid"><div><span>事件</span><strong>{resolveTarget.title || "—"}</strong></div><div><span>当前状态</span><StatusTag value={resolveTarget.status} /></div></div>
-        <Field label="处置意见" hint="说明核对结果、责任主体或后续措施"><textarea maxLength={500} value={resolution} onChange={(event) => setResolution(event.target.value)} /></Field>
+        <Field label="处置方式"><select value={disposition} onChange={(event) => setDisposition(event.target.value as typeof disposition)}><option value="ACK">确认处理</option><option value="IGNORE">忽略该事件</option><option value="REWORK">退回重算</option></select></Field><Field label="处置意见" hint="说明核对结果、责任主体或后续措施"><textarea maxLength={500} value={resolution} onChange={(event) => setResolution(event.target.value)} /></Field>
       </Modal>}
       <ConfirmDialog
         open={confirmResolve} title="确认完成风险处置" objectName={resolveTarget?.title || resolveTarget?.event_id || "—"} currentState={resolveTarget?.status}
-        consequence="确认后，该事件将标记为已处理，处置意见会写入事件记录并用于后续审计。"
+        consequence={disposition === "REWORK" ? "确认后写入处置意见，将关联的失败任务退回返工，等待交易中心重新执行。" : "确认后，该事件将标记为已处理，处置意见会写入事件记录并用于后续审计。"}
         confirmLabel="确认处置" busy={Boolean(resolveTarget && busy === resolveTarget.event_id)} onCancel={() => setConfirmResolve(false)}
         onConfirm={async () => { await resolve(); setConfirmResolve(false); }}
       />

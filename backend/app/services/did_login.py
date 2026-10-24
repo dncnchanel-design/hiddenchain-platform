@@ -7,6 +7,7 @@ from typing import Any
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
+from eth_keys.exceptions import BadSignature
 
 
 WALLET_ADDRESS_PATTERN = re.compile(r"^0x[0-9a-fA-F]{40}$")
@@ -41,10 +42,13 @@ def challenge_message(
 
 
 def recover_wallet_address(message: str, signature: str) -> str:
-    recovered = Account.recover_message(
-        encode_defunct(text=message),
-        signature=signature,
-    )
+    try:
+        recovered = Account.recover_message(
+            encode_defunct(text=message),
+            signature=signature,
+        )
+    except BadSignature as exc:
+        raise ValueError("钱包签名无法恢复") from exc
     return normalize_wallet_address(recovered)
 
 

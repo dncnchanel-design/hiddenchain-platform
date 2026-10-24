@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from ..models import (
     AnomalyEvent,
     DataRequestBatch,
     DataRequestItem,
+    DataSpaceAgreement,
     DataUsageRequest,
     ExecutionReceipt,
     PrivacyComputeJob,
@@ -79,7 +80,7 @@ class TrustedQueryLeaseLost(RuntimeError):
     pass
 
 DOMAIN_TERMS = {
-    "electricity": ("电力", "发电", "售电", "用电"),
+    "electricity": ("电力", "发电", "售电", "用电", "电网", "电价"),
     "coal": ("煤炭", "煤"),
     "heat": ("热能", "供热", "热力"),
     "gas": ("天然气", "燃气"),
@@ -92,7 +93,7 @@ RESOURCE_TERMS = {
     "consumption": ("消费量",),
     "inventory": ("库存",),
     "transport": ("运输量",),
-    "price": ("价格",),
+    "price": ("价格", "电价", "均价"),
     "load": ("负荷",),
     "fuel": ("燃料消耗",),
     "loss": ("损耗",),
@@ -105,7 +106,7 @@ RESOURCE_TERMS = {
     "sales": ("销售量",),
 }
 FUNCTION_TERMS = {
-    "average": ("平均", "均值"),
+    "average": ("平均", "均值", "均价"),
     "max": ("最大", "最高"),
     "min": ("最小", "最低"),
     "count": ("计数", "多少条"),
@@ -182,11 +183,9 @@ class ConfirmRequest(BaseModel):
     decimals: int = Field(default=2, ge=0, le=6)
 
 
-def _match(text: str, vocabulary: dict[str, tuple[str, ...]]) -> str | None:
-    for code, terms in vocabulary.items():
-        if any(term in text for term in terms):
-            return code
-    return None
+def _match(text: str, vocabulary: dict[str, tuple[str, ...]], *, default: str | None = None) -> str | None:
+    matches = [code for code, terms in vocabulary.items() if any(term in text for term in terms)]
+    return matches[0] if len(matches) == 1 else default if not matches else None
 
 
 def _query_prompt_catalog() -> list[dict[str, Any]]:
@@ -281,14 +280,18 @@ def _intent_response(
 def _manual_parse(question: str) -> TrustedSpaceQueryTranslation:
     domain = _match(question, DOMAIN_TERMS)
     resource = _match(question, RESOURCE_TERMS)
-    function = _match(question, FUNCTION_TERMS) or "sum"
+    function = _match(question, FUNCTION_TERMS, default="sum")
     if domain and resource and resource not in RESOURCE_CATALOG[domain]:
+        resource = None
+    if "成交量" in question:
+        # Trade volume is not the published supply metric. Do not drop it from
+        # the multi-metric shortcut and pretend its price-only half is complete.
         resource = None
     start_date, end_date = _manual_period(question)
     return TrustedSpaceQueryTranslation(
         energy_domain=domain,
         resource=resource,
-        function=function if function in FUNCTION_LABELS else None,
+        function=function if function in DEEPSEEK_FUNCTION_LABELS else None,
         start_date=start_date,
         end_date=end_date,
     )
@@ -452,6 +455,147 @@ def _authorization(db: Session, request_id: str, user: User) -> tuple[DataUsageR
     return authorization, asset
 
 
+def _validate_authorization_scope(
+    authorization: DataUsageRequest,
+    asset: DataAsset,
+    conditions: dict[str, Any],
+) -> None:
+    """Intersect query conditions with declared grant constraints, including legacy code lists."""
+    metadata = asset.metadata_json or {}
+    if (
+        metadata.get("domain") != conditions.get("energy_domain")
+        or metadata.get("resource_id") != conditions.get("resource")
+    ):
+        raise HTTPException(403, "查询能源或数据资源超出已批准的授权范围")
+    scope = authorization.requested_scope_json or {}
+    if not isinstance(scope, dict):
+        raise HTTPException(403, "授权范围格式无效，请由提供方重新确认")
+    try:
+        start = date.fromisoformat(str(conditions["start_date"]))
+        end = date.fromisoformat(str(conditions["end_date"]))
+        for key in ("start_date", "period_start"):
+            if scope.get(key) and start < date.fromisoformat(str(scope[key])):
+                raise HTTPException(403, "查询开始日期超出已批准的授权范围")
+        for key in ("end_date", "period_end"):
+            if scope.get(key) and end > date.fromisoformat(str(scope[key])):
+                raise HTTPException(403, "查询结束日期超出已批准的授权范围")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(403, "授权日期范围无效，请由提供方重新确认") from exc
+
+    for key in ("region", "resource", "function", "function_code"):
+        expected = scope.get(key)
+        query_key = "function" if key == "function_code" else key
+        if expected not in (None, "") and conditions.get(query_key) != expected:
+            raise HTTPException(403, "查询地区、资源或固定函数超出已批准的授权范围")
+    for key, query_key in (("regions", "region"), ("allowed_regions", "region"), ("functions", "function"), ("allowed_functions", "function")):
+        if key in scope:
+            allowed = scope[key]
+            if not isinstance(allowed, list) or conditions.get(query_key) not in allowed:
+                raise HTTPException(403, "查询地区或固定函数超出已批准的授权范围")
+    # Older grants use [resource_code, function_code], while UI grants list
+    # Chinese column names. Only an explicit fixed-function code limits functions.
+    functions = {item for item in authorization.requested_fields_json or [] if isinstance(item, str) and item in FUNCTION_LABELS}
+    if functions and conditions.get("function") not in functions:
+        raise HTTPException(403, "该固定函数不在提供方已批准的字段范围内")
+
+
+def _authorization_query_use_limit(db: Session, authorization: DataUsageRequest) -> int | None:
+    scope = authorization.requested_scope_json or {}
+    declared = [scope["max_uses"]] if "max_uses" in scope else []
+    if authorization.agreement_id:
+        agreement = db.get(DataSpaceAgreement, authorization.agreement_id)
+        now = utc_now()
+        if (
+            agreement is None
+            or agreement.contract_id != authorization.contract_id
+            or agreement.consumer_org_id != authorization.applicant_org_id
+            or agreement.provider_org_id != authorization.provider_org_id
+            or agreement.state not in {"NEGOTIATED", "ACTIVE", "CONSUMED"}
+            or agreement.valid_from > now
+            or agreement.expires_at <= now
+        ):
+            raise HTTPException(403, "授权所绑定的使用协议已失效或范围不一致")
+        declared.append(agreement.max_uses)
+    limits = []
+    for value in declared:
+        try:
+            limit = int(value)
+            if isinstance(value, bool) or limit < 1 or isinstance(value, float) and value != limit:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise HTTPException(403, "授权使用次数无效，请由提供方重新确认") from exc
+        limits.append(limit)
+    return min(limits) if limits else None
+
+
+def _reserve_authorization_query_use(
+    db: Session,
+    authorization: DataUsageRequest,
+    *,
+    user: User,
+    idempotency_key: str,
+    request_fingerprint: str,
+) -> TrustedQueryTask | None:
+    limit = _authorization_query_use_limit(db, authorization)
+    # Serialize new reservations on the grant row, without changing its approval
+    # version. The task insert and this lock share one transaction; replay skips it.
+    claimed = db.execute(
+        update(DataUsageRequest)
+        .where(
+            DataUsageRequest.request_id == authorization.request_id,
+            DataUsageRequest.status == "APPROVED",
+            DataUsageRequest.expires_at > utc_now(),
+            DataUsageRequest.state_version == authorization.state_version,
+        )
+        .values(state_version=DataUsageRequest.state_version, updated_at=DataUsageRequest.updated_at)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(403, "授权已变化、撤销或过期，请重新确认")
+    replay = db.scalar(
+        select(TrustedQueryTask).where(
+            TrustedQueryTask.applicant_org_id == user.org_id,
+            TrustedQueryTask.applicant_user_id == user.user_id,
+            TrustedQueryTask.operation_namespace == QUERY_OPERATION_NAMESPACE,
+            TrustedQueryTask.idempotency_key == idempotency_key,
+        )
+    )
+    if replay is not None:
+        if not _query_task_matches_fingerprint(replay, request_fingerprint):
+            db.rollback()
+            raise HTTPException(409, "该幂等键已绑定另一组查询条件")
+        return replay
+    used = db.scalar(select(func.count(TrustedQueryTask.task_id)).where(TrustedQueryTask.authorization_id == authorization.request_id)) or 0
+    if limit is not None and used >= limit:
+        db.rollback()
+        raise HTTPException(403, "已达到提供方批准的查询使用次数")
+    if authorization.agreement_id:
+        now = utc_now()
+        consumed = db.execute(
+            update(DataSpaceAgreement)
+            .where(
+                DataSpaceAgreement.agreement_id == authorization.agreement_id,
+                DataSpaceAgreement.state.in_(["NEGOTIATED", "ACTIVE"]),
+                DataSpaceAgreement.valid_from <= now,
+                DataSpaceAgreement.expires_at > now,
+                DataSpaceAgreement.use_count < DataSpaceAgreement.max_uses,
+            )
+            .values(
+                use_count=DataSpaceAgreement.use_count + 1,
+                state=case(
+                    (DataSpaceAgreement.use_count + 1 >= DataSpaceAgreement.max_uses, "CONSUMED"),
+                    else_="ACTIVE",
+                ),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if consumed.rowcount != 1:
+            db.rollback()
+            raise HTTPException(403, "使用协议已失效或已达到批准的使用次数")
+    return None
+
+
 def _resolve_authorization(
     db: Session,
     *,
@@ -495,6 +639,7 @@ def _resolve_authorization(
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "region": region,
+            "duration_days": max(1, (end_date - start_date).days + 1),
             "output_mode": "AGGREGATE_ONLY",
             "raw_data_export": False,
         },
@@ -526,11 +671,17 @@ def _resolve_authorization(
         }
     )
     existing = db.scalar(
-        select(DataUsageRequest).where(DataUsageRequest.request_fingerprint == fingerprint)
+        select(DataUsageRequest)
+        .where(DataUsageRequest.request_fingerprint == fingerprint)
+        .order_by(DataUsageRequest.submitted_at.desc(), DataUsageRequest.expires_at.desc())
     )
-    if existing is not None:
-        return _authorization(db, existing.request_id, user)
     now = utc_now()
+    if existing is not None and not (
+        existing.status == "APPROVED"
+        and existing.expires_at <= now
+        and (existing.terms_json or {}).get("authorization_source") == "SUBJECT_APPROVED_RULE"
+    ):
+        return _authorization(db, existing.request_id, user)
     request = DataUsageRequest(
         request_id=new_id(),
         asset_id=asset.asset_id,
@@ -795,7 +946,7 @@ def confirm_query(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
-    authorization, _asset = _resolve_authorization(
+    authorization, asset = _resolve_authorization(
         db,
         authorization_id=payload.authorization_id,
         provider_org_id=payload.provider_org_id,
@@ -807,6 +958,7 @@ def confirm_query(
         region=payload.region,
         user=user,
     )
+    _validate_authorization_scope(authorization, asset, payload.model_dump(mode="json"))
     if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
         raise HTTPException(403, "确认的主体与授权主体不一致")
     payload.authorization_id = authorization.request_id
@@ -963,6 +1115,7 @@ def execute_query(
         region=payload.region,
         user=user,
     )
+    _validate_authorization_scope(authorization, asset, payload.model_dump(mode="json"))
     payload.authorization_id = authorization.request_id
     payload.provider_org_id = authorization.provider_org_id
     _verify_confirmation_token(payload.confirmation_token, payload, user)
@@ -993,6 +1146,15 @@ def execute_query(
     if asset.current_version_id != version.version_id:
         raise HTTPException(409, "授权数据版本已变化，请重新确认")
 
+    replay = _reserve_authorization_query_use(
+        db, authorization, user=user, idempotency_key=scoped_key, request_fingerprint=request_fingerprint,
+    )
+    if replay is not None:
+        response = _query_task_status_payload(replay, idempotent_replay=True)
+        if _query_task_is_due(replay):
+            background_tasks.add_task(run_trusted_query_task, replay.task_id)
+        db.commit()
+        return response
     execution_scope_key = sha256_json(
         {
             "organization_id": user.org_id,
@@ -1228,6 +1390,20 @@ def _revalidate_query_dispatch(
             retryable=False,
         )
     payload = task.canonical_payload_json or {}
+    try:
+        _validate_authorization_scope(authorization, asset, payload)
+        use_limit = _authorization_query_use_limit(db, authorization)
+    except HTTPException as exc:
+        raise TrustedQueryExecutionError("AUTHORIZATION_SCOPE_CHANGED", str(exc.detail), retryable=False) from exc
+    if use_limit is not None:
+        reserved = db.scalars(
+            select(TrustedQueryTask.task_id)
+            .where(TrustedQueryTask.authorization_id == authorization.request_id)
+            .order_by(TrustedQueryTask.created_at.asc(), TrustedQueryTask.task_id.asc())
+            .limit(use_limit)
+        ).all()
+        if task.task_id not in reserved:
+            raise TrustedQueryExecutionError("AUTHORIZATION_USE_LIMIT_REACHED", "已达到提供方批准的查询使用次数", retryable=False)
     metadata = asset.metadata_json or {}
     if (
         str(metadata.get("domain") or "") != str(payload.get("energy_domain") or "")

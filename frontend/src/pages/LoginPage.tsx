@@ -5,14 +5,15 @@ import { getDefaultPath } from "../access";
 import { useAuth } from "../auth";
 import { BrandMark, productFooterItems, useProductConfig } from "../branding";
 import { Button, Notice } from "../components/ui";
+import { rememberAccount, rememberedAccount } from "../login-preferences";
 
 export function LoginPage() {
   const { login, loginWithDid } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(rememberedAccount);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(false);
+  const [remember, setRemember] = useState(() => Boolean(rememberedAccount()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [capsLock, setCapsLock] = useState(false);
@@ -44,9 +45,10 @@ export function LoginPage() {
     setError("");
     try {
       const session = await login(username, password);
+      rememberAccount(username, remember);
       navigate(getDefaultPath(session), { replace: true });
-    } catch {
-      setError("登录失败，请核对账号和密码后重试。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "登录失败，请核对账号和密码后重试。");
     } finally {
       setBusy(false);
     }
@@ -91,7 +93,7 @@ export function LoginPage() {
 
           {capsLock && <div id="caps-lock-hint" className="caps-lock-hint" role="status"><Info size={15} />大写锁定已开启</div>}
           <div className="login-form-options">
-            <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />记住我</label>
+            <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />记住账号</label>
             <span className="login-help-text">忘记密码请联系所属企业最高权限账号</span>
           </div>
           </> : <div className="trusted-did-login-panel">

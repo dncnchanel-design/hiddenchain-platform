@@ -28,7 +28,8 @@ from ..services.trust_domain import TTCState
 from ..trust_models import AgentTool, AssetQuality, DataAsset, DataAssetPassport, DataAssetVersion, TtcAttempt, TtcStateTransition
 
 
-ALL_ASSISTANT_ROLES = frozenset({"GENERATOR", "RETAILER", "EXCHANGE", "REGULATOR", "ADMIN"})
+ENTERPRISE_ASSISTANT_ROLES = frozenset({"GENERATOR", "RETAILER", "COAL_ENTERPRISE", "HEAT_ENTERPRISE", "GAS_ENTERPRISE", "OIL_ENTERPRISE"})
+ALL_ASSISTANT_ROLES = ENTERPRISE_ASSISTANT_ROLES | frozenset({"EXCHANGE", "REGULATOR", "ADMIN"})
 OVERSIGHT_ROLES = frozenset({"EXCHANGE", "REGULATOR", "ADMIN"})
 
 ACTION_ROLES: dict[str, frozenset[str]] = {
@@ -532,7 +533,7 @@ def _asset_read(db: Session, user: User, target_id: str | None) -> dict[str, Any
     asset = db.get(DataAsset, target_id)
     if asset is None:
         return {"status": "BLOCKED", "error_code": "ASSET_NOT_FOUND", "raw_data_accessed": False}
-    if user.role_code in {"GENERATOR", "RETAILER"} and asset.owner_org_id != user.org_id:
+    if user.role_code in ENTERPRISE_ASSISTANT_ROLES and asset.owner_org_id != user.org_id:
         return {"status": "BLOCKED", "error_code": "ASSET_SCOPE_DENIED", "raw_data_accessed": False}
     version = db.scalar(
         select(DataAssetVersion)

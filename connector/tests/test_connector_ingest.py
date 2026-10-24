@@ -481,3 +481,30 @@ def test_ingest_audit_chain_is_append_only_and_hash_linked(connector):
             )
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             database.execute("DELETE FROM ingest_audit_chain WHERE audit_sequence = 1")
+
+
+def test_dashboard_latest_available_window_preserves_dates_versions_and_privacy(connector):
+    client, module, key = connector["client"], connector["module"], connector["platform_key"]
+    rows = ["record_date,value,hour,region,organization,unit"]
+    for day in ("2026-08-01", "2026-08-20", "2026-08-31", "2027-01-01"):
+        for index in range(3):
+            rows.append(f"{day},{10 + index},,片区-{index},企业-{index},吨")
+    content = ("\n".join(rows) + "\n").encode()
+    assert _post_ingest(client, key, _claims(jti="latest-window-old-data"), content).status_code == 201
+    request = {"request_id": "dashboard-latest-window", "provider_org_id": "org-coal-t01", "resource": "inventory", "aggregation": "sum", "start_date": "2026-10-20", "end_date": "2026-10-24", "decimals": 2}
+    strict = client.post("/dashboard", json=request, headers=_signed_headers(module, key, request, "window-strict"))
+    assert strict.status_code == 403
+    request["data_window"] = "latest_available"
+    latest = client.post("/dashboard", json=request, headers=_signed_headers(module, key, request, "window-latest"))
+    assert latest.status_code == 200, latest.text
+    result = latest.json()
+    assert result["trend"] == [{"date": "2026-08-31", "value": 33.0}]
+    assert result["record_count"] == 3
+    assert result["raw_records_returned"] is False
+    _verify_signed_response(connector["connector_key"], result)
+
+    # A later upload is a new version. Its small groups must not be mixed with
+    # older, larger synthetic/ingested groups to manufacture a usable result.
+    assert _post_ingest(client, key, _claims(jti="latest-window-too-small"), _csv((1, 2))).status_code == 201
+    blocked = client.post("/dashboard", json=request, headers=_signed_headers(module, key, request, "window-small"))
+    assert blocked.status_code == 403

@@ -42,8 +42,8 @@ describe("legacy business route migration", () => {
     ["/results", "?result_id=result%2Freal", "", "/trusted-space/results/result%2Freal?result_id=result%2Freal"],
     ["/evidence", "?task_id=task%2Freal&format=json", "#chain", "/trusted-space/audit/tasks/task%2Freal?task_id=task%2Freal&format=json#chain"],
     ["/audit", "?task_id=task-real", "", "/trusted-space/audit/tasks/task-real?task_id=task-real"],
-    ["/reports", "?task_id=task-real", "", "/trusted-space/audit/tasks/task-real?task_id=task-real"],
-    ["/anomalies", "?task_id=task-real", "", "/trusted-space/audit/tasks/task-real?task_id=task-real"],
+    ["/reports", "?task_id=task-real", "", "/trusted-space/audit/tasks/task-real?task_id=task-real&view=reports"],
+    ["/anomalies", "?task_id=task-real", "", "/trusted-space/audit/tasks/task-real?task_id=task-real&view=anomalies"],
     ["/contracts/contract%2Freal", "?revision=2", "#history", "/trusted-space/contracts/contract%2Freal?revision=2#history"],
   ])("preserves identifiers, query, and hash for %s", (pathname, search, hash, expected) => {
     expect(target(pathname, search, hash).to).toBe(expected);
@@ -97,7 +97,11 @@ describe("legacy business route migration", () => {
 
     const prototypeSource = readFileSync(new URL("../../backend/app/routers/prototype.py", import.meta.url), "utf8");
     const workbenchSource = readFileSync(new URL("../../backend/app/services/trust_space.py", import.meta.url), "utf8");
-    expect(prototypeSource).toContain('primary_action = {"label": "发起结算任务", "path": "/trusted-space/mpc/new"}');
-    expect(workbenchSource).toContain('path="/trusted-space/mpc/new"');
+    const retiredBackendTarget = /(?:["']path["']\s*:|\bpath\s*=)\s*["']\/(?:workbench|data-space|rules|settlements|compute|results|evidence|audit|reports|anomalies|trusted-execution)(?:[/?#"'])/;
+    for (const source of [prototypeSource, workbenchSource]) {
+      expect(source).toContain('"/trusted-space/mpc/new"');
+      expect(source).toContain('"/trusted-space/query"');
+      expect(source).not.toMatch(retiredBackendTarget);
+    }
   });
 });

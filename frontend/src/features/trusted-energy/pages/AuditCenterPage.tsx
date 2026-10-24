@@ -1,10 +1,13 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, FileCheck2, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useRemote } from "../../../hooks";
 import { labelForCode } from "../../../types";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
-import { RemoteState } from "../components/ui-primitives";
+import { Button, RemoteState } from "../components/ui-primitives";
+import { useAuth } from "../../../auth";
+import { ReportsPage } from "../../../pages/ReportsPage";
+import { AnomaliesPage } from "../../../pages/AnomaliesPage";
 import {
   loadAudit,
   loadAuditTask,
@@ -48,6 +51,34 @@ function AuditItem({ item, onOpenTask }: { item: AuditRecord; onOpenTask: (taskI
 }
 
 export function AuditCenterPage() {
+  const { session } = useAuth();
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const taskId = trustedEntityId(location.pathname, "audit") || params.get("task_id") || undefined;
+  const view = params.get("view") === "reports" ? "reports" : params.get("view") === "anomalies" ? "anomalies" : "records";
+  const canReview = session?.user.role_code === "REGULATOR";
+
+  function switchView(nextView: string) {
+    const next = new URLSearchParams(params);
+    next.delete("report_id");
+    next.delete("event_id");
+    if (nextView === "records") next.delete("view");
+    else next.set("view", nextView);
+    setParams(next);
+  }
+
+  return <>
+    <div className="trusted-submit-actions" role="group" aria-label="审计功能">
+      <Button aria-pressed={view === "records"} variant={view === "records" ? "primary" : "secondary"} onClick={() => switchView("records")}>审计记录</Button>
+      {canReview && <><Button aria-pressed={view === "reports"} variant={view === "reports" ? "primary" : "secondary"} onClick={() => switchView("reports")}>报告审核</Button><Button aria-pressed={view === "anomalies"} variant={view === "anomalies" ? "primary" : "secondary"} onClick={() => switchView("anomalies")}>风险处置</Button></>}
+    </div>
+    {view === "records" ? <AuditRecordsPage /> : !canReview ? <RemoteState error="当前账号无权处理审计报告或风险事件" /> : view === "reports"
+      ? <ReportsPage key={`reports:${taskId || ""}:${params.get("report_id") || ""}`} taskId={taskId} reportId={params.get("report_id") || undefined} />
+      : <AnomaliesPage key={`anomalies:${taskId || ""}:${params.get("event_id") || ""}`} taskId={taskId} eventId={params.get("event_id") || undefined} />}
+  </>;
+}
+
+function AuditRecordsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const taskId = trustedEntityId(location.pathname, "audit");

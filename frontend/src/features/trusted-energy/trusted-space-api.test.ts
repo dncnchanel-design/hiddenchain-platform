@@ -328,7 +328,7 @@ describe("Trusted Space API client", () => {
     expect(requests.some((item) => item.url.includes("/api/trust-space/notifications?page=2&page_size=20"))).toBe(true);
     expect(new Headers(requests.find((item) => item.url.includes("/notifications/n-1/read"))?.init?.headers).get("Idempotency-Key")).toBe("notification-read:1");
     expect(notificationPath({ entity_type: "DATA_USAGE_REQUEST", entity_id: "dur/1" })).toBe("/trusted-space/authorizations?request=dur%2F1");
-    expect(notificationPath({ entity_type: "AUDIT_REPORT", entity_id: "report-1" })).toBeNull();
+    expect(notificationPath({ entity_type: "AUDIT_REPORT", entity_id: "report-1" }, false)).toBeNull();
     expect(quickActionPath({ allowed: true, path: "/trusted-space/catalog" })).toBe("/trusted-space/catalog");
     expect(quickActionPath({ allowed: false, path: "/trusted-space/catalog" })).toBeNull();
   });

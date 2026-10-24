@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -41,6 +43,37 @@ def test_demo_seed_contains_five_energy_domains_without_central_raw_data(tmp_pat
         )
         assert inventory.record_count == 1460
         assert load.record_count == 36500
+        assert inventory.effective_until is None
+        assert load.effective_until is None
+
+
+def test_demo_catalog_repairs_only_its_known_validity_cutoff(tmp_path):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'demo-validity.db').as_posix()}")
+    apply_migrations(engine)
+    with Session(engine) as db:
+        seed_demo_catalog(db)
+        seed_demo_authorization_request(db)
+        inventory = db.get(DataAssetVersion, "version-coal-inventory-1")
+        uploaded = db.get(DataAssetVersion, "version-electricity-load-1")
+        assert inventory is not None and uploaded is not None
+        inventory.effective_until = datetime(2026, 8, 31, 23, 59, 59)
+        uploaded.effective_until = datetime(2026, 8, 31, 23, 59, 59)
+        uploaded.schema_version = "connector-csv-v1"
+        frozen = (inventory.data_hash, inventory.immutable_hash, inventory.data_ref, inventory.version_no)
+        grant = db.scalar(select(DataUsageRequest))
+        assert grant is not None
+        grant_expiry, grant_status = grant.expires_at, grant.status
+        db.commit()
+
+        seed_demo_catalog(db)
+        seed_demo_catalog(db)
+        db.refresh(inventory)
+        db.refresh(uploaded)
+        db.refresh(grant)
+        assert inventory.effective_until is None
+        assert (inventory.data_hash, inventory.immutable_hash, inventory.data_ref, inventory.version_no) == frozen
+        assert uploaded.effective_until == datetime(2026, 8, 31, 23, 59, 59)
+        assert (grant.expires_at, grant.status) == (grant_expiry, grant_status)
 
 
 def test_demo_seed_contains_one_pending_regulatory_authorization(tmp_path):
@@ -57,5 +90,6 @@ def test_demo_seed_contains_one_pending_regulatory_authorization(tmp_path):
         assert requests[0].provider_org_id == "org-retailer-t01"
         assert requests[0].purpose == "REGULATORY_CROSS_ENERGY_REVIEW"
         assert requests[0].status == "SUBMITTED"
+        assert not requests[0].requested_scope_json.get("region")
         assert requests[0].contract_id is None
         assert requests[0].agreement_id is None

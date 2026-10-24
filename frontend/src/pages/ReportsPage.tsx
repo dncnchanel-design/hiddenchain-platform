@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Eye, FilePlus2, RefreshCw, XCircle } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, post } from "../api";
+import { api, post, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../api";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, DateTimeText, DetailDrawer, ErrorState, Field, IdText, LoadingState, Modal, Notice, PageHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import { REPORT_TEMPLATE_LABELS, type JsonRecord } from "../types";
+import { decideAuditReport } from "../features/trusted-energy/workflow-api";
+import { routeForView } from "../features/trusted-energy/types";
 
-export function ReportsPage() {
+export function ReportsPage({ taskId: scopedTaskId, reportId }: { taskId?: string; reportId?: string } = {}) {
   const { session } = useAuth();
   const [searchParams] = useSearchParams();
-  const linkedTaskId = searchParams.get("task_id") || "";
+  const linkedTaskId = scopedTaskId || searchParams.get("task_id") || "";
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [taskId, setTaskId] = useState(linkedTaskId);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
@@ -22,6 +24,8 @@ export function ReportsPage() {
   const [decisionBusy, setDecisionBusy] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "warning">("success");
+  const commandKeys = useRef<Record<string, IdempotencyKeyRecord>>({});
+  const decisionLock = useRef(false);
   const canGenerate = session!.user.role_code === "REGULATOR";
   const loader = async (signal?: AbortSignal) => {
     const request = { signal, timeoutMs: 12000, cache: "no-store" as RequestCache };
@@ -32,7 +36,7 @@ export function ReportsPage() {
   const audited = useMemo(() => data?.tasks.filter((item) => item.status === "AUDITED") || [], [data]);
   const linkedTask = data?.tasks.find((item) => item.task_id === linkedTaskId);
   const selectedTask = audited.find((item) => item.task_id === taskId) || linkedTask;
-  const visibleReports = linkedTaskId ? data?.reports.filter((item) => item.task_id === linkedTaskId) || [] : data?.reports || [];
+  const visibleReports = (data?.reports || []).filter((item) => (!linkedTaskId || item.task_id === linkedTaskId) && (!reportId || item.report_id === reportId));
 
   async function generate() {
     if (!taskId) return;
@@ -60,14 +64,15 @@ export function ReportsPage() {
   }
 
   async function submitDecision() {
-    if (!decisionTarget || opinion.trim().length < 2) return;
+    if (!decisionTarget || opinion.trim().length < 2 || decisionLock.current || !canGenerate) return;
+    decisionLock.current = true;
     setDecisionBusy(decisionTarget.report_id);
     setMessage("");
+    const fingerprint = JSON.stringify([decisionTarget.report_id, decisionTarget.report_hash, decision, opinion.trim()]);
+    const key = prepareIdempotencyKey(commandKeys.current[fingerprint], "audit-decision", fingerprint);
+    commandKeys.current[fingerprint] = key;
     try {
-      await post(`/audit/reports/${decisionTarget.report_id}/decision`, {
-        decision,
-        opinion: opinion.trim(),
-      });
+      await decideAuditReport(decisionTarget.report_id, decision, opinion.trim(), { idempotencyKey: key.key });
       setMessageTone("success");
       setMessage(decision === "APPROVE" ? "审计报告已批准。" : "审计报告已驳回，任务将进入返工流程。");
       setDecisionTarget(null);
@@ -77,6 +82,7 @@ export function ReportsPage() {
       setMessageTone("warning");
       setMessage(reason instanceof Error ? reason.message : "报告审核失败，请重试");
     } finally {
+      decisionLock.current = false;
       setDecisionBusy("");
       setConfirmDecision(false);
     }
@@ -87,7 +93,7 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader title="审计报告" actions={<>{linkedTaskId && <Link className="button button-secondary" to={`/settlements/${linkedTaskId}`}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      <PageHeader title="审计报告" actions={<>{linkedTaskId && <Link className="button button-secondary" to={routeForView("ttc", linkedTaskId)}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
       {linkedTaskId && linkedTask && visibleReports[0]?.status === "GENERATED" && <Notice tone="warning">受控计算已完成，当前处于审计关口。监管方需要在本页批准或驳回报告；批准后，参与主体才能完成最终结果确认。</Notice>}
       {linkedTaskId && linkedTask && visibleReports[0]?.status === "APPROVED" && <Notice tone="success">审计关口已通过。请返回任务详情，按责任方继续完成结果确认或查看闭环证据。</Notice>}
       {linkedTaskId && linkedTask && !visibleReports.length && <Notice tone="info">当前任务尚未生成审计报告。请先完成受控计算，系统会基于本次执行尝试自动形成报告。</Notice>}
@@ -101,7 +107,7 @@ export function ReportsPage() {
           keyField="report_id" rows={visibleReports} label="审计报告列表"
           columns={[
             { key: "report_title", label: "报告名称", minWidth: 220, render: (row) => <button className="table-link" type="button" onClick={() => setSelected(row)}>{row.report_title || "—"}</button> },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={`/settlements/${row.task_id}`}><IdText value={row.task_id} /></Link> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={routeForView("ttc", String(row.task_id))}><IdText value={row.task_id} /></Link> },
             { key: "template_code", label: "报告模板", minWidth: 140, render: (row) => REPORT_TEMPLATE_LABELS[row.template_code] || row.template_code || "—" },
             { key: "evidence_refs_json", label: "证据引用", align: "right", render: (row) => `${row.evidence_refs_json?.length ?? 0} 项` },
             { key: "report_hash", label: "报告摘要", minWidth: 150, render: (row) => <IdText value={row.report_hash} /> },
@@ -114,7 +120,7 @@ export function ReportsPage() {
       </Surface>
 
       {selected && <DetailDrawer title={selected.report_title || "审计报告"} onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
-        <div className="detail-grid"><div><span>报告编号</span><IdText value={selected.report_id} /></div><div><span>关联任务</span><Link className="text-link" to={`/settlements/${selected.task_id}`}><IdText value={selected.task_id} /></Link></div><div><span>报告摘要</span><IdText value={selected.report_hash} /></div><div><span>风险结论</span><StatusTag value={selected.risk_level} /></div><div><span>审核状态</span><StatusTag value={selected.status} /></div><div><span>生成时间</span><DateTimeText value={selected.created_at} /></div><div><span>证据引用</span><strong>{selected.evidence_refs_json?.length ?? 0} 项</strong></div></div>
+        <div className="detail-grid"><div><span>报告编号</span><IdText value={selected.report_id} /></div><div><span>关联任务</span><Link className="text-link" to={routeForView("ttc", String(selected.task_id))}><IdText value={selected.task_id} /></Link></div><div><span>报告摘要</span><IdText value={selected.report_hash} /></div><div><span>风险结论</span><StatusTag value={selected.risk_level} /></div><div><span>审核状态</span><StatusTag value={selected.status} /></div><div><span>生成时间</span><DateTimeText value={selected.created_at} /></div><div><span>证据引用</span><strong>{selected.evidence_refs_json?.length ?? 0} 项</strong></div></div>
         <div className="detail-section"><h3>报告正文</h3><pre className="report-content">{selected.report_content || "—"}</pre></div>
         <details className="secondary-details"><summary>查看证据引用</summary><ul className="plain-list">{(selected.evidence_refs_json || []).map((item: string) => <li key={item}><IdText value={item} /></li>)}</ul></details>
       </DetailDrawer>}

@@ -386,6 +386,7 @@ class DashboardRequest(BaseModel):
     start_date: date
     end_date: date
     decimals: int = Field(default=2, ge=0, le=6)
+    data_window: Literal["latest_available"] | None = None
 
 
 class IngestTicketClaims(BaseModel):
@@ -421,7 +422,7 @@ def _canonical_request_payload(payload: BaseModel) -> dict[str, Any]:
     """Normalize optional subject-bound fields before signing or hashing."""
 
     signed_payload = payload.model_dump(mode="json")
-    for field_name in ("request_item_id", "provider_org_id", "rule_version"):
+    for field_name in ("request_item_id", "provider_org_id", "rule_version", "data_window"):
         if signed_payload.get(field_name) is None:
             signed_payload.pop(field_name, None)
     return signed_payload
@@ -969,13 +970,27 @@ def _dashboard_series(payload: DashboardRequest) -> tuple[list[dict[str, Any]], 
         raise HTTPException(422, "结束日期不能早于开始日期")
     with _database() as connection:
         latest = _latest_local_version(connection, payload.resource)
+        start_date, end_date = payload.start_date, payload.end_date
+        if payload.data_window == "latest_available":
+            table = "version_records" if latest else "records"
+            selector = "version_id" if latest else "resource"
+            identity = latest["version_id"] if latest else payload.resource
+            latest_day = connection.execute(
+                f"SELECT record_date FROM {table} WHERE {selector} = ? "
+                "AND record_date <= ? AND hour IS NULL GROUP BY record_date "
+                "HAVING COUNT(*) >= ? ORDER BY record_date DESC LIMIT 1",
+                (identity, end_date.isoformat(), MIN_GROUP_SIZE),
+            ).fetchone()
+            if latest_day is not None:
+                end_date = date.fromisoformat(str(latest_day["record_date"]))
+                start_date = end_date - (payload.end_date - payload.start_date)
         if latest:
             sql = (
                 "SELECT record_date, value, unit FROM version_records "
                 "WHERE version_id = ? AND record_date BETWEEN ? AND ? AND hour IS NULL "
                 "ORDER BY record_date"
             )
-            params = (latest["version_id"], payload.start_date.isoformat(), payload.end_date.isoformat())
+            params = (latest["version_id"], start_date.isoformat(), end_date.isoformat())
             dataset_version: int | str = int(latest["version_no"])
         else:
             sql = (
@@ -983,7 +998,7 @@ def _dashboard_series(payload: DashboardRequest) -> tuple[list[dict[str, Any]], 
                 "WHERE resource = ? AND record_date BETWEEN ? AND ? AND hour IS NULL "
                 "ORDER BY record_date"
             )
-            params = (payload.resource, payload.start_date.isoformat(), payload.end_date.isoformat())
+            params = (payload.resource, start_date.isoformat(), end_date.isoformat())
             dataset_version = "synthetic-v1"
         rows = connection.execute(sql, params).fetchall()
     grouped: dict[str, list[float]] = {}
@@ -1046,6 +1061,7 @@ def health() -> dict[str, Any]:
         "build_sha": BUILD_SHA,
         "raw_data_centrally_stored": False,
         "public_key": PUBLIC_KEY,
+        "capabilities": {"dashboard_latest_available": True},
     }
 
 

@@ -647,6 +647,11 @@ def create_task(
     db: Session = Depends(get_db),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
+    organization = db.get(Organization, user.org_id)
+    if organization is None or organization.energy_domain != "electricity":
+        raise HTTPException(403, "电力结算仅适用于电力交易中心，其他能源请使用本能源受控查询计算")
+    if not user.is_org_owner and "CREATE_COMPUTE_TASK" not in (user.permissions_json or []):
+        raise HTTPException(403, "当前账号尚未获授创建计算任务权限")
     request_fingerprint = sha256_json(payload.model_dump(mode="json"))
     normalized_idempotency_key = idempotency_key.strip() if idempotency_key else None
     if normalized_idempotency_key is not None:
@@ -661,6 +666,8 @@ def create_task(
             )
         )
         if keyed_task is not None:
+            if keyed_task.creator_org_id != user.org_id:
+                raise HTTPException(409, "该幂等请求编号不可用于当前主体")
             if keyed_task.request_fingerprint != request_fingerprint:
                 raise HTTPException(
                     status_code=409,

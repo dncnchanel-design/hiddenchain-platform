@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, Gavel, Network, RotateCcw, Save, UsersRound } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { api, post, prepareIdempotencyKey, type ApiResponseMetadata, type IdempotencyKeyRecord } from "../api";
 import { Button, ErrorState, Field, IdText, LoadingState, Notice, PageHeader, SectionHeader, StatusTag, Surface } from "../components/ui";
 import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
+import { useAuth } from "../auth";
+import { routeForView } from "../features/trusted-energy/types";
 
 type CreateData = { organizations: JsonRecord[]; rules: JsonRecord[]; catalog: JsonRecord };
 
@@ -19,6 +21,14 @@ const steps = [
 const EMPTY_ENTRIES: JsonRecord[] = [];
 
 export function SettlementCreatePage() {
+  const { session } = useAuth();
+  if (session?.user.role_code === "EXCHANGE" && session.org?.energy_domain !== "electricity") {
+    return <Navigate to={routeForView("query")} replace />;
+  }
+  return <SettlementCreationForm />;
+}
+
+function SettlementCreationForm() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isReadyTemplate = searchParams.get("template") === "ready";
