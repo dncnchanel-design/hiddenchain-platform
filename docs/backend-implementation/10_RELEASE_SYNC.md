@@ -1,5 +1,21 @@
 # Release Synchronization
 
+## 业务助手普通数据问法与恢复 — 2026-10-24
+
+```text
+BASELINE_RELEASE = ef86ea1c35c79de8def35f5453f7e7e649903530
+SCOPE = personal catalog question; meaningful target/intent recovery; readable verification results and review receipt
+LOCAL_ASSISTANT = 67 passed; including 28 new catalog/boundary cases
+LOCAL_FRONTEND = 217 passed; lint; production/brand guards; build
+LOCAL_HTTP = 121 checks / 644 calls; 102 PASS; 13 expected denials; 5 existing unreachable conditions; 1 PSI private-distribution reference; 0 FAIL
+LOCAL_UI = exact user question; target selection; unknown recovery; next draft preserved; desktop and 390px layout
+INDEPENDENT_REVIEW = two display regressions repaired and confirmed; no catalog tenant/domain bypass found
+RELEASE_TARGET = current Git commit on main and agent/deep-brand-green; eight Render service build_sha values must match
+EXECUTION_EVIDENCE = runtime/assistant-catalog-release.json
+```
+
+不以本地通过代替上线成功；执行证据须记录当前提交的 GitHub 全量门禁、Render 实际版本和线上原话查询结果。保留既有能力限制与未提交用户文档，未读取或改动历史 Vault。
+
 ## 完整账号与交互复验 — 2026-10-24
 
 ```text

@@ -1,5 +1,14 @@
 # Workstreams and File Ownership
 
+## 业务助手普通数据问法与恢复 — 2026-10-24
+
+| 工作项 | 文件范围与所有权 | 证据 |
+| --- | --- | --- |
+| 本方目录与角色边界 | assistant.py、新目录测试、旧助手回归；协调Agent | 后端67通过；12业务角色目录元数据，ADMIN正确403 |
+| 结果与恢复 | AgentSheet、AssistantPlanView、assistant-state、相关测试/标签/样式；协调Agent | 前端217、lint、构建；原话真实查询、缺编号选择、草稿保留 |
+| 独立只读审查 | assistant_catalog_review；无写权限 | 无目录扩权；核验结果与复核回执两项展示回归已修复确认 |
+| 持续验收与发布 | verify-deep-workflows.py、进度记录、GitHub/Render；协调Agent | 本地121项/644请求0 FAIL；线上同提交证据 runtime/assistant-catalog-release.json |
+
 ## 完整账号与交互复验 — 2026-10-24
 
 | 工作项 | 文件所有权 | 完成与证据 |

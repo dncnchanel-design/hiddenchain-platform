@@ -319,6 +319,12 @@ export const ROLE_IN_TASK_LABELS: Record<string, string> = {
 };
 
 export const ACTION_LABELS: Record<string, string> = {
+  LIST_DATA_ASSETS: "查询我的数据",
+  CHECK_ASSET_INTEGRITY: "检查资产完整性",
+  QUERY_AUTHORIZATION_STATUS: "查询授权申请状态",
+  CHECK_TTC_STATUS: "检查任务状态",
+  VERIFY_EVIDENCE_SUMMARY: "核验证据摘要",
+  EXPLAIN_AUDIT: "解释审计报告",
   LOGIN: "登录平台",
   CHECK_DATA_SPACE_USAGE_CONTROL: "检查数据使用控制",
   CREATE_RULE_PACKAGE: "创建使用规则",

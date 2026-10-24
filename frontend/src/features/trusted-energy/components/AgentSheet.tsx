@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronRight, ClipboardList, CornerDownLeft, Database, FileSearch, FileText, Send, ShieldCheck, X } from "lucide-react";
+import { Bot, ChevronRight, ClipboardList, CornerDownLeft, Database, FileSearch, FileText, Send, ShieldCheck, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { ApiError, createIdempotencyKey, prepareIdempotencyKey, type IdempotencyKeyRecord } from "../../../api";
-import { Badge, Button, Dialog, DialogContent, DialogTitle, IconButton, Input, RemoteState } from "./ui-primitives";
+import { Button, Dialog, DialogContent, DialogTitle, IconButton, Input, RemoteState } from "./ui-primitives";
 import { createAssistantSession, loadAssistantMessages, loadAssistantPlans, loadAssistantTools, postAssistantMessage, runAssistantPlanAction, type AssistantMessage, type AssistantPlan, type AssistantSession, type AssistantTool } from "../trusted-space-api";
-import { isLatestRun, resolveOnce, retryTransient } from "../assistant-state";
-import { ACTION_LABELS, labelForCode } from "../../../types";
+import { isLatestRun, resolveOnce, retryTransient, shouldAutoExecuteCatalog } from "../assistant-state";
+import { ACTION_LABELS } from "../../../types";
 import { capabilityLabel } from "../trusted-space-labels";
 import { assistantContext, assistantContextKey, type AssistantContext } from "../assistant-context";
 import { ElectricityChat } from "./ElectricityChat";
+import { AssistantPlanView } from "./AssistantPlanView";
 
 const SHORTCUTS = [
-  { label: "检查资产完整性", icon: FileSearch },
-  { label: "查询授权申请状态", icon: ShieldCheck },
-  { label: "检查可信任务状态", icon: ChevronRight },
-  { label: "核验证据摘要", icon: ShieldCheck },
-  { label: "解释审计报告", icon: FileSearch },
+  { label: "我有哪些数据", icon: Database, action: "LIST_DATA_ASSETS" },
+  { label: "检查资产完整性", icon: FileSearch, action: "CHECK_ASSET_INTEGRITY" },
+  { label: "查询授权申请状态", icon: ShieldCheck, action: "QUERY_AUTHORIZATION_STATUS" },
+  { label: "检查可信任务状态", icon: ChevronRight, action: "CHECK_TTC_STATUS" },
+  { label: "核验证据摘要", icon: ShieldCheck, action: "VERIFY_EVIDENCE_SUMMARY" },
+  { label: "解释审计报告", icon: FileSearch, action: "EXPLAIN_AUDIT" },
 ] as const;
 
 const AGENT_NAV = [
@@ -25,12 +27,6 @@ const AGENT_NAV = [
   { label: "审计解释", icon: FileText, command: "解释审计报告" },
   { label: "证据核验", icon: ShieldCheck, command: "核验证据摘要" },
 ] as const;
-
-function capabilityTone(value?: string) {
-  if (value === "LOCAL_REAL_DETERMINISTIC" || value === "LOCAL_REAL") return "success" as const;
-  if (value === "BLOCKED" || value === "PENDING_REVIEW") return "warning" as const;
-  return "info" as const;
-}
 
 type AgentSheetProps = { open: boolean; onOpenChange: (open: boolean) => void; mode: "business" | "electricity"; onModeChange: (mode: "business" | "electricity") => void };
 
@@ -59,6 +55,7 @@ function AgentSessionSheet({ open, onOpenChange, mode, onModeChange: setMode, co
   const sessionPromiseRef = useRef<Promise<AssistantSession> | null>(null);
   const latestRunRef = useRef(0);
   const latestPlan = plans[0];
+  const supportedActions = new Set(tools.filter((tool) => tool.enabled).flatMap((tool) => tool.assistant_actions));
 
   async function refreshSession(sessionId: string, isActive: () => boolean = () => true) {
     const [messagePayload, planPayload, toolPayload] = await Promise.all([
@@ -118,15 +115,22 @@ function AgentSessionSheet({ open, onOpenChange, mode, onModeChange: setMode, co
     setBusy(true);
     setError("");
     const text = content.trim();
+    // Consume only the submitted draft now; a later reply must not erase the
+    // next question the user types while this request is in flight.
+    setMessage((draft) => draft.trim() === text ? "" : draft);
     const fingerprint = `${session.session_id}:${session.state_version}:${text}`;
     const key = prepareIdempotencyKey(idempotencyKeys.current[fingerprint], "assistant-message", fingerprint);
     idempotencyKeys.current[fingerprint] = key;
     try {
-      await postAssistantMessage(session.session_id, text, { ifMatch: `"${session.state_version}"`, idempotencyKey: key.key });
-      setMessage("");
-      sessionRef.current = session;
+      const response = await postAssistantMessage(session.session_id, text, { ifMatch: `"${session.state_version}"`, idempotencyKey: key.key });
+      sessionRef.current = response.session;
+      setSession(response.session);
+      if (shouldAutoExecuteCatalog(response.plan) && response.plan) {
+        await runAssistantPlanAction(session.session_id, response.plan.plan_id, "execute", { ifMatch: `"${response.plan.state_version}"`, idempotencyKey: createIdempotencyKey("assistant-catalog-read") }, response.plan.steps[0].step_id);
+      }
       await refreshSession(session.session_id);
     } catch (reason) {
+      if (message.trim() === text) setMessage((draft) => draft || message);
       setError(reason instanceof ApiError ? reason.message : "智能助手指令未记录，请重试。");
     } finally {
       setBusy(false);
@@ -160,17 +164,18 @@ function AgentSessionSheet({ open, onOpenChange, mode, onModeChange: setMode, co
         {loading && <RemoteState loading />}
         {error && <RemoteState error={error} onRetry={() => { setError(""); setSession(null); sessionRef.current = null; sessionPromiseRef.current = null; setBootNonce((value) => value + 1); }} />}
         {!loading && !error && <>
-          <div className="energy-agent-message energy-agent-message-bot"><span className="energy-agent-avatar"><Bot size={14} /></span><div><p>我只会调用后端动作白名单中的真实查询或生成待复核计划，不会伪造执行结果。</p><small>会话主体：<code>{session?.entity_id || "当前登录主体"}</code></small></div></div>
-          {messages.filter((item) => item.role === "USER").map((item) => <div className="energy-agent-message energy-agent-message-user" key={item.message_id}><span>{item.content}</span></div>)}
-          {messages.filter((item) => item.role === "ASSISTANT").slice(-3).map((item) => <div className="energy-agent-message energy-agent-message-bot" key={item.message_id}><span className="energy-agent-avatar"><Bot size={14} /></span><div><p>{item.content}</p><small>{labelForCode(item.intent_code, "智能助手消息")} · {capabilityLabel(item.capability_state)}</small></div></div>)}
-          {latestPlan && <section className="energy-agent-plan"><div className="energy-agent-section-heading"><div><span className="energy-section-kicker">本地计划</span><h3>真实计划 · {labelForCode(latestPlan.intent_code, "未登记意图")}</h3></div><Badge tone={capabilityTone(latestPlan.capability_state)} dot>{labelForCode(latestPlan.status, "未登记状态")}</Badge></div><ol>{latestPlan.steps.map((step) => <li key={step.step_id}><span className={step.status === "SUCCEEDED" ? "energy-plan-done" : ""}>{step.status === "SUCCEEDED" ? <Check size={13} /> : step.sequence_no}</span><span>{ACTION_LABELS[step.action_code] || labelForCode(step.action_code, "审计动作")} · {labelForCode(step.status, "未登记状态")}{step.request_id ? ` · ${step.request_id}` : ""}{step.output && Object.keys(step.output).length ? <small>{JSON.stringify(step.output)}</small> : null}</span></li>)}</ol><div className="energy-agent-plan-note"><ShieldCheck size={14} /><span>来源：<code>{labelForCode(latestPlan.source_of_truth, "智能助手规划器")}</code> · 能力：<code>{capabilityLabel(latestPlan.capability_state)}</code></span></div><div className="trusted-submit-actions">{latestPlan.allowed_actions?.includes("execute") && <Button variant="primary" size="sm" busy={busy} onClick={() => runPlanAction(latestPlan, "execute")}>{latestPlan.steps.some((step) => step.mode === "WRITE") ? "提交审批草案" : "生成待办"}</Button>}{latestPlan.allowed_actions?.includes("cancel") && <Button variant="secondary" size="sm" disabled={busy} onClick={() => runPlanAction(latestPlan, "cancel")}>取消计划</Button>}{latestPlan.allowed_actions?.includes("retry") && <Button variant="secondary" size="sm" disabled={busy} onClick={() => runPlanAction(latestPlan, "retry")}>重试计划</Button>}</div></section>}
-          <section className="energy-agent-shortcuts"><h3>常用指令</h3><div>{SHORTCUTS.map(({ icon: Icon, label }) => <button type="button" key={label} disabled={busy || !session} aria-busy={busy || undefined} onClick={() => send(label)}><Icon size={14} />{label}</button>)}</div></section>
-          <section className="energy-agent-shortcuts"><h3>可用工具</h3><div>{tools.map((tool) => <span className="trusted-muted" key={tool.tool_code}>{tool.tool_name || labelForCode(tool.tool_code, "已登记工具")}</span>)}{!tools.length && <span className="trusted-muted">当前角色暂无登记工具</span>}</div></section>
+          <div className="energy-agent-message energy-agent-message-bot"><span className="energy-agent-avatar"><Bot size={14} /></span><div><p>可以帮你查看本方数据、查询授权和任务进度。选择下方指令，或直接告诉我你想查什么。</p></div></div>
+          {messages.slice(-8).map((item) => item.role === "USER"
+            ? <div className="energy-agent-message energy-agent-message-user" key={item.message_id}><span>{item.content}</span></div>
+            : <div className="energy-agent-message energy-agent-message-bot" key={item.message_id}><span className="energy-agent-avatar"><Bot size={14} /></span><div><p>{item.intent_code === "UNKNOWN_INTENT" ? "还没识别出要查询的内容。可以试试“我有哪些数据”，或选择下方常用指令。" : item.content}</p></div></div>)}
+          {latestPlan && <AssistantPlanView plan={latestPlan} busy={busy} onAction={(action) => void runPlanAction(latestPlan, action)} onNavigate={() => onOpenChange(false)} onSuggest={(content) => void send(content)} />}
+          <section className="energy-agent-shortcuts"><h3>常用指令</h3><div>{SHORTCUTS.filter((item) => supportedActions.has(item.action)).map(({ icon: Icon, label }) => <button type="button" key={label} disabled={busy || !session} aria-busy={busy || undefined} onClick={() => send(label)}><Icon size={14} />{label}</button>)}</div></section>
+          <section className="energy-agent-shortcuts"><h3>可用工具</h3><div>{tools.filter((tool) => tool.assistant_actions.length > 0).map((tool) => <span className="trusted-muted" key={tool.tool_code}>{tool.assistant_actions.map((action) => ACTION_LABELS[action] || "受控查询").join("、")}</span>)}{!supportedActions.size && <span className="trusted-muted">当前角色暂无可用查询工具</span>}</div></section>
         </>}
       </div>
-      <div className="energy-agent-composer"><Input value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void send(); }} placeholder="输入受支持的本地查询或需求…" aria-label="输入智能助手指令" disabled={loading || Boolean(error) || !session} /><Button variant="primary" size="icon" busy={busy} disabled={!message.trim() || !session} onClick={() => send()} aria-label="发送"><Send size={15} aria-hidden="true" /></Button></div>
+      <div className="energy-agent-composer"><Input value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void send(); }} placeholder="例如：我现在有哪些数据？" aria-label="输入智能助手指令" disabled={loading || Boolean(error) || !session} /><Button variant="primary" size="icon" busy={busy} disabled={!message.trim() || !session} onClick={() => send()} aria-label="发送"><Send size={15} aria-hidden="true" /></Button></div>
       <nav className="energy-agent-nav" aria-label="助手快捷入口">
-        {AGENT_NAV.map(({ label, icon: Icon, command }) => <button type="button" key={label} disabled={busy || !session} aria-busy={busy || undefined} onClick={() => send(command)}><Icon size={14} /><span>{label}</span></button>)}
+        {AGENT_NAV.filter((item) => supportedActions.has(SHORTCUTS.find((shortcut) => shortcut.label === item.command)?.action || "")).map(({ label, icon: Icon, command }) => <button type="button" key={label} disabled={busy || !session} aria-busy={busy || undefined} onClick={() => send(command)}><Icon size={14} /><span>{label}</span></button>)}
       </nav>
       <footer className="energy-agent-footer"><span><span className="energy-status-dot" />{capabilityLabel(session?.capability_state)}</span><span>{session?.state_version ? `会话 V${session.state_version}` : "会话未建立"}</span><CornerDownLeft size={13} /></footer>
       </>}

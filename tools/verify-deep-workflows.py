@@ -326,6 +326,19 @@ class Acceptance:
         for account in self.sessions:
             if account == "admin":
                 continue
+            def own_catalog(account=account):
+                org_id = self.sessions[account]["user"]["org_id"]
+                session = self.call("/trust-space/assistant/sessions", account, {"page_path": "/trusted-space/workbench"}, key=self.key("own-catalog-session"))
+                self.own(session["session_id"])
+                message = self.assistant_message(account, session, "我想查询一下我现在有哪些数据")
+                require(message["plan"]["intent_code"] == "LIST_DATA_ASSETS" and message["plan"]["status"] == "READY", "Ordinary personal data question was not recognized")
+                result = self.assistant_action(account, message["session"], message["plan"], "execute")
+                output = result["plan"]["steps"][0]["output"]
+                catalog = self.call("/trust-space/catalog?provider_org_id=" + quote(org_id, safe="") + "&page_size=20", account)
+                require(result["plan"]["status"] == "SUCCEEDED" and output["raw_data_accessed"] is False and output["organization_id"] == org_id, "Personal catalog query failed its privacy or scope check")
+                require(output["total"] == catalog["total"] and {row["asset_id"] for row in output["items"]} == {row["asset_id"] for row in catalog["items"]}, "Assistant did not return the actual owned catalog")
+                return {"total": output["total"], "returned": len(output["items"]), "own_organization": True, "raw_data_accessed": False}
+            self.check("assistant:ordinary-own-catalog:" + account, own_catalog, account=account)
             def asset_plan(account=account):
                 catalog = self.call("/trust-space/catalog?page_size=100", account)
                 own_org = self.sessions[account]["user"]["org_id"]
@@ -342,14 +355,14 @@ class Acceptance:
             message = self.assistant_message("exchange", session, "请安排一场会议")
             require(message["plan"]["status"] == "BLOCKED", "Unknown intent was not blocked")
             retried = self.assistant_action("exchange", message["session"], message["plan"], "retry")
-            require(retried["plan"]["status"] == "READY", "Retry did not reopen the blocked plan")
+            require(retried["plan"]["status"] == "BLOCKED" and "execute" not in retried["plan"]["allowed_actions"], "Retry must not reopen an unsupported command")
             cancelled = self.assistant_action("exchange", retried["session"], retried["plan"], "cancel")
             require(cancelled["plan"]["status"] == "CANCELLED", "Cancel did not persist")
             fresh = self.assistant_session("exchange", "data_asset", "asset-electricity-load")
             ready = self.assistant_message("exchange", fresh, "检查资产完整性")
             direct_cancel = self.assistant_action("exchange", ready["session"], ready["plan"], "cancel")
             require(direct_cancel["plan"]["status"] == "CANCELLED", "READY cancellation failed")
-            return {"retry_from_blocked": True, "cancel_after_retry": True, "cancel_ready": True, "session_id": session["session_id"]}
+            return {"unsupported_retry_remains_blocked": True, "cancel_after_retry": True, "cancel_ready": True, "session_id": session["session_id"]}
         self.check("assistant:retry-and-cancel", controls, account="exchange")
         grant = self.request()
         task = self.settlement_task or self.create_task("assistant task target")

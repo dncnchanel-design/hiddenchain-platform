@@ -33,6 +33,7 @@ ALL_ASSISTANT_ROLES = ENTERPRISE_ASSISTANT_ROLES | frozenset({"EXCHANGE", "REGUL
 OVERSIGHT_ROLES = frozenset({"EXCHANGE", "REGULATOR", "ADMIN"})
 
 ACTION_ROLES: dict[str, frozenset[str]] = {
+    "LIST_DATA_ASSETS": ALL_ASSISTANT_ROLES,
     "CHECK_ASSET_INTEGRITY": ALL_ASSISTANT_ROLES,
     "QUERY_AUTHORIZATION_STATUS": ALL_ASSISTANT_ROLES,
     "CHECK_TTC_STATUS": ALL_ASSISTANT_ROLES,
@@ -46,6 +47,7 @@ ACTION_ROLES: dict[str, frozenset[str]] = {
 }
 
 ACTION_TOOL_CODES: dict[str, str] = {
+    "LIST_DATA_ASSETS": "EDCAdapter+OPAAdapter",
     "CHECK_ASSET_INTEGRITY": "EvidenceGraph+LocalEvidenceLedger+RiskRuleEngine",
     "QUERY_AUTHORIZATION_STATUS": "EDCAdapter+OPAAdapter",
     "CHECK_TTC_STATUS": "WorkflowEngine",
@@ -55,6 +57,7 @@ ACTION_TOOL_CODES: dict[str, str] = {
 
 READ_ACTIONS = frozenset(
     {
+        "LIST_DATA_ASSETS",
         "CHECK_ASSET_INTEGRITY",
         "QUERY_AUTHORIZATION_STATUS",
         "CHECK_TTC_STATUS",
@@ -65,6 +68,7 @@ READ_ACTIONS = frozenset(
 WRITE_ACTIONS = frozenset(set(ACTION_ROLES) - set(READ_ACTIONS))
 
 ACTION_TARGET_TYPES = {
+    "LIST_DATA_ASSETS": ("organization",),
     "CHECK_ASSET_INTEGRITY": ("data_asset",),
     "QUERY_AUTHORIZATION_STATUS": ("data_usage_request",),
     "CHECK_TTC_STATUS": ("settlement_task", "privacy_compute_job"),
@@ -77,6 +81,7 @@ ACTION_TARGET_TYPES = {
     "ADVANCE_TTC_STATE": ("settlement_task",),
 }
 TARGET_GUIDANCE = {
+    "organization": "请使用当前账号查询本方数据目录。",
     "data_asset": "请先打开数据资产详情，或在指令中填写资产编号。",
     "data_usage_request": "请先选择一条授权申请，或在指令中填写申请编号。",
     "settlement_task": "请先打开对应任务详情，或在指令中填写任务编号。",
@@ -218,7 +223,7 @@ def _plan_payload(db: Session, plan: AssistantPlan, *, replay: bool = False) -> 
             capability_state=plan.capability_label,
             source_of_truth=plan.source_of_truth,
             allowed_actions=["execute", "cancel"] if plan.status in {"READY", "PENDING_REVIEW"}
-            else (["cancel"] if any(_target_error(item.action_code, item.target_type, item.target_id) for item in steps) else ["cancel", "retry"])
+            else (["cancel"] if any(item.action_code not in ACTION_ROLES or item.error_code in {"ASSISTANT_ROLE_DENIED", "ASSISTANT_CATALOG_SCOPE_DENIED"} or _target_error(item.action_code, item.target_type, item.target_id) for item in steps) else ["cancel", "retry"])
             if plan.status in {"FAILED", "BLOCKED"} else ["view"],
         ),
     }
@@ -345,8 +350,12 @@ def _target_error(action_code: str, target_type: str | None, target_id: str | No
 
 
 def _execution_error(db: Session, user: User, step: AssistantPlanStep) -> tuple[str, str] | None:
+    if step.action_code not in ACTION_ROLES:
+        return "UNKNOWN_ASSISTANT_ACTION", "还没识别出要查询的内容。可以试试“我有哪些数据”或下方常用指令。"
     if step.action_code in ACTION_ROLES and user.role_code not in ACTION_ROLES[step.action_code]:
         return "ASSISTANT_ROLE_DENIED", "当前角色没有执行该助手指令的权限。"
+    if step.action_code == "LIST_DATA_ASSETS" and step.target_id != user.org_id:
+        return "ASSISTANT_CATALOG_SCOPE_DENIED", "数据目录查询只能使用当前账号的主体范围。"
     invalid_target = _target_error(step.action_code, step.target_type, step.target_id)
     if invalid_target:
         return invalid_target
@@ -380,7 +389,9 @@ def _plan_intent(session: AssistantSession, content: str) -> tuple[str, str, str
         return "REVOKE_USAGE_AUTHORIZATION", "WRITE", "创建待人工审核的授权撤销控制请求，不直接撤销授权。", target_id
     if any(token in normalized for token in ("推进状态", "advance ttc", "推进 ttc", "推进任务")):
         return "ADVANCE_TTC_STATE", "WRITE", "创建待人工审核的 TTC 状态推进控制请求，不直接推进状态机。", target_id
-    return "UNKNOWN_INTENT", "BLOCKED", "该意图不在助手 allowlist 中，需要明确的受支持查询或人工动作。", target_id
+    if any(token in normalized for token in ("有哪些数据", "有什么数据", "我的数据", "本方数据目录", "我拥有的数据", "list my data", "my datasets")) and not any(token in normalized for token in ("删除", "清空", "修改", "上传", "导出", "delete", "drop", "export")):
+        return "LIST_DATA_ASSETS", "READ", "查询当前账号登记的本方数据名称、记录数和覆盖时间。", None
+    return "UNKNOWN_INTENT", "BLOCKED", "还没识别出要查询的内容。可以试试“我有哪些数据”“查询授权申请状态”或“检查任务状态”。", target_id
 
 
 def _tool_available(db: Session, action_code: str) -> AgentTool | None:
@@ -430,17 +441,23 @@ def post_message(
             }
     action_code, mode, explanation, target_id = _plan_intent(session, content)
     target_type = _target_type(action_code, session, content)
+    error_code = "UNKNOWN_ASSISTANT_ACTION" if action_code == "UNKNOWN_INTENT" else None
+    if action_code == "LIST_DATA_ASSETS":
+        target_type, target_id = "organization", user.org_id
     if action_code != "UNKNOWN_INTENT" and user.role_code not in ACTION_ROLES.get(action_code, frozenset()):
         mode = "BLOCKED"
+        error_code = "ASSISTANT_ROLE_DENIED"
         explanation = "当前角色没有执行该助手意图的权限；未创建业务写操作。"
     tool = _tool_available(db, action_code)
     if mode == "READ" and tool is None:
         mode = "BLOCKED"
+        error_code = "ASSISTANT_TOOL_UNAVAILABLE"
         explanation = "对应真实 Agent Tool 尚未登记或已禁用；未执行查询。"
     target_error = _target_error(action_code, target_type, target_id)
     if mode in {"READ", "WRITE"} and target_error:
         mode = "BLOCKED"
         explanation = target_error[1]
+        error_code = target_error[0]
         target_id = None
     if mode == "READ":
         plan_status = "READY"
@@ -515,6 +532,7 @@ def post_message(
         request_id=request_id,
         input_json={"page_path": session.page_path, "entity_type": target_type, "target_id": target_id},
         output_json={},
+        error_code=error_code,
         capability_label="LOCAL_REAL_DETERMINISTIC" if mode == "READ" else "BLOCKED" if mode == "BLOCKED" else "PENDING_REVIEW",
         source_of_truth="agent_tools/assistant_planner",
         idempotency_key=idempotency_key,
@@ -594,6 +612,25 @@ def tool_catalog(db: Session, user: User) -> dict[str, Any]:
         "total": len(items),
         **_capability(source_of_truth="agent_tools/role_capabilities", allowed_actions=["view"]),
     }
+
+
+def _catalog_read(db: Session, user: User) -> dict[str, Any]:
+    from .trust_space import catalog
+
+    data = catalog(db, user, query_text=None, asset_type=None, domain=None, sensitivity_level=None, provider_org_id=user.org_id, page=1, page_size=20)
+    items = []
+    for asset in data["items"]:
+        version = asset.get("latest_version") or {}
+        items.append({
+            "asset_id": asset["asset_id"], "asset_name": asset["asset_name"],
+            "asset_type": asset["asset_type"], "domain": asset["domain"],
+            "status": asset["status"], "version_no": version.get("version_no"),
+            "record_count": version.get("record_count"),
+            "period_start": version.get("period_start"), "period_end": version.get("period_end"),
+        })
+    return {"status": "SUCCEEDED", "scope": "OWN_ORGANIZATION", "organization_id": user.org_id,
+            "items": items, "total": data["total"], "page": 1, "page_size": 20,
+            "has_more": data["total"] > len(items), "raw_data_accessed": False}
 
 
 def _asset_read(db: Session, user: User, target_id: str | None) -> dict[str, Any]:
@@ -798,6 +835,8 @@ def _audit_read(db: Session, user: User, target_id: str | None) -> dict[str, Any
 
 
 def _run_read_action(db: Session, user: User, action_code: str, target_id: str | None, target_type: str | None = None) -> dict[str, Any]:
+    if action_code == "LIST_DATA_ASSETS":
+        return _catalog_read(db, user)
     if action_code == "CHECK_TTC_STATUS" and target_type == "privacy_compute_job":
         from .trust_space import computation_detail
 

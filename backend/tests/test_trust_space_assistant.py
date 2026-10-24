@@ -324,7 +324,7 @@ def test_assistant_unknown_write_review_and_plan_controls(client, auth_headers):
     unknown_plan = unknown.json()["plan"]
     assert unknown_plan["intent_code"] == "UNKNOWN_INTENT"
     assert unknown_plan["status"] == "BLOCKED"
-    assert "需要明确" in unknown_plan["plan"]["explanation"]
+    assert "我有哪些数据" in unknown_plan["plan"]["explanation"]
     unknown_id = unknown_plan["plan_id"]
 
     ready = client.post(
@@ -332,16 +332,17 @@ def test_assistant_unknown_write_review_and_plan_controls(client, auth_headers):
         headers={**auth_headers["exchange"], "If-Match": '"1"'},
     )
     assert ready.status_code == 200, ready.text
-    assert ready.json()["plan"]["status"] == "READY"
-    assert ready.json()["plan"]["state_version"] == 2
+    assert ready.json()["plan"]["status"] == "BLOCKED"
+    assert ready.json()["plan"]["state_version"] == 1
+    assert "retry" not in ready.json()["plan"]["allowed_actions"]
     stale_cancel = client.post(
         f"{ASSISTANT_PREFIX}/sessions/{unknown_session['session_id']}/plans/{unknown_id}/cancel",
-        headers={**auth_headers["exchange"], "If-Match": '"1"'},
+        headers={**auth_headers["exchange"], "If-Match": '"0"'},
     )
     assert stale_cancel.status_code == 412
     cancelled = client.post(
         f"{ASSISTANT_PREFIX}/sessions/{unknown_session['session_id']}/plans/{unknown_id}/cancel",
-        headers={**auth_headers["exchange"], "If-Match": '"2"'},
+        headers={**auth_headers["exchange"], "If-Match": '"1"'},
     )
     assert cancelled.status_code == 200
     assert cancelled.json()["plan"]["status"] == "CANCELLED"

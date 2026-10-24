@@ -1,5 +1,12 @@
 export type MutableRef<T> = { current: T };
 
+/** Only the user's explicit, read-only personal catalog request runs immediately. */
+export function shouldAutoExecuteCatalog(plan?: { intent_code: string; status: string; allowed_actions?: string[]; steps: { action_code: string; mode: string }[] } | null): boolean {
+  return Boolean(plan?.intent_code === "LIST_DATA_ASSETS" && plan.status === "READY"
+    && plan.allowed_actions?.includes("execute") && plan.steps.length === 1
+    && plan.steps[0].action_code === "LIST_DATA_ASSETS" && plan.steps[0].mode === "READ");
+}
+
 /**
  * Keeps StrictMode's duplicate effect mount from creating two sessions.
  * The value ref is intentionally separate from React state so the second

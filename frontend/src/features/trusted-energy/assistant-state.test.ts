@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { isLatestRun, resolveOnce, retryTransient } from "./assistant-state";
+import { isLatestRun, resolveOnce, retryTransient, shouldAutoExecuteCatalog } from "./assistant-state";
 
 describe("assistant session state", () => {
+  it("automatically runs only the explicitly allowed read-only personal catalog", () => {
+    const plan = { intent_code: "LIST_DATA_ASSETS", status: "READY", allowed_actions: ["execute"], steps: [{ action_code: "LIST_DATA_ASSETS", mode: "READ" }] };
+    expect(shouldAutoExecuteCatalog(plan)).toBe(true);
+    expect(shouldAutoExecuteCatalog({ ...plan, status: "BLOCKED" })).toBe(false);
+    expect(shouldAutoExecuteCatalog({ ...plan, allowed_actions: [] })).toBe(false);
+    expect(shouldAutoExecuteCatalog({ ...plan, steps: [{ action_code: "APPROVE_USAGE_REQUEST", mode: "WRITE" }] })).toBe(false);
+    expect(shouldAutoExecuteCatalog({ ...plan, steps: [...plan.steps, { action_code: "ADVANCE_TTC_STATE", mode: "WRITE" }] })).toBe(false);
+    expect(shouldAutoExecuteCatalog(null)).toBe(false);
+  });
   it("shares one session request across StrictMode-style duplicate mounts", async () => {
     const valueRef = { current: null as { session_id: string } | null };
     const promiseRef = { current: null as Promise<{ session_id: string }> | null };
