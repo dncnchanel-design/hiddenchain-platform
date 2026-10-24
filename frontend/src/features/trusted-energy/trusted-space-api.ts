@@ -384,6 +384,7 @@ export type UsageRequest = CapabilityEnvelope & {
   decision_hash?: string | null;
   contract_id?: string | null;
   agreement_id?: string | null;
+  usage_budget?: { remaining_uses: number | null; usable: boolean; agreement_state: string | null };
   state_version: number;
   submitted_at: string;
   reviewed_at?: string | null;
@@ -1321,7 +1322,7 @@ export function createUsageRequest(
 }
 
 export function loadUsageRequests(
-  params: { page?: number; pageSize?: number; status?: string; inbox?: boolean; mine?: boolean },
+  params: { page?: number; pageSize?: number; status?: string; inbox?: boolean; mine?: boolean; fresh?: boolean },
   signal?: AbortSignal,
 ) {
   return api<UsageRequestList>(`/data/access-requests${queryString({
@@ -1330,7 +1331,7 @@ export function loadUsageRequests(
     status: params.status,
     inbox: params.inbox ? true : undefined,
     mine: params.mine ? true : undefined,
-  })}`, { signal, cacheTtlMs: 1_500 });
+  })}`, { signal, ...(params.fresh ? { cache: "no-store" as const } : { cacheTtlMs: 1_500 }) });
 }
 
 export function loadUsageRequest(requestId: string, signal?: AbortSignal) {

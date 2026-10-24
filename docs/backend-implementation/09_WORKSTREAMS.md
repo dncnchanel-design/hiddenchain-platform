@@ -1,5 +1,14 @@
 # Workstreams and File Ownership
 
+## 查询授权入口与历史虚拟数据 — 2026-10-24
+
+| 工作项 | 文件范围 | 状态 |
+| --- | --- | --- |
+| 未授权查询入口 | QueryPage、query-authorization、usage request API、前端测试；协调 Agent | 前端 192 项、真实普通申请/批准/9 月计算/耗尽再申请、桌面/手机与独立复核通过 |
+| 真实额度投影 | data_usage_requests 与 test_usage_request_budget；授权复核 Agent | 18 项新增预算与 12 项既有授权接口定向通过；只投影真实额度，不改审批/执行边界 |
+| 2021–2026-09 虚拟数据 | connector main / synthetic_data、demo_seed 及专用测试；数据修复 Agent | 七节点 37 组共 2,124,188 行、平台 29 资产；52 项连接器与签名登记、保留上传/旧版、冷启动定向通过；独立只读复核通过 |
+| 验收与发布 | 三份进度记录、最终测试、GitHub 与 Render；协调 Agent | 本地 13 账号/249 次读取/49 业务组与 20 历史查询通过；负责最终同提交 CI 及八服务线上复核 |
+
 ## 全账号功能故障排查与修复 — 2026-10-24
 
 | 工作项 | 文件范围 | 状态 |

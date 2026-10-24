@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -25,6 +26,7 @@ from .seed import ORGS, USERS, _seed_upload
 from .services.adapters import AdaptivePrivacyRouter
 from .services.data_usage_requests import create_request
 from .services.common import add_audit_log
+from .services.synthetic_catalog import SEED_VERSION as SYNTHETIC_SEED_VERSION, load_verified_catalogs
 from .services.workflow import run_privacy_analysis, run_settlement_workflow
 from .trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 
@@ -533,6 +535,103 @@ def _seed_catalog(db: Session) -> None:
     db.flush()
 
 
+def _known_v1_asset(db: Session, domain: str, resource: str, owner: str) -> tuple[DataAsset, DataAssetVersion] | None:
+    asset = db.get(DataAsset, f"asset-{domain}-{resource}")
+    version = db.get(DataAssetVersion, f"version-{domain}-{resource}-1")
+    if not (
+        asset is not None and version is not None
+        and asset.owner_org_id == owner and asset.status == "ACTIVE"
+        and asset.current_version_id == version.version_id
+        and version.asset_id == asset.asset_id and version.status == "ACTIVE"
+        and version.version_no == 1 and version.schema_version == DEMO_SEED_VERSION
+        and version.data_ref == f"connector://local-node-{owner}/{resource}/versions/1"
+        and version.data_hash == demo_seed_content_hash(owner, domain, resource)
+        and version.immutable_hash == sha256_json({"asset": asset.asset_id, "version": 1, "data_hash": version.data_hash})
+    ):
+        return None
+    versions = db.scalars(select(DataAssetVersion).where(DataAssetVersion.asset_id == asset.asset_id)).all()
+    if len(versions) != 1:
+        return None  # Preserve any occupied central version slot.
+    alternatives = db.scalars(select(DataAsset).where(DataAsset.owner_org_id == owner, DataAsset.asset_id != asset.asset_id)).all()
+    if any((other.metadata_json or {}).get("domain") == domain and (other.metadata_json or {}).get("resource_id") == resource for other in alternatives):
+        return None  # A user-provided resource takes precedence over this seed.
+    return asset, version
+
+
+def _sync_synthetic_catalogs(db: Session) -> None:
+    if not settings.demo_catalog_seed or settings.app_env not in {"demo", "development"}:
+        return
+    candidates = []
+    owners = {}
+    for domain, definitions in RESOURCE_DEFINITIONS.items():
+        units = {resource: unit for resource, _name, unit in definitions}
+        for resource, chinese_name, unit in definitions:
+            owner = _electricity_owner(resource) if domain == "electricity" else OWNER_BY_DOMAIN[domain]
+            if _known_v1_asset(db, domain, resource, owner):
+                candidates.append((domain, resource, chinese_name, unit, owner))
+                owners[owner] = (domain, units)
+    if not candidates:
+        return
+    catalogs = load_verified_catalogs(db, owners)
+    registered = {}
+    skipped = {}
+    for domain, resource, chinese_name, _unit, owner in candidates:
+        seed = catalogs.get(owner, {}).get(resource)
+        current = _known_v1_asset(db, domain, resource, owner)
+        if seed is None or current is None:
+            if owner in catalogs:
+                skipped.setdefault(owner, []).append(resource)
+            continue
+        asset, old_version = current
+        # Recheck under a write lock after metadata I/O; never replace a current
+        # resource or upload registered concurrently with startup synchronization.
+        locked = db.execute(update(DataAsset).where(DataAsset.asset_id == asset.asset_id, DataAsset.current_version_id == old_version.version_id, DataAsset.status == "ACTIVE").values(current_version_id=DataAsset.current_version_id, updated_at=DataAsset.updated_at))
+        if locked.rowcount != 1 or _known_v1_asset(db, domain, resource, owner) is None:
+            skipped.setdefault(owner, []).append(resource)
+            continue
+        old_passport = db.scalar(select(DataAssetPassport).where(DataAssetPassport.asset_version_id == old_version.version_id).order_by(DataAssetPassport.passport_version.desc()))
+        if old_passport is None or old_passport.status != "ACTIVE":
+            skipped.setdefault(owner, []).append(resource)
+            continue
+        description = seed["manifest"]
+        version_id = f"version-{domain}-{resource}-2"
+        schema = {
+            "fields": ["日期", "地区", "机构", chinese_name, "单位"],
+            "granularity": "日度",
+            "hourly_available": description["hourly_available"],
+            "period_start": description["period_start"],
+            "period_end": description["period_end"],
+            "synthetic_manifest": deepcopy(description),
+            "manifest_hash": seed["manifest_hash"],
+            "schema_hash": seed["schema_hash"],
+        }
+        db.add(DataAssetVersion(
+            version_id=version_id, asset_id=asset.asset_id, version_no=2,
+            schema_version=SYNTHETIC_SEED_VERSION, schema_json=schema,
+            data_ref=seed["local_ref"], data_hash=seed["content_hash"],
+            commitment=sha256_json({"data_hash": seed["content_hash"], "owner": owner}),
+            record_count=seed["record_count"], effective_from=datetime(2021, 1, 1), effective_until=None,
+            immutable_hash=sha256_json({"asset": asset.asset_id, "version": 2, "data_hash": seed["content_hash"]}), status="ACTIVE",
+        ))
+        db.flush()
+        db.add(DataAssetPassport(
+            passport_id=f"passport-{domain}-{resource}-2", asset_version_id=version_id, passport_version=1,
+            owner_did=old_passport.owner_did,
+            provenance_json={"source": "企业侧连接器签名目录", "connector_id": description["connector_id"], "manifest_hash": seed["manifest_hash"], "raw_data_centrally_stored": False},
+            classification_json=deepcopy(old_passport.classification_json),
+            permitted_use_json=deepcopy(old_passport.permitted_use_json),
+            policy_refs_json=deepcopy(old_passport.policy_refs_json), evidence_refs_json=[],
+            passport_hash=sha256_json({"asset": asset.asset_id, "owner": owner, "schema": schema}), status="ACTIVE",
+        ))
+        asset.current_version_id = version_id
+        registered.setdefault(owner, []).append(version_id)
+    for owner in catalogs:
+        add_audit_log(db, action="DEMO_SYNTHETIC_CATALOG_SYNC", target_type="CONNECTOR", target_id=owner,
+                      result="SUCCESS" if registered.get(owner) else "SKIPPED",
+                      details={"registered_versions": registered.get(owner, []), "skipped_resources": skipped.get(owner, []), "generator_version": SYNTHETIC_SEED_VERSION, "signature_verified": True, "raw_data_accessed": False})
+    db.commit()
+
+
 def seed_demo_catalog(db: Session) -> None:
     if db.scalar(select(Organization.org_id).limit(1)):
         repaired = []
@@ -562,10 +661,12 @@ def seed_demo_catalog(db: Session) -> None:
                 details={"version_ids": repaired, "raw_data_accessed": False, "content_changed": False},
             )
             db.commit()
+        _sync_synthetic_catalogs(db)
         return
     _seed_participants(db)
     _seed_catalog(db)
     db.commit()
+    _sync_synthetic_catalogs(db)
 
 
 def seed_demo_authorization_request(db: Session) -> None:
@@ -581,7 +682,7 @@ def seed_demo_authorization_request(db: Session) -> None:
 
     applicant = db.get(User, "user-regulator")
     asset = db.get(DataAsset, "asset-electricity-load")
-    version = db.get(DataAssetVersion, "version-electricity-load-1")
+    version = db.get(DataAssetVersion, asset.current_version_id) if asset and asset.current_version_id else None
     if applicant is None or asset is None or version is None:
         return
 

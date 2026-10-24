@@ -1,5 +1,24 @@
 # Release Synchronization
 
+## 查询授权入口与历史虚拟数据 — 2026-10-24
+
+```text
+BASELINE_RELEASE = b18fc31652f0fc307f17277c307353543bae6d3e
+QUERY_ENTRY = missing approval now leads to application; fresh grant matching before execution; backend authorization retained
+USAGE_BUDGET = real agreement and reserved-query counters; spent/invalid grants excluded; refresh after terminal task or rejection
+REQUESTED_SYNTHETIC_PERIOD = 2021-01-01 through 2026-09-30 inclusive
+SYNTHETIC_VOLUME = 2,124,188 new connector rows; 37 node/resource datasets; only 29 existing platform assets upgraded
+DATA_BOUNDARY = new immutable connector version; preserve seed-v1 / uploads / snapshots; signed metadata only on platform
+STARTUP_SYNC = seven bounded metadata workers share 45s retry budget; final bounded health read may exceed budget; failed sync audits and retains v1
+LOCAL_DATA_VERIFICATION = PASS; 37 signed manifests; 29 upgraded assets; 20 early/leap/September/full-range queries; quota/replay checks
+LOCAL_UI_VERIFICATION = PASS; ordinary application to v2; provider approval; September result; consumed grant recovery; desktop/mobile; independent review
+LOCAL_ACCOUNT_VERIFICATION = PASS; 13 logins; 249 read calls; 49 workflow groups including focused settlement-harness correction
+FRONTEND_VERIFICATION = 192 tests; lint; typecheck; production/brand guard and build
+BACKEND_LOCAL_VERIFICATION = 455 full-suite cases exercised; legacy standalone canary loader repaired and both e2e cases rerun PASS; final 15 seed/handshake and 18 budget cases PASS; production guard and pip check PASS
+CONNECTOR_VERIFICATION = 52 tests; immutable seed/user-version boundaries; content hash and signed manifest checks
+RELEASE_STATE = local verification recorded; same-commit Actions, Deployments and live health/workflows must confirm publication
+```
+
 ## 全账号功能故障排查与修复 — 2026-10-24
 
 ```text

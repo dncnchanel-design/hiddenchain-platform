@@ -1430,3 +1430,14 @@
   .prototype-chain-status-action { margin-left: 42px; }
   .prototype-tamper-detail-grid { grid-template-columns: 1fr; }
 }
+
+.prototype-query-execute { flex-wrap: wrap; }
+.prototype-query-execute > :is(button, a.prototype-primary-button) { flex-shrink: 0; }
+.prototype-query-execute > a.prototype-primary-button { display: inline-flex; align-items: center; justify-content: center; margin-left: 0; color: #fff; text-decoration: none; }
+.prototype-query-execute > span { flex: 1 1 260px; }
+@media (max-width: 640px) {
+  .prototype-query-execute > a.prototype-primary-button { min-height: 44px; }
+  .prototype-query-provider { flex-direction: column; align-items: stretch; }
+  .prototype-query-provider label { min-width: 0; }
+  .prototype-query-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

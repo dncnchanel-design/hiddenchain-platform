@@ -31,6 +31,7 @@ import {
 import { routeForView } from "../types";
 import { useTrustedSpaceContext } from "../trusted-space-context";
 import { Button } from "../components/ui-primitives";
+import { findQueryAuthorization } from "../query-authorization";
 
 const EXAMPLES = [
   "查一下6月份各地区的电网负荷，用于运行监测",
@@ -53,7 +54,7 @@ function loadQueryResultChart() {
   return queryResultChartPromise;
 }
 
-type QueryStepStatus = "待处理" | "进行中" | "已完成" | "待选择主体" | "待授权" | "已阻断" | "失败";
+type QueryStepStatus = "待处理" | "进行中" | "已完成" | "待选择主体" | "待授权" | "待确认" | "已阻断" | "失败";
 type QueryStep = { stage: string; status: QueryStepStatus; detail?: string };
 type ExecuteBody = Parameters<typeof executeTrustedQuery>[0];
 type RetrySubmission = { body: ExecuteBody; metadata: PendingQuerySubmission; idempotencyKey: string };
@@ -131,7 +132,7 @@ function QueryResultDetails({ execution }: { execution: ControlledQueryResult })
   </>;
 }
 
-function QueryOutput({
+export function QueryOutput({
   intent,
   steps,
   providers,
@@ -147,6 +148,10 @@ function QueryOutput({
   retryLabel,
   onRetry,
   identity,
+  needsApplication,
+  authorizationLoading,
+  authorizationError,
+  onRefreshAuthorization,
 }: {
   intent: QueryIntent;
   steps: QueryStep[];
@@ -163,16 +168,21 @@ function QueryOutput({
   retryLabel: string;
   onRetry: () => void;
   identity: { name: string; did: string };
+  needsApplication: boolean;
+  authorizationLoading: boolean;
+  authorizationError: string;
+  onRefreshAuthorization: () => void;
 }) {
   const selectedProvider = providers.find((item) => item.asset_id === selectedProviderId);
   const aiLabel = intent.provider === "deepseek" ? `DeepSeek${intent.model ? ` · ${intent.model}` : ""}` : "手动规则预览";
-  const canExecute = Boolean(intent.ready && selectedProvider && !executeBusy && !taskActive);
-  const needsAuthorization = steps[1]?.status === "失败" || steps[1]?.status === "待授权";
+  const canExecute = Boolean(intent.ready && selectedProvider && !executeBusy && !taskActive && !authorizationLoading && !authorizationError);
+  const needsAuthorization = needsApplication || steps[1]?.status === "失败" || steps[1]?.status === "待授权";
   const applyPath = selectedProvider ? routeForView("apply", selectedProvider.asset_id) : routeForView("catalog");
 
   return <section className="prototype-card prototype-query-output">
     <PrototypeCardTitle>问数结果 <span className="prototype-inline-state" title={`身份 ${identity.did || "未登记"} · ${aiLabel} · 原始数据未返回`}>身份 {identity.did || "未登记"} · {aiLabel} · 原始数据未返回</span></PrototypeCardTitle>
-    <div className="prototype-pipeline">{steps.map((item, index) => {
+    <div className="prototype-pipeline">{steps.map((step, index) => {
+      const item = index === 1 && ["待授权", "待确认"].includes(step.status) ? { ...step, status: needsApplication ? "待授权" : "待确认", detail: authorizationLoading ? "正在读取授权状态" : authorizationError || (needsApplication ? "请先向数据提供方申请授权" : "请核对授权后执行") } : step;
       const blocked = item.status === "已阻断" || item.status === "失败";
       const running = item.status === "进行中";
       const done = item.status === "已完成";
@@ -181,25 +191,26 @@ function QueryOutput({
 
     <div className="prototype-query-preview">
       <div><span>能源范围</span><strong>{intent.energy_domain_name || "未识别"}</strong></div>
-      <div><span>数据资源</span><strong>{intent.resource || "未识别"}</strong></div>
+      <div><span>数据资源</span><strong>{selectedProvider?.asset_name || "未识别"}</strong></div>
       <div><span>固定函数</span><strong>{intent.function_name || "未识别"}</strong></div>
       <div><span>查询期间</span><strong>{intent.start_date && intent.end_date ? `${intent.start_date} 至 ${intent.end_date}` : "未补齐"}</strong></div>
     </div>
 
     {providers.length > 0 && <div className="prototype-query-provider">
-      <label htmlFor="query-provider"><span>数据主体</span><select id="query-provider" value={selectedProviderId} onChange={(event) => onProviderChange(event.target.value)}>{providers.map((asset) => <option value={asset.asset_id} key={asset.asset_id}>{providerName(asset)} · {asset.asset_name}</option>)}</select></label>
+      <label htmlFor="query-provider"><span>数据主体</span><select id="query-provider" value={selectedProviderId} disabled={executeBusy || taskActive} onChange={(event) => onProviderChange(event.target.value)}>{providers.map((asset) => <option value={asset.asset_id} key={asset.asset_id}>{providerName(asset)} · {asset.asset_name}</option>)}</select></label>
       <small>授权只绑定到选定主体，计算在该主体连接器内完成。</small>
     </div>}
 
     {intent.ready && providers.length > 0 && <div className="prototype-query-execute">
-      <button type="button" className="prototype-primary-button" disabled={!canExecute} onClick={onExecute}>{executeBusy ? "正在提交持久化任务…" : taskActive ? "任务执行中" : "确认授权并执行连接器计算"}</button>
-      <span>确认后创建持久化任务；页面只轮询任务状态，成功后才读取结果。</span>
+      {needsApplication && canExecute ? <Link className="prototype-primary-button" to={applyPath}>申请数据授权</Link> : <button type="button" className="prototype-primary-button" disabled={!canExecute} onClick={onExecute}>{executeBusy ? "正在核对授权并提交…" : taskActive ? "任务执行中" : "确认授权并执行连接器计算"}</button>}
+      <button type="button" className="prototype-secondary-button" disabled={executeBusy || taskActive || authorizationLoading} onClick={onRefreshAuthorization}>{authorizationLoading ? "正在检查授权…" : "重新检查授权"}</button>
+      <span>{authorizationError || (needsApplication ? execution ? "本次计算已完成。再次计算需要有效授权，请先申请并等待提供方批准。" : "当前没有覆盖本次查询的有效授权，请先申请，提供方批准后重新检查授权。" : "确认后创建持久化任务；页面只轮询任务状态，成功后才读取结果。")}</span>
     </div>}
 
     {task && <QueryTaskState task={task} />}
     {error && <div className="prototype-error prototype-deny-message" role="alert">⛔ {error}{selectedProvider && needsAuthorization && <Link to={applyPath}>前往申请授权</Link>}{retryLabel && <button type="button" className="prototype-secondary-button" disabled={executeBusy} onClick={onRetry}>{retryLabel}</button>}</div>}
     {pollingError && <div className="prototype-error prototype-deny-message" role="alert">⛔ {pollingError}{retryLabel && <button type="button" className="prototype-secondary-button" disabled={executeBusy} onClick={onRetry}>{retryLabel}</button>}</div>}
-    {execution ? <QueryResultDetails execution={execution} /> : !error && !pollingError && !task && <div className="prototype-empty">解析完成后，请选择数据主体并确认授权，系统才会创建受控查询任务。</div>}
+    {execution ? <QueryResultDetails execution={execution} /> : !needsApplication && !error && !pollingError && !task && <div className="prototype-empty">解析完成后，请选择数据主体并确认授权，系统才会创建受控查询任务。</div>}
     <div className="prototype-audit-id">{task ? `受控任务 ${task.task_id}` : `AI解析 ${aiLabel}`} · {identity.name || "当前主体"}</div>
   </section>;
 }
@@ -210,6 +221,8 @@ export function QueryPage() {
   const [intent, setIntent] = useState<QueryIntent | null>(null);
   const [providers, setProviders] = useState<CatalogAsset[]>([]);
   const [approvedAuthorizations, setApprovedAuthorizations] = useState<UsageRequest[]>([]);
+  const [authorizationLoading, setAuthorizationLoading] = useState(false);
+  const [authorizationError, setAuthorizationError] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [steps, setSteps] = useState<QueryStep[]>(INITIAL_STEPS);
   const [execution, setExecution] = useState<ControlledQueryResult | null>(null);
@@ -231,6 +244,51 @@ export function QueryPage() {
 
   const pendingTaskId = pendingTask?.taskId || null;
   const taskActive = Boolean(pendingTaskId && task?.status !== "FAILED" && task?.status !== "SUCCEEDED") || Boolean(pendingTaskId && !task);
+  const selectedProvider = providers.find((item) => item.asset_id === selectedProviderId);
+  const approvedAuthorization = findQueryAuthorization(approvedAuthorizations, selectedProvider, intent, context?.current_subject.org_id);
+  const canUseSubjectRule = context?.actor.role_code === "REGULATOR" && Boolean(context.actor.permissions?.includes("CREATE_CROSS_ENERGY_QUERY"));
+  const needsApplication = !approvedAuthorization && !canUseSubjectRule;
+
+  async function refreshAuthorizations() {
+    setAuthorizationLoading(true);
+    setAuthorizationError("");
+    try {
+      const approved = await loadUsageRequests({ mine: true, status: "APPROVED", page: 1, pageSize: 100, fresh: true });
+      const items = [...approved.items];
+      for (let page = 2; page <= Math.ceil(approved.total / 100); page += 1) {
+        const next = await loadUsageRequests({ mine: true, status: "APPROVED", page, pageSize: 100, fresh: true });
+        items.push(...next.items);
+        if (!next.items.length) break;
+      }
+      setApprovedAuthorizations(items);
+      return items;
+    } catch (reason) {
+      setApprovedAuthorizations([]);
+      setAuthorizationError(errorMessage(reason, "授权状态读取失败，请重新检查"));
+      throw reason;
+    } finally {
+      setAuthorizationLoading(false);
+    }
+  }
+
+  async function recheckAuthorizations() {
+    try {
+      await refreshAuthorizations();
+      setError("");
+      if (!execution && !taskActive) setSteps((current) => current.map((step, index) => index === 1 ? { ...step, status: "待授权", detail: undefined } : index > 1 ? { ...step, status: "待处理", detail: undefined } : step));
+    } catch {
+      // The authorization error keeps execution disabled until a successful read.
+    }
+  }
+
+  function changeProvider(assetId: string) {
+    if (busy || pendingTask) return;
+    setSelectedProviderId(assetId);
+    setExecution(null);
+    setTask(null);
+    setError("");
+    setSteps((current) => current.map((step, index) => index === 1 ? { ...step, status: "待授权" } : index > 1 ? { ...step, status: "待处理", detail: undefined } : step));
+  }
 
   function rememberPending(value: PendingQueryTask) {
     const persisted = writePendingQueryTask(sessionStorage, value);
@@ -289,6 +347,7 @@ export function QueryPage() {
           setStep(2, "失败", next.failure_summary || "连接器计算失败");
           setSteps((current) => updateStep(current, 3, "已阻断", "任务未成功，不读取结果"));
           setError(next.failure_summary || "连接器计算未完成，未交付结果");
+          void refreshAuthorizations().catch(() => undefined);
           return;
         }
         if (next.status === "SUCCEEDED") {
@@ -311,6 +370,7 @@ export function QueryPage() {
           forgetPending();
           setStep(2, "已完成", `任务 ${next.task_id} · 签名${result.digital_signature}`);
           setStep(3, "已完成", result.trend && result.trend.length > 1 ? `已返回 ${result.trend.length} 个日度数据点` : "已返回受控汇总");
+          void refreshAuthorizations().catch(() => undefined);
           return;
         }
         setPollingError("");
@@ -415,6 +475,7 @@ export function QueryPage() {
     setIntent(null);
     setProviders([]);
     setApprovedAuthorizations([]);
+    setAuthorizationError("");
     setSelectedProviderId("");
     setExecution(null);
     setTask(null);
@@ -440,10 +501,9 @@ export function QueryPage() {
       setProviders(matches);
       setSelectedProviderId(matches[0].asset_id);
       try {
-        const approved = await loadUsageRequests({ mine: true, status: "APPROVED", page: 1, pageSize: 100 });
-        setApprovedAuthorizations(approved.items);
+        await refreshAuthorizations();
       } catch {
-        // The confirmation endpoint remains the source of truth for subject rules.
+        // Keep the query preview and show the authorization retry action.
       }
       setStep(1, "待授权", matches.length > 1 ? "请选择主体后确认授权" : "请确认主体授权");
     } catch (reason) {
@@ -475,6 +535,10 @@ export function QueryPage() {
       } else {
         setRetrySubmission(null);
         forgetPending();
+        if (errorStatus(reason) === 403) {
+          setStep(1, "待授权", "授权状态已变化，请重新核对");
+          await refreshAuthorizations().catch(() => undefined);
+        }
       }
     } finally {
       setBusy("");
@@ -482,9 +546,21 @@ export function QueryPage() {
   }
 
   async function confirmAndExecute() {
-    const selectedProvider = providers.find((item) => item.asset_id === selectedProviderId);
     if (!intent || !selectedProvider || !intent.energy_domain || !intent.resource || !intent.function || !intent.start_date || !intent.end_date || busy || pendingTask) return;
-    const approved = approvedAuthorizations.find((item) => item.asset.asset_id === selectedProvider.asset_id && item.provider.org_id === selectedProvider.provider.org_id && item.status === "APPROVED");
+    setBusy("executing");
+    let approved: UsageRequest | undefined;
+    try {
+      approved = findQueryAuthorization(await refreshAuthorizations(), selectedProvider, intent, context?.current_subject.org_id);
+    } catch {
+      setBusy("");
+      return;
+    }
+    if (!approved && !canUseSubjectRule) {
+      setError("");
+      setStep(1, "待授权", "请先向数据提供方申请授权");
+      setBusy("");
+      return;
+    }
     const baseRequest = {
       authorization_id: approved?.request_id,
       provider_org_id: selectedProvider.provider.org_id,
@@ -521,6 +597,7 @@ export function QueryPage() {
       setStep(1, "失败");
       setSteps((current) => current.map((step, index) => index > 1 ? { ...step, status: "已阻断" } : step));
       setError(errorMessage(reason, "授权确认未完成，查询未执行"));
+      if (errorStatus(reason) === 403) await refreshAuthorizations().catch(() => undefined);
       setBusy("");
     }
   }
@@ -557,7 +634,7 @@ export function QueryPage() {
           <div className="prototype-chat-input"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void ask(); }} placeholder="用自然语言描述你的数据需求，例如：查一下6月份各地区的电网负荷，用于运行监测" /><button type="button" disabled={busy !== "" || !question.trim() || Boolean(pendingTask)} onClick={() => void ask()}>{busy === "parsing" ? "AI解析中…" : "发送"}</button></div>
           <div className="prototype-query-examples" aria-label="快捷提问">{EXAMPLES.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)}>{item}</button>)}</div>
         </section>
-        {intent && <QueryOutput intent={intent} steps={steps} providers={providers} selectedProviderId={selectedProviderId} onProviderChange={setSelectedProviderId} onExecute={() => void confirmAndExecute()} executeBusy={busy === "executing"} task={task} taskActive={taskActive} execution={execution} error={error} pollingError={pollingError} retryLabel={retryLabel} onRetry={retry} identity={identity} />}
+        {intent && <QueryOutput intent={intent} steps={steps} providers={providers} selectedProviderId={selectedProviderId} onProviderChange={changeProvider} onExecute={() => void confirmAndExecute()} executeBusy={busy === "executing"} task={task} taskActive={taskActive} execution={execution} error={error} pollingError={pollingError} retryLabel={retryLabel} onRetry={retry} identity={identity} needsApplication={needsApplication} authorizationLoading={authorizationLoading} authorizationError={authorizationError} onRefreshAuthorization={() => void recheckAuthorizations()} />}
         {!intent && (pendingTaskId || restoringPreflight || task || execution || pollingError) && <section className="prototype-card prototype-query-output">
           <PrototypeCardTitle>恢复中的受控查询 <span className="prototype-inline-state">仅恢复任务元数据，不保存查询结果或原始数据</span></PrototypeCardTitle>
           {(pendingTaskId || restoringPreflight || task) && <QueryTaskState task={task} />}

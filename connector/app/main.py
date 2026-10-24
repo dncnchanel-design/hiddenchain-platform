@@ -20,6 +20,8 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import synthetic_data
+
 
 DOMAIN_LABELS = {
     "electricity": "电力",
@@ -248,6 +250,64 @@ def _seed_demo_versions(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
+def _seed_demo_v2_versions(connection: sqlite3.Connection) -> None:
+    if not CONNECTOR_SEED_SYNTHETIC_DATA or os.getenv("APP_ENV", "development").lower() not in {"demo", "development"}:
+        return
+    for resource, resource_name, unit in RESOURCE_DEFINITIONS[DOMAIN]:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            versions = connection.execute(
+                "SELECT version_id, version_no, schema_version, content_hash, local_ref FROM resource_versions WHERE resource_id = ?",
+                (resource,),
+            ).fetchall()
+            legacy_ref = f"connector://{CONNECTOR_ID}/{resource}/versions/1"
+            # An occupied slot or any user/unknown version is never overwritten
+            # or hidden behind a newer seed. Existing v2 manifests stay immutable.
+            if len(versions) != 1 or not (
+                versions[0]["version_id"] == f"demo-seed-{DOMAIN}-{resource}-v1"
+                and versions[0]["version_no"] == 1
+                and versions[0]["schema_version"] == DEMO_SEED_VERSION
+                and versions[0]["local_ref"] == legacy_ref
+                and versions[0]["content_hash"] == _demo_seed_content_hash(CONNECTOR_ID, DOMAIN, resource)
+            ):
+                connection.rollback()
+                continue
+            description = synthetic_data.manifest(CONNECTOR_ID, CONNECTOR_NAME, DOMAIN, resource, unit)
+            version_id = f"demo-seed-{DOMAIN}-{resource}-v2"
+            local_ref = f"connector://{CONNECTOR_ID}/{resource}/versions/2"
+            schema_hash = synthetic_data.fingerprint({"schema_version": synthetic_data.GENERATOR_VERSION, "fields": ["record_date", "hour", "region", "organization", "value", "unit"], "unit": unit, "value_decimals": 6})
+            connection.execute(
+                "INSERT INTO resource_versions(version_id, resource_id, resource_name, version_no, classification, schema_version, schema_hash, content_hash, record_count, byte_size, local_ref, created_at) VALUES (?, ?, ?, 2, 'L2', ?, ?, ?, ?, 0, ?, ?)",
+                (version_id, resource, resource_name, synthetic_data.GENERATOR_VERSION, schema_hash, "0" * 64, description["record_count"], local_ref, datetime.now(UTC).isoformat()),
+            )
+            digest = hashlib.sha256()
+            batch: list[tuple[Any, ...]] = []
+            count, byte_size = 0, 0
+            for row in synthetic_data.iter_records(CONNECTOR_ID, CONNECTOR_NAME, DOMAIN, resource, unit):
+                encoded = synthetic_data.record_bytes(row)
+                digest.update(encoded)
+                byte_size += len(encoded)
+                count += 1
+                batch.append((version_id, *row))
+                if len(batch) >= 1000:
+                    connection.executemany("INSERT INTO version_records(version_id, resource, record_date, hour, region, organization, value, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", batch)
+                    batch.clear()
+            if batch:
+                connection.executemany("INSERT INTO version_records(version_id, resource, record_date, hour, region, organization, value, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", batch)
+            if count != description["record_count"]:
+                raise RuntimeError("Synthetic dataset record count does not match its manifest")
+            content_hash = digest.hexdigest()
+            connection.execute("UPDATE resource_versions SET content_hash = ?, byte_size = ? WHERE version_id = ?", (content_hash, byte_size, version_id))
+            connection.execute(
+                "INSERT INTO synthetic_dataset_manifests(version_id, manifest_json, manifest_hash, content_hash) VALUES (?, ?, ?, ?)",
+                (version_id, json.dumps(description, ensure_ascii=False, sort_keys=True), synthetic_data.fingerprint(description), content_hash),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
 def _initialize() -> None:
     with _database() as connection:
         connection.executescript(
@@ -315,6 +375,12 @@ def _initialize() -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_resource_versions_latest
               ON resource_versions(resource_id, version_no DESC);
+            CREATE TABLE IF NOT EXISTS synthetic_dataset_manifests(
+              version_id TEXT PRIMARY KEY REFERENCES resource_versions(version_id) ON DELETE RESTRICT,
+              manifest_json TEXT NOT NULL,
+              manifest_hash TEXT NOT NULL,
+              content_hash TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS version_records(
               record_id INTEGER PRIMARY KEY AUTOINCREMENT,
               version_id TEXT NOT NULL REFERENCES resource_versions(version_id) ON DELETE RESTRICT,
@@ -353,9 +419,10 @@ def _initialize() -> None:
             END;
             """
         )
-        if CONNECTOR_SEED_SYNTHETIC_DATA:
+        if CONNECTOR_SEED_SYNTHETIC_DATA and os.getenv("APP_ENV", "development").lower() in {"demo", "development", "test"}:
             _seed_records(connection)
             _seed_demo_versions(connection)
+            _seed_demo_v2_versions(connection)
 
 
 class ComputeRequest(BaseModel):
@@ -839,7 +906,7 @@ def _commit_ingest(
 def _latest_local_version(connection: sqlite3.Connection, resource: str) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT version_id, version_no, record_count
+        SELECT version_id, version_no, record_count, schema_version, content_hash, local_ref
         FROM resource_versions
         WHERE resource_id = ?
         ORDER BY version_no DESC
@@ -1071,6 +1138,10 @@ def catalog() -> dict[str, Any]:
         resources = []
         for resource, name, unit in RESOURCE_DEFINITIONS[DOMAIN]:
             latest = _latest_local_version(connection, resource)
+            seed = connection.execute(
+                "SELECT v.version_no, v.schema_version, v.schema_hash, v.content_hash, v.record_count, v.local_ref, m.manifest_json, m.manifest_hash FROM resource_versions v JOIN synthetic_dataset_manifests m ON m.version_id = v.version_id AND m.content_hash = v.content_hash WHERE v.version_id = ?",
+                (latest["version_id"] if latest else "",),
+            ).fetchone()
             resources.append(
                 {
                     "resource_id": resource,
@@ -1079,6 +1150,17 @@ def catalog() -> dict[str, Any]:
                     "granularity": "日度及受支持的小时级",
                     "latest_version": int(latest["version_no"]) if latest else None,
                     "record_count": int(latest["record_count"]) if latest else 0,
+                    "current_schema_version": latest["schema_version"] if latest else None,
+                    "synthetic_seed": {
+                        "version": int(seed["version_no"]),
+                        "schema_version": seed["schema_version"],
+                        "schema_hash": seed["schema_hash"],
+                        "content_hash": seed["content_hash"],
+                        "record_count": int(seed["record_count"]),
+                        "local_ref": seed["local_ref"],
+                        "manifest": json.loads(seed["manifest_json"]),
+                        "manifest_hash": seed["manifest_hash"],
+                    } if seed else None,
                     "upload_capability": {
                         "enabled": True,
                         "schema_version": "connector-csv-v1",
@@ -1089,14 +1171,15 @@ def catalog() -> dict[str, Any]:
                     },
                 }
             )
-    return {
+    return _signed_response({
         "connector_id": CONNECTOR_ID,
         "energy_domain": DOMAIN,
         "organization_id": ORGANIZATION_ID or None,
         "resources": resources,
         "functions": [{"code": code, "name": label} for code, label in FUNCTION_LABELS.items()],
         "notice": "这里只发布目录信息，原始数据保存在企业连接器中。",
-    }
+        "seed_catalog_version": synthetic_data.GENERATOR_VERSION,
+    })
 
 
 @app.post("/ingest", status_code=201)

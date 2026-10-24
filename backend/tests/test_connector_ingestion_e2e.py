@@ -41,7 +41,9 @@ def _public_text(key: Ed25519PrivateKey) -> str:
 
 
 def _load_connector_module(name: str):
-    spec = importlib.util.spec_from_file_location(name, CONNECTOR_MAIN)
+    spec = importlib.util.spec_from_file_location(
+        name, CONNECTOR_MAIN, submodule_search_locations=[str(CONNECTOR_MAIN.parent)]
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -149,7 +151,9 @@ def test_browser_direct_canary_stays_in_connector_and_central_registers_only_rec
             )
             assert canary not in uploaded.text
     finally:
-        sys.modules.pop(module_name, None)
+        for loaded_name in list(sys.modules):
+            if loaded_name == module_name or loaded_name.startswith(module_name + "."):
+                sys.modules.pop(loaded_name, None)
 
     registered = client.post(
         "/api/trust-space/connectors/receipts",

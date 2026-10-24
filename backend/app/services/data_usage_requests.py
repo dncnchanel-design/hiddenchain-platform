@@ -13,6 +13,7 @@ from ..models import (
     DataUsageRequest,
     DidIdentity,
     Organization,
+    TrustedQueryTask,
     User,
     utc_now,
     new_id,
@@ -360,12 +361,52 @@ def _actions(request: DataUsageRequest, user: User) -> list[str]:
     return actions
 
 
+def _usage_budget(db: Session, request: DataUsageRequest) -> dict[str, Any] | None:
+    """Project reservation counters; execution still owns quota enforcement."""
+    scope = request.requested_scope_json or {}
+    if not request.agreement_id and "max_uses" not in scope:
+        return None
+    budget = {"remaining_uses": 0, "usable": False, "agreement_state": None}
+    now = utc_now()
+    limits = [scope["max_uses"]] if "max_uses" in scope else []
+    agreement = db.get(DataSpaceAgreement, request.agreement_id) if request.agreement_id else None
+    if request.agreement_id:
+        if (
+            agreement is None
+            or agreement.contract_id != request.contract_id
+            or agreement.consumer_org_id != request.applicant_org_id
+            or agreement.provider_org_id != request.provider_org_id
+        ):
+            return budget
+        budget["agreement_state"] = agreement.state
+        if agreement.state not in {"NEGOTIATED", "ACTIVE"} or agreement.valid_from > now or agreement.expires_at <= now:
+            return budget
+        # Approval already copies the requested maximum into this agreement.
+        # Preserve the stricter bound for legacy requests whose limits differ.
+        limits.append(agreement.max_uses)
+    if request.status != DataUsageRequestStatus.APPROVED.value or request.expires_at <= now:
+        return budget
+    try:
+        parsed_limits = [int(value) for value in limits]
+        if any(isinstance(value, bool) or parsed < 1 or isinstance(value, float) and value != parsed for value, parsed in zip(limits, parsed_limits)):
+            return budget
+    except (TypeError, ValueError, OverflowError):
+        return budget
+    query_uses = db.scalar(select(func.count(TrustedQueryTask.task_id)).where(TrustedQueryTask.authorization_id == request.request_id)) or 0
+    remaining = min(parsed_limits) - query_uses
+    if agreement is not None:
+        remaining = min(remaining, agreement.max_uses - agreement.use_count)
+    remaining = max(0, remaining)
+    return {"remaining_uses": remaining, "usable": remaining > 0, "agreement_state": budget["agreement_state"]}
+
+
 def to_payload(db: Session, request: DataUsageRequest, user: User) -> dict[str, Any]:
     applicant, provider = _request_orgs(db, request)
     asset = db.get(DataAsset, request.asset_id)
     version = db.get(DataAssetVersion, request.asset_version_id)
     duration_policy = duration_policy_for_version(db, version) if version else dict(_SERVER_DEFAULT_DURATION_POLICY)
     cross_energy = applicant.energy_domain != provider.energy_domain
+    usage_budget = _usage_budget(db, request)
     return {
         "request_id": request.request_id,
         "asset": {
@@ -415,6 +456,7 @@ def to_payload(db: Session, request: DataUsageRequest, user: User) -> dict[str, 
         "decision_signature_id": request.decision_signature_id,
         "contract_id": request.contract_id,
         "agreement_id": request.agreement_id,
+        **({"usage_budget": usage_budget} if usage_budget is not None else {}),
         "state_version": request.state_version,
         "submitted_at": request.submitted_at.isoformat(),
         "reviewed_at": request.reviewed_at.isoformat() if request.reviewed_at else None,
