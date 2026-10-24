@@ -11,6 +11,7 @@ LOCAL_WORKFLOW_VERIFICATION = PASS; 49 real HTTP workflows; 13 accounts; 89 brow
 FRONTEND_VERIFICATION = PASS; 177 tests; lint; types; production/brand guards; production build
 BACKEND_LOCAL_VERIFICATION = PASS; 424 passed / 1 skipped full run; 95 final combined auth/assistant/query/account checks; production guard; pip check; compileall
 CONNECTOR_VERIFICATION = PASS; 14 tests; signed old/new request compatibility and version/privacy boundaries
+DEPENDENCY_REPAIR = OpenTelemetry API/SDK/OTLP HTTP 1.45.1 + instrumentation 0.66b1; Zod override 4.6.6; no new scanner exceptions
 RELEASE_STATE = code changes and local workflow verification recorded; live state must be read from same-commit Actions, Deployments and health endpoints
 RELEASE_GATE = full local checks + independent review + same GitHub branch SHA + all deployment/health SHA + live workflow verification
 ```

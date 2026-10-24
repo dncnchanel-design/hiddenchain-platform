@@ -8,3 +8,4 @@ overrides:
   browserslist: 4.29.4
   postcss-selector-parser: 7.1.7
   source-map-js: 1.2.2
+  zod: 4.6.6
