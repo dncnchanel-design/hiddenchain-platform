@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..dependencies import require_roles
+from ..dependencies import require_business_roles
 from ..models import BlockchainEvidence, TrustedExecutionReview, User
 from ..schemas import (
     TrustedExecutionRequest,
@@ -29,15 +29,31 @@ from ..services.trust_execution import (
     TrustedExecutionReviewService,
     trusted_execution_status,
 )
+from ..services.audit_scope import AUDIT_SCOPE_ALL, AUDIT_SCOPE_ORG_PREFIX, AUDIT_SCOPE_TASK_PREFIX, has_audit_permission
 
 
 router = APIRouter(prefix="/trusted-execution", tags=["trusted-execution"])
-TRUSTED_ROLES = ("EXCHANGE", "REGULATOR", "ADMIN")
+TRUSTED_ROLES = ("EXCHANGE", "REGULATOR")
+
+
+def _review_visible(review: TrustedExecutionReview, user: User) -> bool:
+    owner = (review.caller_identity_json or {}).get("organization_id")
+    if user.role_code != "REGULATOR":
+        return user.role_code == "EXCHANGE" and owner == user.org_id
+    if not has_audit_permission(user):
+        return False
+    permissions = set(user.permissions_json or [])
+    return (
+        AUDIT_SCOPE_ALL in permissions
+        or owner == user.org_id
+        or f"{AUDIT_SCOPE_ORG_PREFIX}{owner}" in permissions
+        or f"{AUDIT_SCOPE_TASK_PREFIX}{review.request_id}" in permissions
+    )
 
 
 @router.get("/status")
 def execution_status(
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
     status = trusted_execution_status()
@@ -51,14 +67,14 @@ def execution_status(
 
 
 @router.get("/policy/catalog")
-def policy_catalog(user: User = Depends(require_roles(*TRUSTED_ROLES))) -> dict:
+def policy_catalog(user: User = Depends(require_business_roles(*TRUSTED_ROLES))) -> dict:
     return trusted_execution_status()["policy_engine"]
 
 
 @router.post("/query")
 def trusted_query(
     payload: TrustedExecutionRequest,
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
     if payload.translation is None:
@@ -80,7 +96,7 @@ def trusted_query(
 @router.post("/translate")
 def translate_trusted_query(
     payload: TrustedExecutionTranslationRequest,
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
     try:
@@ -116,7 +132,7 @@ def translate_trusted_query(
 @router.get("/reviews")
 def list_execution_reviews(
     review_status: str | None = None,
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(TrustedExecutionReview).order_by(TrustedExecutionReview.created_at.desc())
@@ -124,20 +140,20 @@ def list_execution_reviews(
         query = query.where(TrustedExecutionReview.verification_status == review_status.upper())
     return [
         TrustedExecutionReviewService.summary(item)
-        for item in db.scalars(query).all()
+        for item in db.scalars(query).all() if _review_visible(item, user)
     ]
 
 
 @router.get("/reviews/{request_id}")
 def get_execution_review(
     request_id: str,
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
     review = db.scalar(
         select(TrustedExecutionReview).where(TrustedExecutionReview.request_id == request_id)
     )
-    if review is None:
+    if review is None or not _review_visible(review, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="可信执行核对记录不存在")
     return TrustedExecutionReviewService.summary(review, include_snapshot=True)
 
@@ -146,13 +162,13 @@ def get_execution_review(
 def confirm_execution_review(
     request_id: str,
     payload: TrustedExecutionReviewRequest,
-    user: User = Depends(require_roles("REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     review = db.scalar(
         select(TrustedExecutionReview).where(TrustedExecutionReview.request_id == request_id)
     )
-    if review is None:
+    if review is None or not _review_visible(review, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="可信执行核对记录不存在")
     if review.execution_status != "SUCCEEDED":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="只有成功交付的结果可以核对确认")
@@ -228,7 +244,7 @@ def confirm_execution_review(
 @router.get("/audit/{request_id}")
 def trusted_audit(
     request_id: str,
-    user: User = Depends(require_roles(*TRUSTED_ROLES)),
+    user: User = Depends(require_business_roles(*TRUSTED_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict:
     evidence = db.scalars(
@@ -242,6 +258,8 @@ def trusted_audit(
     review = db.scalar(
         select(TrustedExecutionReview).where(TrustedExecutionReview.request_id == request_id)
     )
+    if review is None or not _review_visible(review, user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="可信执行核对记录不存在")
     return {
         "request_id": request_id,
         "status": evidence[0].status if evidence else "PENDING",

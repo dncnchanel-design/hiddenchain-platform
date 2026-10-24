@@ -220,7 +220,7 @@ def canonical_connector_request_payload(request_payload: Mapping[str, Any]) -> d
     so both sides must omit it before signing or hashing.
     """
 
-    optional_subject_fields = {"request_item_id", "provider_org_id", "rule_version"}
+    optional_subject_fields = {"request_item_id", "provider_org_id", "rule_version", "comparison_start_date", "comparison_end_date", "minimum_record_count"}
     return {
         key: value
         for key, value in dict(request_payload).items()

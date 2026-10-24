@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import BUSINESS_ROLES, require_roles
-from ..models import TaskParticipant, User
+from ..models import SettlementTask, User
 from ..services.formal_evidence import process_local_demo_outbox, selected_anchor_adapter_status
 from ..services.mpc import AdditiveSecretSharingMPC
+from ..services.audit_scope import AUDIT_SCOPE_ALL, audit_task_ids_query, has_audit_permission
+from ..services.workflow import settlement_task_scope_query
 from ..trust_models import BlockchainAnchor, EvidenceBatch, EvidenceBatchItem, EvidenceOutbox
 
 
@@ -22,15 +24,8 @@ def list_evidence_batches(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(EvidenceBatch).order_by(EvidenceBatch.sealed_at.desc())
-    if user.role_code in {"GENERATOR", "RETAILER"}:
-        scoped_task_ids = list(
-            db.scalars(
-                select(TaskParticipant.task_id).where(
-                    TaskParticipant.org_id == user.org_id
-                )
-            ).all()
-        )
-        query = query.where(EvidenceBatch.task_id.in_(scoped_task_ids or ["__none__"]))
+    if not (user.role_code == "REGULATOR" and has_audit_permission(user) and AUDIT_SCOPE_ALL in (user.permissions_json or [])):
+        query = query.where(EvidenceBatch.task_id.in_(settlement_task_scope_query(db, user).with_only_columns(SettlementTask.task_id)))
     if task_id:
         query = query.where(EvidenceBatch.task_id == task_id)
     batches = db.scalars(query).all()
@@ -100,6 +95,11 @@ def list_evidence_outbox(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(EvidenceOutbox).order_by(EvidenceOutbox.created_at.desc())
+    if user.role_code == "REGULATOR":
+        if not has_audit_permission(user):
+            raise HTTPException(status_code=403, detail="当前账号未获授审计查看权限")
+        if AUDIT_SCOPE_ALL not in (user.permissions_json or []):
+            query = query.where(EvidenceOutbox.task_id.in_(audit_task_ids_query(user)))
     if task_id:
         query = query.where(EvidenceOutbox.task_id == task_id)
     return [
@@ -125,6 +125,8 @@ def process_evidence_outbox(
     user: User = Depends(require_roles("REGULATOR", "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict:
+    if user.role_code == "REGULATOR" and (not has_audit_permission(user) or AUDIT_SCOPE_ALL not in (user.permissions_json or [])):
+        raise HTTPException(status_code=403, detail="全局证据队列处理需要全局审计授权")
     results = process_local_demo_outbox(db, limit=limit)
     db.commit()
     return {

@@ -32,6 +32,7 @@ import { routeForView } from "../types";
 import { useTrustedSpaceContext } from "../trusted-space-context";
 import { Button } from "../components/ui-primitives";
 import { findQueryAuthorization } from "../query-authorization";
+import { queryProviders } from "../query-providers";
 
 const EXAMPLES = [
   "查一下6月份各地区的电网负荷，用于运行监测",
@@ -91,7 +92,8 @@ function retryableSubmission(reason: unknown) {
 }
 
 function providerName(asset: CatalogAsset) {
-  return asset.provider.org_name || asset.provider.org_id;
+  const name = asset.provider.org_name || asset.provider.org_id;
+  return asset.latest_version ? `${name} · 第${asset.latest_version.version_no}版` : name;
 }
 
 function resultObject(result: ControlledQueryResult["result"]): Record<string, number | string> | null {
@@ -247,7 +249,8 @@ export function QueryPage() {
   const selectedProvider = providers.find((item) => item.asset_id === selectedProviderId);
   const approvedAuthorization = findQueryAuthorization(approvedAuthorizations, selectedProvider, intent, context?.current_subject.org_id);
   const canUseSubjectRule = context?.actor.role_code === "REGULATOR" && Boolean(context.actor.permissions?.includes("CREATE_CROSS_ENERGY_QUERY"));
-  const needsApplication = !approvedAuthorization && !canUseSubjectRule;
+  const canComputeOwn = Boolean(selectedProvider?.actions.can_compute_own && selectedProvider.provider.org_id === context?.current_subject.org_id);
+  const needsApplication = !approvedAuthorization && !canUseSubjectRule && !canComputeOwn;
 
   async function refreshAuthorizations() {
     setAuthorizationLoading(true);
@@ -492,19 +495,26 @@ export function QueryPage() {
 
       setStep(1, "进行中", "正在查找可授权的数据主体");
       const catalog = await loadCatalog({ domain: parsed.energy_domain, page: 1, pageSize: 100 });
-      const matches = catalog.items.filter((item) => item.status === "ACTIVE" && item.metadata?.resource_id === parsed.resource && item.source.status === "ACTIVE");
+      const assets = [...catalog.items];
+      for (let page = 2; page <= Math.ceil(catalog.total / 100); page += 1) {
+        const next = await loadCatalog({ domain: parsed.energy_domain, page, pageSize: 100 });
+        assets.push(...next.items);
+        if (!next.items.length) break;
+      }
+      let approved: UsageRequest[] = [];
+      try {
+        approved = await refreshAuthorizations();
+      } catch {
+        // Keep the query preview and show the authorization retry action.
+      }
+      const matches = queryProviders(assets, parsed, approved, context?.current_subject.org_id || "");
       if (!matches.length) {
         setStep(1, "已阻断", "目录中没有可用主体资源");
-        setError("数据目录中没有可用于该查询的主体连接器资源，系统没有生成占位结果");
+        setError("没有覆盖查询范围且允许当前账号申请或使用的数据主体，请调整资源或查询期间。");
         return;
       }
       setProviders(matches);
       setSelectedProviderId(matches[0].asset_id);
-      try {
-        await refreshAuthorizations();
-      } catch {
-        // Keep the query preview and show the authorization retry action.
-      }
       setStep(1, "待授权", matches.length > 1 ? "请选择主体后确认授权" : "请确认主体授权");
     } catch (reason) {
       setStep(0, "失败");
@@ -555,13 +565,14 @@ export function QueryPage() {
       setBusy("");
       return;
     }
-    if (!approved && !canUseSubjectRule) {
+    if (!approved && !canUseSubjectRule && !canComputeOwn) {
       setError("");
       setStep(1, "待授权", "请先向数据提供方申请授权");
       setBusy("");
       return;
     }
     const baseRequest = {
+      asset_id: selectedProvider.asset_id,
       authorization_id: approved?.request_id,
       provider_org_id: selectedProvider.provider.org_id,
       energy_domain: intent.energy_domain,
@@ -575,14 +586,19 @@ export function QueryPage() {
     setBusy("executing");
     setError("");
     setExecution(null);
-    setStep(1, "进行中", approved ? "正在核对已有授权" : "正在核对主体批准规则");
+    setStep(1, "进行中", approved ? "正在核对已有授权" : canComputeOwn ? "正在核对本方数据计算权限" : "正在核对主体批准规则");
     try {
       const confirmation: QueryConfirmation = await confirmTrustedQuery(baseRequest);
       setStep(1, "已完成", "授权范围与查询条件已锁定");
       const idempotencyKey = createIdempotencyKey("trusted-query");
-      const metadata: PendingQuerySubmission = baseRequest;
+      const metadata: PendingQuerySubmission = {
+        ...baseRequest,
+        authorization_id: confirmation.authorization_id || baseRequest.authorization_id,
+        provider_org_id: confirmation.provider_org_id || baseRequest.provider_org_id,
+        asset_id: confirmation.asset_id || baseRequest.asset_id,
+      };
       const submission: RetrySubmission = {
-        body: { ...baseRequest, confirmation_token: confirmation.confirmation_token },
+        body: { ...metadata, confirmation_token: confirmation.confirmation_token },
         metadata,
         idempotencyKey,
       };

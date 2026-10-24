@@ -9,6 +9,7 @@ const REQUEST_STATUS_LABELS: Record<string, string> = {
 };
 
 const PURPOSE_LABELS: Record<string, string> = {
+  SELF_OWNED_QUERY: "本方数据计算",
   SETTLEMENT_ANALYSIS: "结算分析",
   SETTLEMENT_AUDIT: "结算审计",
   CROSS_CHECK: "交叉核验",
@@ -96,7 +97,7 @@ export function actionLabel(action: string, view?: "inbox" | "outbound", status?
   if (action === "review") return "开始审核";
   if (action === "approve") return "批准授权";
   if (action === "reject") return "拒绝申请";
-  if (action === "withdraw") return "撤回申请";
+  if (action === "withdraw") return status === "APPROVED" ? "撤销授权" : "撤回申请";
   if (action === "revoke") return view === "outbound" && status !== "APPROVED" ? "撤回申请" : "撤销授权";
   return "执行操作";
 }

@@ -1,5 +1,24 @@
 # Release Synchronization
 
+## 完整账号与交互复验 — 2026-10-24
+
+```text
+BASELINE_RELEASE = 6bea616bfad19426bb226e207590bdc9c6ffe82b
+AUDIT_SCOPE = all 13 configured accounts; currently mounted pages; available actions, meaningful denials and recovery
+SOURCE_STATE = frozen after root-cause fixes and independent boundary reviews
+LOCAL_WEB = 206 tests; lint; production/brand checks and build; bounded desktop/mobile review; detector []
+LOCAL_NODE = 85 tests; both comparison periods enforce signed minimum group size before result release or budget charge
+LOCAL_BACKEND = 591-test full baseline plus final targeted suites; final collected suite 693 tests; full branch coverage floor remains 75%
+FRESH_HTTP = 109 checks; 596 calls; 90 PASS; 13 EXPECTED_BLOCKED; 5 unreachable preconditions; 1 PSI independent-formula evidence reference; 0 FAIL
+BROWSER_EVIDENCE = runtime/complete-account-ui.json; all 13 accounts; actions and original DOM observations retained
+SETTLEMENT_UI = create -> run -> regulatory approval -> both participant confirmations -> archived V13
+PRESERVED_WORK = user documents / packaging edits / historical Vault / existing synthetic seed and uploaded versions
+RELEASE_IDENTITY = current Git commit; both GitHub branches and all eight service build_sha values must match
+RELEASE_EVIDENCE = runtime/account-release-evidence.json; records final GitHub checks, eight versions and online workflows
+```
+
+本页给出本轮发布的固定验收口径，最终执行结果由上述证据文件记录，不用旧发布的 SHA 或页面访问次数冒充新版本验收。四个未登记安全端点的非电交易中心不具备直传节点；界面显示未就绪并提供重新检查，票据接口仍拒绝，未把未配置能力改成虚假成功。钱包外部签名、外部多方协议/远程证明不在本地实现能力内。
+
 ## 查询授权入口与历史虚拟数据 — 2026-10-24
 
 ```text

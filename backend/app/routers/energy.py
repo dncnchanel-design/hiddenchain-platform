@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..dependencies import require_roles
+from ..dependencies import require_business_roles
 from ..models import User
 from ..schemas import SolarEvaluationRequest
 from ..services.solar import PvlibSolarAdapter
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/energy", tags=["energy"])
 @router.post("/solar/evaluate")
 def evaluate_solar_resource(
     payload: SolarEvaluationRequest,
-    user: User = Depends(require_roles("GENERATOR", "EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("GENERATOR", "EXCHANGE", "REGULATOR")),
 ) -> dict:
     try:
         return PvlibSolarAdapter.evaluate(**payload.model_dump())

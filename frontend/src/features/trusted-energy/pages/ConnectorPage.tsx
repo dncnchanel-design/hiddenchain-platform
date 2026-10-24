@@ -336,11 +336,13 @@ export function ConnectorPage() {
   }
 
   const isBusy = busy !== null;
+  const unavailable = remote.data?.availability?.can_upload === false;
 
   return <PrototypePageFrame className="prototype-connector-page">
     <RemoteState loading={remote.loading} error={remote.error} onRetry={() => void remote.reload()} />
     <RemoteState loading={false} error={remote.refreshError} onRetry={() => void remote.reload()} />
-    {remote.data && <section className="prototype-card prototype-connector-form-card" aria-busy={isBusy}>
+    {unavailable && <section className="prototype-card" role="status"><PrototypeCardTitle>本主体连接器尚未就绪</PrototypeCardTitle><p>{remote.data?.availability?.reason}。请由本主体完成连接器登记与安全端点配置后再上传。</p><button type="button" className="prototype-secondary-button" onClick={() => void remote.reload()} disabled={remote.refreshing}>重新检查连接状态</button></section>}
+    {remote.data && !unavailable && <section className="prototype-card prototype-connector-form-card" aria-busy={isBusy}>
       <PrototypeCardTitle>企业连接器数据接入</PrototypeCardTitle>
       <p className="prototype-connector-intro"><b>原始 CSV 直达本企业连接器，中央只登记签名回执。</b> 当前主体为 {remote.data.connector.organization_name}，能源域为 {remote.data.connector.energy_domain}；平台不会代收文件内容。</p>
       <div className="prototype-connector-layout">
@@ -364,7 +366,7 @@ export function ConnectorPage() {
         </div>
       </div>
     </section>}
-    {remote.data && <section className="prototype-card prototype-resource-list">
+    {remote.data && !unavailable && <section className="prototype-card prototype-resource-list">
       <PrototypeCardTitle>本主体规范资源目录</PrototypeCardTitle>
       <p className="prototype-resource-intro">资源名称、计量单位和列要求均由当前主体连接器目录提供。</p>
       {remote.data.resources.length ? <div className="prototype-resource-table">{remote.data.resources.map((item) => <div key={item.resource_id}><span><strong>{item.resource_name}</strong><code>{item.resource_id}</code></span><span>{item.current_version ? `v${item.current_version}` : "暂无版本"} · {item.record_count ?? 0} 行 · {item.schema_version}</span><b className="prototype-resource-status">{statusLabel(item.status)}</b></div>)}</div> : <div className="prototype-empty">当前能源域暂无可接入资源</div>}

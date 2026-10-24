@@ -84,4 +84,17 @@ describe("trusted query task lifecycle", () => {
     expect([400, 401, 403, 404, 409, 422].every((status) => !shouldRetryCommandPolling(status))).toBe(true);
     expect([1, 2, 3, 4, 5].map(commandPollingRetryDelay)).toEqual([2_000, 4_000, 8_000, 15_000, 15_000]);
   });
+  it("preserves the selected asset and uses the fresh own-data authorization during recovery", async () => {
+    const store = memoryStore();
+    const ownSubmission = { ...submission, authorization_id: undefined, asset_id: "owned-asset-v2" };
+    const pending = { taskId: null, idempotencyKey: "trusted-query:owned", submission: ownSubmission };
+    writePendingQueryTask(store, pending);
+    const restored = readPendingQueryTask(store)!;
+    expect(restored.submission?.asset_id).toBe("owned-asset-v2");
+    const confirm = vi.fn().mockResolvedValue({ confirmation_token: "transient-token", authorization_id: "short-lived-own-grant", provider_org_id: "owner", asset_id: "owned-asset-v2" });
+    const execute = vi.fn().mockResolvedValue({ task_id: "owned-task" });
+    await recoverPendingQuerySubmission(restored, confirm, execute);
+    expect(execute).toHaveBeenCalledWith({ ...restored.submission, provider_org_id: "owner", authorization_id: "short-lived-own-grant", asset_id: "owned-asset-v2", confirmation_token: "transient-token" }, pending.idempotencyKey, undefined);
+    expect(store.setItem.mock.calls[0][1]).not.toContain("transient-token");
+  });
 });

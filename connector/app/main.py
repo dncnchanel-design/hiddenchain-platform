@@ -10,6 +10,8 @@ import os
 import secrets
 import sqlite3
 import statistics
+from bisect import bisect_right
+from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -88,6 +90,16 @@ FUNCTION_LABELS = {
     "trend": "趋势",
     "psi": "PSI",
     "mpc_aggregation": "MPC 聚合份额",
+}
+
+FUNCTION_DEFINITIONS = {
+    "growth_rate": "首末日期同一地区集合的受控聚合值变化率；返回百分比。",
+    "yoy": "与去年同期比较；整月按完整日历月、其他日期裁剪闰日。基期必须另获同范围授权。流量比较期间总量，库存及强度指标比较期间均值；返回百分比。",
+    "mom": "与上月同期比较；整月按完整日历月、其他日期裁剪月末。基期必须另获同范围授权。流量比较期间总量，库存及强度指标比较期间均值；返回百分比。",
+    "count": "授权范围内参与受控计算的记录条数。",
+    "threshold": "按阈值分别统计满足及不满足的记录条数。",
+    "trend": "日度均值序列保留资源单位，摘要变化率采用百分比。",
+    "psi": "按日期分成前半基期与后半观察期，使用10个基期等宽分箱且两端覆盖无穷；各箱加入0.5伪计数，计算Σ(q-p)ln(q/p)，返回无量纲PSI。",
 }
 
 DOMAIN = os.getenv("ENERGY_DOMAIN", "electricity").strip().lower()
@@ -438,6 +450,9 @@ class ComputeRequest(BaseModel):
     function: str
     start_date: date
     end_date: date
+    comparison_start_date: date | None = None
+    comparison_end_date: date | None = None
+    minimum_record_count: int | None = Field(default=None, ge=1, strict=True)
     region: str | None = None
     hour: int | None = Field(default=None, ge=0, le=23)
     threshold: float | None = None
@@ -489,7 +504,7 @@ def _canonical_request_payload(payload: BaseModel) -> dict[str, Any]:
     """Normalize optional subject-bound fields before signing or hashing."""
 
     signed_payload = payload.model_dump(mode="json")
-    for field_name in ("request_item_id", "provider_org_id", "rule_version", "data_window"):
+    for field_name in ("request_item_id", "provider_org_id", "rule_version", "data_window", "comparison_start_date", "comparison_end_date", "minimum_record_count"):
         if signed_payload.get(field_name) is None:
             signed_payload.pop(field_name, None)
     return signed_payload
@@ -916,6 +931,28 @@ def _latest_local_version(connection: sqlite3.Connection, resource: str) -> sqli
     ).fetchone()
 
 
+def _comparison_period(payload: ComputeRequest) -> tuple[date, date] | None:
+    supplied = payload.comparison_start_date, payload.comparison_end_date
+    if payload.function not in {"yoy", "mom"}:
+        if any(day is not None for day in supplied):
+            raise HTTPException(422, "当前函数不接受比较基期")
+        return None
+    months = 12 if payload.function == "yoy" else 1
+    def shift(day: date, *, month_end: bool = False) -> date:
+        year, month = divmod(day.year * 12 + day.month - 1 - months, 12)
+        month += 1
+        last = monthrange(year, month)[1]
+        return date(year, month, last if month_end else min(day.day, last))
+    try:
+        full_months = payload.start_date.day == 1 and payload.end_date.day == monthrange(payload.end_date.year, payload.end_date.month)[1]
+        expected = shift(payload.start_date), shift(payload.end_date, month_end=full_months)
+    except (ValueError, OverflowError) as exc:
+        raise HTTPException(422, "比较基期超出有效日期范围") from exc
+    if supplied != expected:
+        raise HTTPException(422, "同比或环比必须由平台明确签署正确的比较基期")
+    return expected
+
+
 def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str, int, str, str]:
     if payload.resource not in {item[0] for item in RESOURCE_DEFINITIONS[DOMAIN]}:
         raise HTTPException(422, "未找到该中文数据资源对应的受控资源")
@@ -923,6 +960,7 @@ def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str, int,
         raise HTTPException(422, "仅允许使用平台公布的固定函数")
     if payload.end_date < payload.start_date:
         raise HTTPException(422, "结束日期不能早于开始日期")
+    _comparison_period(payload)
     with _database() as connection:
         bound = connection.execute(
             """
@@ -961,8 +999,9 @@ def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str, int,
             + " ORDER BY record_date, region"
         )
         rows = connection.execute(sql, params).fetchall()
-    if len(rows) < MIN_GROUP_SIZE:
-        raise HTTPException(403, f"可用记录少于隐私保护下限 {MIN_GROUP_SIZE} 条")
+    minimum = max(MIN_GROUP_SIZE, payload.minimum_record_count or 0)
+    if len(rows) < minimum:
+        raise HTTPException(403, f"可用记录少于隐私保护下限 {minimum} 条")
     return (
         rows,
         rows[0]["unit"],
@@ -972,14 +1011,67 @@ def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str, int,
     )
 
 
-def _daily_trend(rows: list[sqlite3.Row], decimals: int) -> list[dict[str, Any]]:
+def _daily_trend(rows: list[sqlite3.Row], decimals: int | None) -> list[dict[str, Any]]:
     grouped: dict[str, list[float]] = {}
     for row in rows:
         grouped.setdefault(str(row["record_date"]), []).append(float(row["value"]))
     return [
-        {"date": day, "value": round(statistics.fmean(values), decimals)}
+        {"date": day, "value": round(statistics.fmean(values), decimals) if decimals is not None else statistics.fmean(values)}
         for day, values in sorted(grouped.items())
     ]
+
+
+_MEAN_PERIOD_RESOURCES = {"load", "price", "inventory", "storage", "loss", "supply_temperature", "return_temperature", "pressure", "pipeline_flow"}
+
+
+def _period_regions(rows: list[sqlite3.Row], start: date, end: date) -> dict[str, int]:
+    by_day: dict[str, dict[str, int]] = {}
+    for row in rows:
+        counts = by_day.setdefault(str(row["record_date"]), {})
+        region = str(row["region"])
+        counts[region] = counts.get(region, 0) + 1
+    days = sorted(by_day)
+    if not days or days[0] != start.isoformat() or days[-1] != end.isoformat() or len(days) != (end - start).days + 1:
+        raise HTTPException(422, "比较期间存在缺失日期，无法计算可比指标")
+    regions = by_day[days[0]]
+    if any(group != regions for group in by_day.values()):
+        raise HTTPException(422, "比较期间的地区集合或记录口径不一致")
+    return regions
+
+
+def _period_value(payload: ComputeRequest, rows: list[sqlite3.Row]) -> float:
+    values = [float(row["value"]) for row in rows]
+    return statistics.fmean(values) if payload.resource in _MEAN_PERIOD_RESOURCES else sum(values)
+
+
+def _psi(rows: list[sqlite3.Row]) -> float:
+    days = sorted({str(row["record_date"]) for row in rows})
+    if len(days) < 2:
+        raise HTTPException(422, "PSI 至少需要两个日期的基期与观察期")
+    split = days[len(days) // 2]
+    baseline = [float(row["value"]) for row in rows if str(row["record_date"]) < split]
+    observed = [float(row["value"]) for row in rows if str(row["record_date"]) >= split]
+    if min(len(baseline), len(observed)) < MIN_GROUP_SIZE:
+        raise HTTPException(422, "PSI 基期与观察期各自必须满足隐私保护记录下限")
+    low, high = min(baseline), max(baseline)
+    if low == high:
+        span = max(abs(low), 1.0) * 1e-6
+        low, high = low - span, high + span
+    edges = [low + (high - low) * index / 10 for index in range(1, 10)]
+    def distribution(values: list[float]) -> list[float]:
+        counts = [0] * 10
+        for value in values:
+            counts[bisect_right(edges, value)] += 1
+        return [(count + 0.5) / (len(values) + 5) for count in counts]
+    expected, current = distribution(baseline), distribution(observed)
+    return sum((q - p) * math.log(q / p) for p, q in zip(expected, current))
+
+
+def _result_unit(function: str, unit: str) -> str:
+    if function in {"count", "threshold"}: return "条"
+    if function in {"growth_rate", "yoy", "mom"}: return "%"
+    if function == "psi": return "无量纲"
+    return unit
 
 
 def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
@@ -997,23 +1089,43 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
         return len(values)
     if function == "median":
         return statistics.median(values)
-    if function in {"growth_rate", "yoy", "mom"}:
-        if values[0] == 0:
+    if function == "growth_rate":
+        _period_regions(rows, payload.start_date, payload.end_date)
+        if payload.start_date == payload.end_date:
+            raise HTTPException(422, "增长率至少需要两个日期")
+        previous = [row for row in rows if str(row["record_date"]) == payload.start_date.isoformat()]
+        current = [row for row in rows if str(row["record_date"]) == payload.end_date.isoformat()]
+        base = _period_value(payload, previous)
+        if base == 0:
             raise HTTPException(422, "基期数值为零，无法计算增长率")
-        return (values[-1] - values[0]) / abs(values[0]) * 100
+        return (_period_value(payload, current) - base) / abs(base) * 100
+    if function in {"yoy", "mom"}:
+        start, end = _comparison_period(payload)
+        baseline_payload = payload.model_copy(update={"function": "average", "start_date": start, "end_date": end, "comparison_start_date": None, "comparison_end_date": None})
+        baseline, baseline_unit, *_version = _query_values(baseline_payload)
+        current_regions = _period_regions(rows, payload.start_date, payload.end_date)
+        baseline_regions = _period_regions(baseline, start, end)
+        if current_regions != baseline_regions or baseline_unit != str(rows[0]["unit"]):
+            raise HTTPException(422, "基期与当前期的地区集合或单位不一致")
+        base = _period_value(payload, baseline)
+        if base == 0:
+            raise HTTPException(422, "基期数值为零，无法计算比较变化率")
+        return (_period_value(payload, rows) - base) / abs(base) * 100
     if function == "threshold":
-        if payload.threshold is None:
-            raise HTTPException(422, "阈值判断必须填写阈值")
+        if payload.threshold is None or not math.isfinite(payload.threshold):
+            raise HTTPException(422, "阈值判断必须填写有限数值阈值")
         return {"满足": sum(value >= payload.threshold for value in values), "不满足": sum(value < payload.threshold for value in values)}
     if function == "trend":
-        points = _daily_trend(rows, payload.decimals)
+        points = _daily_trend(rows, None)
         if len(points) < 2:
             raise HTTPException(422, "趋势分析至少需要两个日期的受控汇总")
         point_values = [point["value"] for point in points]
         middle = max(1, len(point_values) // 2)
         previous = statistics.fmean(point_values[:middle])
         current = statistics.fmean(point_values[middle:])
-        return {"方向": "上升" if current > previous else "下降" if current < previous else "平稳", "变化率": 0 if previous == 0 else (current - previous) / abs(previous) * 100}
+        if previous == 0:
+            raise HTTPException(422, "趋势基期数值为零，无法计算变化率")
+        return {"方向": "上升" if current > previous else "下降" if current < previous else "平稳", "变化率": (current - previous) / abs(previous) * 100}
     if function == "group_by":
         field = payload.group_by or "region"
         if field not in {"region", "record_date", "organization"}:
@@ -1023,10 +1135,7 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
             grouped.setdefault(str(row[field]), []).append(float(row["value"]))
         return {key: sum(items) for key, items in grouped.items() if len(items) >= MIN_GROUP_SIZE}
     if function == "psi":
-        middle = max(1, len(values) // 2)
-        first = statistics.fmean(values[:middle])
-        second = statistics.fmean(values[middle:])
-        return abs(second - first) / max(abs(first), 1e-9)
+        return _psi(rows)
     raise HTTPException(422, "固定函数尚未启用")
 
 
@@ -1176,7 +1285,7 @@ def catalog() -> dict[str, Any]:
         "energy_domain": DOMAIN,
         "organization_id": ORGANIZATION_ID or None,
         "resources": resources,
-        "functions": [{"code": code, "name": label} for code, label in FUNCTION_LABELS.items()],
+        "functions": [{"code": code, "name": label, **({"definition": FUNCTION_DEFINITIONS[code]} if code in FUNCTION_DEFINITIONS else {})} for code, label in FUNCTION_LABELS.items()],
         "notice": "这里只发布目录信息，原始数据保存在企业连接器中。",
         "seed_catalog_version": synthetic_data.GENERATOR_VERSION,
     })
@@ -1374,66 +1483,14 @@ def compute(
     rows, unit, dataset_version, dataset_local_ref, dataset_content_hash = _query_values(payload)
     query_hash = hashlib.sha256(_canonical(request_payload)).hexdigest()
     now = int(datetime.now(UTC).timestamp())
-    connection = _database()
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        record = connection.execute("SELECT repeated_count FROM query_log WHERE query_hash = ?", (query_hash,)).fetchone()
-        if record and record["repeated_count"] >= 3:
-            _append_local_audit(
-                connection,
-                {
-                    "action": "PRIVACY_QUERY_BUDGET_REJECTED",
-                    "task_id": payload.task_id,
-                    "request_item_id": payload.request_item_id,
-                    "request_hash": request_hash,
-                    "reason": "REPEATED_QUERY_LIMIT",
-                },
-            )
-            connection.commit()
-            raise HTTPException(429, "相同或近似查询次数已达到隐私保护上限")
-        total = connection.execute("SELECT COALESCE(SUM(repeated_count), 0) AS total FROM query_log").fetchone()["total"]
-        if total >= QUERY_BUDGET:
-            _append_local_audit(
-                connection,
-                {
-                    "action": "PRIVACY_QUERY_BUDGET_REJECTED",
-                    "task_id": payload.task_id,
-                    "request_item_id": payload.request_item_id,
-                    "request_hash": request_hash,
-                    "reason": "CONNECTOR_BUDGET_EXHAUSTED",
-                },
-            )
-            connection.commit()
-            raise HTTPException(429, "本连接器查询预算已用尽")
-        connection.execute(
-            "INSERT INTO query_log(query_hash, repeated_count, occurred_at) VALUES (?, 1, ?) ON CONFLICT(query_hash) DO UPDATE SET repeated_count = repeated_count + 1, occurred_at = excluded.occurred_at",
-            (query_hash, now),
-        )
-        _append_local_audit(
-            connection,
-            {
-                "action": "PRIVACY_QUERY_BUDGET_CONSUMED",
-                "task_id": payload.task_id,
-                "request_item_id": payload.request_item_id,
-                "provider_org_id": payload.provider_org_id,
-                "request_hash": request_hash,
-                "repeated_count": int(record["repeated_count"]) + 1 if record else 1,
-                "connector_budget_used": int(total) + 1,
-                "connector_budget_limit": QUERY_BUDGET,
-            },
-        )
-        connection.commit()
-    except HTTPException:
-        if connection.in_transaction:
-            connection.rollback()
-        raise
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
     decimals = min(payload.decimals, MAX_DECIMALS)
-    result = _compute(payload, rows)
+    try:
+        result = _compute(payload, rows)
+    except (OverflowError, ZeroDivisionError) as exc:
+        raise HTTPException(422, "数值超出有限计算范围") from exc
+    scalars = result.values() if isinstance(result, dict) else (result,)
+    if any(isinstance(value, (int, float)) and not math.isfinite(value) for value in scalars):
+        raise HTTPException(422, "数值超出有限计算范围")
     if isinstance(result, float):
         result = round(result, decimals)
     elif isinstance(result, dict):
@@ -1449,7 +1506,7 @@ def compute(
         "resource_name": next(name for code, name, _unit in RESOURCE_DEFINITIONS[DOMAIN] if code == payload.resource),
         "function_name": FUNCTION_LABELS[payload.function],
         "result": result,
-        "unit": unit,
+        "unit": _result_unit(payload.function, unit),
         "record_count": len(rows),
         "dataset_version": dataset_version,
         "dataset_local_ref": dataset_local_ref,
@@ -1457,7 +1514,7 @@ def compute(
         "generated_at": datetime.now(UTC).isoformat(),
         "raw_records_returned": False,
         "privacy": {
-            "minimum_group_size": MIN_GROUP_SIZE,
+            "minimum_group_size": max(MIN_GROUP_SIZE, payload.minimum_record_count or 0),
             "raw_records_returned": False,
             "raw_data_exported": False,
             "decimals": decimals,
@@ -1480,6 +1537,10 @@ def compute(
         },
         "capability": "本地受控计算" if payload.function != "mpc_aggregation" else "本地计算份额",
     }
+    if payload.function in FUNCTION_DEFINITIONS:
+        envelope["calculation_definition"] = FUNCTION_DEFINITIONS[payload.function]
+    if payload.function in {"yoy", "mom"}:
+        envelope["comparison_period"] = {"start_date": payload.comparison_start_date.isoformat(), "end_date": payload.comparison_end_date.isoformat(), "aggregation": "period_mean" if payload.resource in _MEAN_PERIOD_RESOURCES else "period_total"}
     if payload.function == "trend":
         envelope["trend"] = _daily_trend(rows, decimals)
     result_payload_hash = hashlib.sha256(_canonical(envelope)).hexdigest()
@@ -1508,6 +1569,15 @@ def compute(
                 )
                 connection.commit()
                 return cached
+        record = connection.execute("SELECT repeated_count FROM query_log WHERE query_hash = ?", (query_hash,)).fetchone()
+        total = connection.execute("SELECT COALESCE(SUM(repeated_count), 0) AS total FROM query_log").fetchone()["total"]
+        if record and record["repeated_count"] >= 3 or total >= QUERY_BUDGET:
+            reason = "REPEATED_QUERY_LIMIT" if record and record["repeated_count"] >= 3 else "CONNECTOR_BUDGET_EXHAUSTED"
+            _append_local_audit(connection, {"action": "PRIVACY_QUERY_BUDGET_REJECTED", "task_id": payload.task_id, "request_item_id": payload.request_item_id, "request_hash": request_hash, "reason": reason})
+            connection.commit()
+            raise HTTPException(429, "相同或近似查询次数已达到隐私保护上限" if reason == "REPEATED_QUERY_LIMIT" else "本连接器查询预算已用尽")
+        connection.execute("INSERT INTO query_log(query_hash, repeated_count, occurred_at) VALUES (?, 1, ?) ON CONFLICT(query_hash) DO UPDATE SET repeated_count = repeated_count + 1, occurred_at = excluded.occurred_at", (query_hash, now))
+        _append_local_audit(connection, {"action": "PRIVACY_QUERY_BUDGET_CONSUMED", "task_id": payload.task_id, "request_item_id": payload.request_item_id, "provider_org_id": payload.provider_org_id, "request_hash": request_hash, "repeated_count": int(record["repeated_count"]) + 1 if record else 1, "connector_budget_used": int(total) + 1, "connector_budget_limit": QUERY_BUDGET})
         audit_sequence, previous_audit_hash, audit_hash, audit_event = _append_local_audit(
             connection,
             {

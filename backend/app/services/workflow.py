@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -39,6 +39,7 @@ from .adapters import (
     RulePackageAdapter,
 )
 from .common import add_audit_log, model_dict, trace_id
+from .audit_scope import audit_task_scope_query
 from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
 from .notifications import process_notification_outbox_best_effort, publish_audit_report, publish_result_confirmation
@@ -143,15 +144,27 @@ def _authorize_agent_operation(
     )
 
 
+def settlement_task_scope_query(db: Session, user: User):
+    """Share the same tenant/domain boundary across legacy settlement APIs."""
+    if user.role_code == "REGULATOR":
+        return audit_task_scope_query(user)
+    query = select(SettlementTask)
+    organization = db.get(Organization, user.org_id)
+    if (
+        user.role_code not in {"GENERATOR", "RETAILER", "EXCHANGE"}
+        or organization is None
+        or organization.status != "ACTIVE"
+        or organization.energy_domain != "electricity"
+    ):
+        return query.where(false())
+    return query.where(or_(
+        SettlementTask.creator_org_id == user.org_id,
+        SettlementTask.task_id.in_(select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)),
+    ))
+
+
 def _scoped_task_allowed(db: Session, task: SettlementTask, user: User) -> bool:
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
-        return True
-    return db.scalar(
-        select(func.count(TaskParticipant.participant_id)).where(
-            TaskParticipant.task_id == task.task_id,
-            TaskParticipant.org_id == user.org_id,
-        )
-    ) > 0
+    return db.scalar(settlement_task_scope_query(db, user).where(SettlementTask.task_id == task.task_id)) is not None
 
 
 def _verify_frozen_compute_inputs(
@@ -813,6 +826,8 @@ def run_settlement_workflow(
     task = db.get(SettlementTask, task_id)
     if task is None:
         raise ValueError("Settlement task not found")
+    if actor and (actor.role_code != "EXCHANGE" or not (actor.is_org_owner or "CREATE_COMPUTE_TASK" in (actor.permissions_json or []))):
+        raise PermissionError("Current user cannot run settlement tasks")
     if actor and not _scoped_task_allowed(db, task, actor):
         raise PermissionError("Task is outside the current user's scope")
     if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"}:

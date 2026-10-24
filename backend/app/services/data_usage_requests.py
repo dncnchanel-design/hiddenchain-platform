@@ -349,6 +349,8 @@ def can_revoke(request: DataUsageRequest, user: User) -> bool:
 def _actions(request: DataUsageRequest, user: User) -> list[str]:
     actions: list[str] = []
     status = DataUsageRequestStatus(request.status)
+    if (request.terms_json or {}).get("authorization_source") == "SELF_OWNED_QUERY" and request.applicant_org_id == request.provider_org_id == user.org_id:
+        return ["withdraw"] if status in _REVOKABLE else []
     if can_review(request, user):
         if status == DataUsageRequestStatus.SUBMITTED:
             actions.extend(["review", "approve", "reject"])
@@ -356,8 +358,10 @@ def _actions(request: DataUsageRequest, user: User) -> list[str]:
             actions.extend(["approve", "reject"])
         elif status == DataUsageRequestStatus.APPROVED:
             actions.append("revoke")
-    if can_revoke(request, user) and status in _REVOKABLE and "revoke" not in actions:
-        actions.append("revoke")
+    if can_revoke(request, user) and status in _REVOKABLE:
+        action = "withdraw" if user.org_id == request.applicant_org_id else "revoke"
+        if action not in actions:
+            actions.append(action)
     return actions
 
 

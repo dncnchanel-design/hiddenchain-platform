@@ -57,3 +57,8 @@ BUSINESS_ROLES = (
     "EXCHANGE",
     "REGULATOR",
 )
+
+
+def require_business_roles(*roles: str) -> Callable[[User], User]:
+    """Business APIs never inherit the platform operator's technical access."""
+    return require_roles(*(role for role in roles if role in BUSINESS_ROLES))

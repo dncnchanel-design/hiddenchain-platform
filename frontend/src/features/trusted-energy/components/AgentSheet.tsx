@@ -7,7 +7,7 @@ import { createAssistantSession, loadAssistantMessages, loadAssistantPlans, load
 import { isLatestRun, resolveOnce, retryTransient } from "../assistant-state";
 import { ACTION_LABELS, labelForCode } from "../../../types";
 import { capabilityLabel } from "../trusted-space-labels";
-import { safeDecodeRouteSegment } from "../types";
+import { assistantContext, assistantContextKey, type AssistantContext } from "../assistant-context";
 import { ElectricityChat } from "./ElectricityChat";
 
 const SHORTCUTS = [
@@ -26,29 +26,24 @@ const AGENT_NAV = [
   { label: "证据核验", icon: ShieldCheck, command: "核验证据摘要" },
 ] as const;
 
-function entityContext(pathname: string) {
-  const parts = pathname.split("/").filter(Boolean);
-  const trustedIndex = parts.indexOf("trusted-space");
-  if (trustedIndex < 0) return {};
-  const segment = parts[trustedIndex + 1];
-  const id = parts[trustedIndex + 2];
-  if (!segment || !id || segment === "audit" && parts[trustedIndex + 2] !== "tasks") return { page_path: pathname };
-  const encodedEntityId = segment === "audit" ? parts[trustedIndex + 3] : id;
-  const entityId = encodedEntityId ? safeDecodeRouteSegment(encodedEntityId) : undefined;
-  if (!entityId) return { page_path: pathname };
-  if (segment === "audit") return { page_path: pathname, entity_type: "settlement_task", entity_id: entityId };
-  const entityType = ({ assets: "data_asset", apply: "data_asset", authorizations: "data_usage_request", contracts: "data_contract", ttc: "settlement_task", mpc: "privacy_compute_job", results: "settlement_result" } as Record<string, string>)[segment];
-  return entityType ? { page_path: pathname, entity_type: entityType, entity_id: entityId } : { page_path: pathname };
-}
-
 function capabilityTone(value?: string) {
   if (value === "LOCAL_REAL_DETERMINISTIC" || value === "LOCAL_REAL") return "success" as const;
   if (value === "BLOCKED" || value === "PENDING_REVIEW") return "warning" as const;
   return "info" as const;
 }
 
-export function AgentSheet({ open, onOpenChange, mode, onModeChange: setMode }: { open: boolean; onOpenChange: (open: boolean) => void; mode: "business" | "electricity"; onModeChange: (mode: "business" | "electricity") => void }) {
+type AgentSheetProps = { open: boolean; onOpenChange: (open: boolean) => void; mode: "business" | "electricity"; onModeChange: (mode: "business" | "electricity") => void };
+
+export function AgentSheet(props: AgentSheetProps) {
   const location = useLocation();
+  const context = useMemo(() => assistantContext(location.pathname, location.search), [location.pathname, location.search]);
+  // A different page/selection owns separate refs and pending requests. Closing
+  // and reopening the same page retains its session; old-page responses cannot
+  // populate the newly selected business object.
+  return <AgentSessionSheet key={assistantContextKey(context)} {...props} context={context} />;
+}
+
+function AgentSessionSheet({ open, onOpenChange, mode, onModeChange: setMode, context }: AgentSheetProps & { context: AssistantContext }) {
   const [session, setSession] = useState<AssistantSession | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [plans, setPlans] = useState<AssistantPlan[]>([]);
@@ -63,7 +58,6 @@ export function AgentSheet({ open, onOpenChange, mode, onModeChange: setMode }: 
   const sessionRef = useRef<AssistantSession | null>(null);
   const sessionPromiseRef = useRef<Promise<AssistantSession> | null>(null);
   const latestRunRef = useRef(0);
-  const context = useMemo(() => entityContext(location.pathname), [location.pathname]);
   const latestPlan = plans[0];
 
   async function refreshSession(sessionId: string, isActive: () => boolean = () => true) {

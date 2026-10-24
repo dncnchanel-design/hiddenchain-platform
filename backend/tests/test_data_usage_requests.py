@@ -528,6 +528,29 @@ def test_reject_invalid_transition_and_withdraw_scope(client, auth_headers):
     assert provider_withdraw.status_code == 403
 
 
+def test_applicant_advertised_action_uses_its_real_withdraw_endpoint(client, auth_headers):
+    for state in ("SUBMITTED", "UNDER_REVIEW", "APPROVED"):
+        created = _create(client, auth_headers).json()
+        if state != "SUBMITTED":
+            action = "review" if state == "UNDER_REVIEW" else "approve"
+            response = client.post(
+                f"/api/data/access-requests/{created['request_id']}/{action}",
+                headers={**auth_headers["generator"], **_etag(created)},
+                json={"note": "验收复核"} if action == "review" else {"reason": "验收批准"},
+            )
+            assert response.status_code == 200, response.text
+        current = client.get(f"/api/data/access-requests/{created['request_id']}", headers=auth_headers["exchange"]).json()
+        assert current["status"] == state
+        assert current["actions"] == ["withdraw"]
+        response = client.post(
+            f"/api/data/access-requests/{current['request_id']}/{current['actions'][0]}",
+            headers={**auth_headers["exchange"], **_etag(current)},
+            json={"reason": "申请方通过页面声明的操作结束申请"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "REVOKED"
+
+
 def test_approve_revoke_updates_contract_and_agreement_and_stale_version_is_409(
     client, auth_headers
 ):

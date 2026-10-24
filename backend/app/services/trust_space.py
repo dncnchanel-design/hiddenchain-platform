@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import and_, func, literal, or_, select, union_all
@@ -1267,6 +1267,14 @@ def _asset_item(
         .where(DataAssetVersion.asset_id == asset.asset_id)
         .order_by(DataAssetVersion.version_no.desc())
     )
+    period_start = period_end = None
+    schema = version.schema_json if version and isinstance(version.schema_json, dict) else {}
+    try:
+        start, end = date.fromisoformat(str(schema.get("period_start", ""))), date.fromisoformat(str(schema.get("period_end", "")))
+        if start <= end:
+            period_start, period_end = start.isoformat(), end.isoformat()
+    except ValueError:
+        period_start = period_end = None
     source = sources.get(asset.source_id)
     can_request = _asset_request_allowed(
         asset,
@@ -1301,12 +1309,16 @@ def _asset_item(
             "schema_version": version.schema_version,
             "data_hash": version.data_hash,
             "record_count": version.record_count,
+            "period_start": period_start,
+            "period_end": period_end,
             "status": version.status,
         }
         if version
         else None,
         "actions": {
             "can_request_usage": can_request,
+            "can_compute_own": bool(asset.owner_org_id == user.org_id and user.role_code not in {"ADMIN", "REGULATOR"}
+                                    and {"VIEW_DATA", "APPROVE_AUTHORIZATION", "CREATE_COMPUTE_TASK"}.issubset(user.permissions_json or [])),
             "can_review_inbound": can_review,
             "can_view_passport": True,
         },
@@ -1344,12 +1356,17 @@ def catalog(
     current_organization = organizations.get(user.org_id)
     normalized_query = query_text.strip().lower() if query_text else None
     filtered: list[DataAsset] = []
+    visible_types: set[str] = set()
+    visible_domains: set[str] = set()
     for asset in assets:
         if not _asset_visible_in_energy_scope(asset, user, current_organization, sources):
             continue
         source = sources.get(asset.source_id)
         metadata = asset.metadata_json or {}
         asset_domain = _asset_energy_domain(asset, sources)
+        visible_types.add(asset.asset_type)
+        if asset_domain:
+            visible_domains.add(asset_domain)
         provider_name = organizations.get(asset.owner_org_id).org_name if organizations.get(asset.owner_org_id) else ""
         haystack = " ".join(
             [asset.asset_id, asset.asset_code, asset.asset_name, asset.asset_type, provider_name]
@@ -1373,6 +1390,7 @@ def catalog(
         "total": total,
         "page": page,
         "page_size": page_size,
+        "filter_options": {"asset_types": sorted(visible_types), "domains": sorted(visible_domains)},
         "filters": {
             "query": query_text,
             "asset_type": asset_type,
@@ -2598,14 +2616,14 @@ def computation_detail(db: Session, job_id: str, user: User) -> dict[str, Any] |
             else "privacy_compute_jobs/task_participants",
             "adapter_code": job.adapter_code,
             "tee_attestation": "NOT_CONFIGURED",
-            "cross_domain_participants": [
+            "cross_domain_participants": list(dict.fromkeys(
                 str(org_id)
                 for org_id in (
                     attestation.get("applicant_org_id"),
                     attestation.get("provider_org_id"),
                 )
                 if org_id
-            ]
+            ))
             if is_trusted_query
             else [],
         },
@@ -2626,6 +2644,9 @@ def _computation_job_item(
 ) -> dict[str, Any]:
     attestation = job.execution_attestation_json or {}
     is_trusted_query = task is None and bool(attestation.get("request_item_id"))
+    privacy_guarantees = _public_audit_verification_metadata(job.privacy_guarantees_json)
+    if is_trusted_query and isinstance(privacy_guarantees, dict) and privacy_guarantees.get("raw_records_returned") is False:
+        privacy_guarantees.setdefault("api_raw_records_returned", False)
     return {
         "job_id": job.job_id,
         "task_id": job.task_id,
@@ -2643,9 +2664,7 @@ def _computation_job_item(
         "result": job.result_json
         if attestation.get("applicant_org_id") == user.org_id
         else {"output_hash": job.output_hash},
-        "privacy_guarantees": _public_audit_verification_metadata(
-            job.privacy_guarantees_json
-        ),
+        "privacy_guarantees": privacy_guarantees,
         "logs": job.logs_json,
         "attempt_id": job.attempt_id,
         "execution_snapshot_id": job.execution_snapshot_id,

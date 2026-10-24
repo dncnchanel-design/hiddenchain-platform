@@ -5,23 +5,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import BUSINESS_ROLES, require_roles
+from ..dependencies import BUSINESS_ROLES, require_business_roles, require_roles
 from ..config import settings
 from ..models import AuditLog, AgentEvent, BlockchainEvidence, SettlementTask, TaskParticipant, User
 from ..schemas import AgentBatchInvokeRequest, AgentInvokeRequest
 from ..services.adapters import AGENT_DEFINITIONS, LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log, model_dict
+from ..services.audit_scope import AUDIT_SCOPE_ALL, has_audit_permission
 from ..services.llm import DeepSeekUnavailable
-from ..services.workflow import AGENT_DEFAULT_INSTRUCTIONS, invoke_deepseek_agent
+from ..services.workflow import AGENT_DEFAULT_INSTRUCTIONS, _scoped_task_allowed, invoke_deepseek_agent, settlement_task_scope_query
 
 
 router = APIRouter(tags=["trust"])
 
 
 def _authorized_task_ids(db: Session, user: User) -> list[str] | None:
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
+    if user.role_code == "REGULATOR" and has_audit_permission(user) and AUDIT_SCOPE_ALL in (user.permissions_json or []):
         return None
-    return list(db.scalars(select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)).all())
+    return list(db.scalars(settlement_task_scope_query(db, user).with_only_columns(SettlementTask.task_id)).all())
 
 
 @router.get("/chain/evidence")
@@ -82,7 +83,7 @@ def agent_definitions(
 
 @router.get("/agents/llm/status")
 def agent_llm_status(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     latest = db.scalar(
@@ -147,6 +148,9 @@ def _invoke_and_log(
     instruction: str,
     user: User,
 ) -> dict:
+    task = db.get(SettlementTask, task_id)
+    if task is None or not _scoped_task_allowed(db, task, user):
+        raise HTTPException(status_code=404, detail="任务不存在")
     result = invoke_deepseek_agent(
         db,
         task_id=task_id,
@@ -176,10 +180,11 @@ def _invoke_and_log(
 @router.post("/agents/invoke-all")
 def invoke_all_agents(
     payload: AgentBatchInvokeRequest,
-    user: User = Depends(require_roles("ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
-    if db.get(SettlementTask, payload.task_id) is None:
+    task = db.get(SettlementTask, payload.task_id)
+    if task is None or not _scoped_task_allowed(db, task, user):
         raise HTTPException(status_code=404, detail="任务不存在")
     results: list[dict] = []
     for definition in AGENT_DEFINITIONS:
@@ -218,7 +223,7 @@ def invoke_all_agents(
 def invoke_agent(
     agent_code: str,
     payload: AgentInvokeRequest,
-    user: User = Depends(require_roles("ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     normalized_code = agent_code.upper()
@@ -247,6 +252,9 @@ def agent_events(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(AgentEvent).order_by(AgentEvent.created_at.desc(), AgentEvent.sequence_no.desc())
+    scoped = _authorized_task_ids(db, user)
+    if scoped is not None:
+        query = query.where(AgentEvent.task_id.in_(scoped))
     if task_id:
         query = query.where(AgentEvent.task_id == task_id)
     return [model_dict(item) for item in db.scalars(query).all()]

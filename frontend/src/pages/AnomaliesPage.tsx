@@ -68,8 +68,8 @@ export function AnomaliesPage({ taskId: scopedTaskId, eventId }: { taskId?: stri
 
   return (
     <>
-      <PageHeader title="风险处置" actions={<>{taskId && <Link className="button button-secondary" to={routeForView("ttc", taskId)}><ArrowLeft size={16} />返回结算任务</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
-      {taskId && <div className="association-context"><span>关联结算任务</span><Link to={routeForView("ttc", taskId)}>{taskId}</Link></div>}
+      <PageHeader title="风险处置" actions={<>{taskId && <Link className="button button-secondary" to={routeForView("audit", taskId)}><ArrowLeft size={16} />返回审计详情</Link>}<Button icon={RefreshCw} busy={refreshing} onClick={reload}>刷新</Button></>} />
+      {taskId && <div className="association-context"><span>关联审计任务</span><Link to={routeForView("audit", taskId)}>{taskId}</Link></div>}
       <div className="metrics-grid three">
         <Metric label="待处置事件" value={data.filter((item) => item.status === "OPEN").length} tone="red" />
         <Metric label="待处置高风险" value={data.filter((item) => item.risk_level === "HIGH" && item.status === "OPEN").length} tone="amber" />
@@ -85,7 +85,7 @@ export function AnomaliesPage({ taskId: scopedTaskId, eventId }: { taskId?: stri
           keyField="event_id" rows={rows} label="风险事件清单"
           columns={[
             { key: "title", label: "事件", minWidth: 220, render: (row) => <button className="table-link risk-title" type="button" onClick={() => setSelected(row)}><AlertTriangle size={16} />{row.title || "—"}</button> },
-            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={routeForView("ttc", String(row.task_id))}><IdText value={row.task_id} /></Link> },
+            { key: "task_id", label: "关联任务", minWidth: 150, render: (row) => <Link className="text-link" to={routeForView("audit", String(row.task_id))}><IdText value={row.task_id} /></Link> },
             { key: "event_type", label: "检测规则", minWidth: 150, render: (row) => eventLabels[row.event_type] || row.event_type || "—" },
             { key: "risk_level", label: "风险等级", render: (row) => <StatusTag value={row.risk_level} /> },
             { key: "status", label: "状态", render: (row) => <StatusTag value={row.status} /> },
@@ -96,7 +96,7 @@ export function AnomaliesPage({ taskId: scopedTaskId, eventId }: { taskId?: stri
       </Surface>
 
       {selected && <DetailDrawer title="风险事件详情" onClose={() => setSelected(null)} footer={<Button onClick={() => setSelected(null)}>关闭</Button>}>
-        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><Link className="text-link" to={routeForView("ttc", String(selected.task_id))}><IdText value={selected.task_id} /></Link></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
+        <div className="detail-grid"><div><span>事件编号</span><IdText value={selected.event_id} /></div><div><span>关联任务</span><Link className="text-link" to={routeForView("audit", String(selected.task_id))}><IdText value={selected.task_id} /></Link></div><div><span>检测规则</span><strong>{eventLabels[selected.event_type] || selected.event_type || "—"}</strong></div><div><span>风险等级</span><StatusTag value={selected.risk_level} /></div><div><span>处置状态</span><StatusTag value={selected.status} /></div><div><span>发现时间</span><DateTimeText value={selected.created_at} /></div></div>
         <div className="detail-section"><h3>事件说明</h3><p>{selected.description || "—"}</p></div>
         {selected.resolution && <div className="detail-section"><h3>处置意见</h3><p>{selected.resolution}</p></div>}
         {selected.evidence_json && <details className="secondary-details"><summary>查看关联证据</summary><pre className="json-view">{JSON.stringify(selected.evidence_json, null, 2)}</pre></details>}
@@ -104,7 +104,7 @@ export function AnomaliesPage({ taskId: scopedTaskId, eventId }: { taskId?: stri
 
       {resolveTarget && <Modal title="填写处置意见" onClose={() => setResolveTarget(null)} footer={<><Button onClick={() => setResolveTarget(null)}>取消</Button><Button variant="primary" disabled={resolution.trim().length < 2} onClick={() => setConfirmResolve(true)}>下一步</Button></>}>
         <div className="detail-grid"><div><span>事件</span><strong>{resolveTarget.title || "—"}</strong></div><div><span>当前状态</span><StatusTag value={resolveTarget.status} /></div></div>
-        <Field label="处置方式"><select value={disposition} onChange={(event) => setDisposition(event.target.value as typeof disposition)}><option value="ACK">确认处理</option><option value="IGNORE">忽略该事件</option><option value="REWORK">退回重算</option></select></Field><Field label="处置意见" hint="说明核对结果、责任主体或后续措施"><textarea maxLength={500} value={resolution} onChange={(event) => setResolution(event.target.value)} /></Field>
+        <Field label="处置方式"><select value={disposition} onChange={(event) => setDisposition(event.target.value as typeof disposition)}><option value="ACK">确认处理</option><option value="IGNORE">忽略该事件</option><option value="REWORK" disabled={resolveTarget.event_type === "TRUSTED_QUERY_TERMINAL_FAILURE"}>退回重算</option></select></Field><Field label="处置意见" hint="说明核对结果、责任主体或后续措施"><textarea maxLength={500} value={resolution} onChange={(event) => setResolution(event.target.value)} /></Field>
       </Modal>}
       <ConfirmDialog
         open={confirmResolve} title="确认完成风险处置" objectName={resolveTarget?.title || resolveTarget?.event_id || "—"} currentState={resolveTarget?.status}

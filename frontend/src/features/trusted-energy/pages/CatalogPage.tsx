@@ -12,8 +12,8 @@ import { useTrustedSpaceContext } from "../trusted-space-context";
 
 const PAGE_SIZE = 12;
 
-function filterValues(items: CatalogAsset[], value: string | null, field: "asset_type" | "domain") {
-  const values = items.map((item) => field === "asset_type" ? item.asset_type : item.domain || "");
+function filterValues(items: CatalogAsset[], value: string | null, field: "asset_type" | "domain", available?: string[]) {
+  const values = available ? [...available] : items.map((item) => field === "asset_type" ? item.asset_type : item.domain || "");
   if (value) values.push(value);
   return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right, "zh-CN"));
 }
@@ -56,8 +56,8 @@ export function CatalogPage() {
   );
   const payload = remote.data;
   const items = useMemo(() => payload?.items ?? [], [payload]);
-  const typeOptions = useMemo(() => filterValues(items, type, "asset_type"), [items, type]);
-  const domainOptions = useMemo(() => filterValues(items, domain, "domain"), [items, domain]);
+  const typeOptions = useMemo(() => filterValues(items, type, "asset_type", payload?.filter_options?.asset_types), [items, type, payload?.filter_options?.asset_types]);
+  const domainOptions = useMemo(() => filterValues(items, domain, "domain", payload?.filter_options?.domains), [items, domain, payload?.filter_options?.domains]);
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(searchParams);

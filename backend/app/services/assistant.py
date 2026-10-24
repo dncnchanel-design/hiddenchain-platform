@@ -64,6 +64,24 @@ READ_ACTIONS = frozenset(
 )
 WRITE_ACTIONS = frozenset(set(ACTION_ROLES) - set(READ_ACTIONS))
 
+ACTION_TARGET_TYPES = {
+    "CHECK_ASSET_INTEGRITY": ("data_asset",),
+    "QUERY_AUTHORIZATION_STATUS": ("data_usage_request",),
+    "CHECK_TTC_STATUS": ("settlement_task", "privacy_compute_job"),
+    "VERIFY_EVIDENCE_SUMMARY": ("settlement_task", "blockchain_evidence"),
+    "EXPLAIN_AUDIT": ("settlement_task", "audit_report"),
+    "SUBMIT_USAGE_REQUEST": ("data_asset",),
+    "APPROVE_USAGE_REQUEST": ("data_usage_request",),
+    "REJECT_USAGE_REQUEST": ("data_usage_request",),
+    "REVOKE_USAGE_AUTHORIZATION": ("data_usage_request",),
+    "ADVANCE_TTC_STATE": ("settlement_task",),
+}
+TARGET_GUIDANCE = {
+    "data_asset": "请先打开数据资产详情，或在指令中填写资产编号。",
+    "data_usage_request": "请先选择一条授权申请，或在指令中填写申请编号。",
+    "settlement_task": "请先打开对应任务详情，或在指令中填写任务编号。",
+}
+
 
 def _iso(value: Any) -> str | None:
     return value.isoformat() if value is not None and hasattr(value, "isoformat") else value
@@ -172,9 +190,8 @@ def _step_payload(step: AssistantPlanStep) -> dict[str, Any]:
             capability_state=step.capability_label,
             source_of_truth=step.source_of_truth,
             allowed_actions=(
-                ["execute", "cancel"]
-                if step.status in {"READY", "FAILED", "BLOCKED", "PENDING_REVIEW"}
-                else ["view"]
+                ["execute", "cancel"] if step.status in {"READY", "PENDING_REVIEW"}
+                else ["cancel"] if step.status in {"FAILED", "BLOCKED"} else ["view"]
             ),
         ),
     }
@@ -200,9 +217,9 @@ def _plan_payload(db: Session, plan: AssistantPlan, *, replay: bool = False) -> 
         **_capability(
             capability_state=plan.capability_label,
             source_of_truth=plan.source_of_truth,
-            allowed_actions=["execute", "cancel", "retry"]
-            if plan.status in {"READY", "FAILED", "BLOCKED", "PENDING_REVIEW"}
-            else ["view"],
+            allowed_actions=["execute", "cancel"] if plan.status in {"READY", "PENDING_REVIEW"}
+            else (["cancel"] if any(_target_error(item.action_code, item.target_type, item.target_id) for item in steps) else ["cancel", "retry"])
+            if plan.status in {"FAILED", "BLOCKED"} else ["view"],
         ),
     }
 
@@ -287,11 +304,55 @@ def list_plans(db: Session, session_id: str, user: User) -> dict[str, Any]:
     }
 
 
+def _explicit_target(content: str) -> str | None:
+    # Ordinary English command words are not identifiers. Accept a complete
+    # UUID or a declared/prefixed business identifier, never a partial UUID.
+    match = re.search(r"(?<![\w-])(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|(?:asset|request|task|job|report|evidence)[-_:][A-Za-z0-9:_-]{1,90})(?![\w-])", content)
+    if match:
+        return match.group(0)
+    match = re.search(r"(?:资产|申请|任务|报告|证据)(?:编号|[Ii][Dd])\s*[:：=]?\s*([A-Za-z0-9:_-]{3,96})(?![\w-])", content)
+    return match.group(1) if match else None
+
+
 def _target_from_text(session: AssistantSession, content: str) -> str | None:
-    if session.entity_id:
-        return session.entity_id
-    match = re.search(r"\b[A-Za-z][A-Za-z0-9:_-]{3,95}\b", content)
-    return match.group(0) if match else None
+    return _explicit_target(content) or session.entity_id
+
+
+def _target_type(action_code: str, session: AssistantSession, content: str) -> str | None:
+    allowed = ACTION_TARGET_TYPES.get(action_code, ())
+    explicit = _explicit_target(content)
+    if not explicit:
+        return session.entity_type
+    prefixes = {"asset": "data_asset", "request": "data_usage_request", "task": "settlement_task", "job": "privacy_compute_job", "report": "audit_report", "evidence": "blockchain_evidence"}
+    for prefix, kind in prefixes.items():
+        if explicit.startswith((prefix + "-", prefix + "_", prefix + ":")):
+            return kind
+    # An explicit UUID is interpreted only in the requested action's declared
+    # type, preserving a compatible typed page context when there is one.
+    return session.entity_type if session.entity_type in allowed else allowed[0] if allowed else None
+
+
+def _target_error(action_code: str, target_type: str | None, target_id: str | None) -> tuple[str, str] | None:
+    allowed = ACTION_TARGET_TYPES.get(action_code)
+    if not allowed:
+        return None
+    guidance = TARGET_GUIDANCE.get(allowed[0], "请先选择该指令对应的业务对象。")
+    if not target_id:
+        return "ASSISTANT_TARGET_REQUIRED", guidance
+    if target_type not in allowed:
+        return "ASSISTANT_TARGET_TYPE_MISMATCH", "当前页面的对象不能用于这条指令。" + guidance
+    return None
+
+
+def _execution_error(db: Session, user: User, step: AssistantPlanStep) -> tuple[str, str] | None:
+    if step.action_code in ACTION_ROLES and user.role_code not in ACTION_ROLES[step.action_code]:
+        return "ASSISTANT_ROLE_DENIED", "当前角色没有执行该助手指令的权限。"
+    invalid_target = _target_error(step.action_code, step.target_type, step.target_id)
+    if invalid_target:
+        return invalid_target
+    if step.action_code in READ_ACTIONS and _tool_available(db, step.action_code) is None:
+        return "ASSISTANT_TOOL_UNAVAILABLE", "该指令对应的工具当前不可用。"
+    return None
 
 
 def _plan_intent(session: AssistantSession, content: str) -> tuple[str, str, str, str | None]:
@@ -368,6 +429,7 @@ def post_message(
                 "session": _session_payload(session, user, replay=True),
             }
     action_code, mode, explanation, target_id = _plan_intent(session, content)
+    target_type = _target_type(action_code, session, content)
     if action_code != "UNKNOWN_INTENT" and user.role_code not in ACTION_ROLES.get(action_code, frozenset()):
         mode = "BLOCKED"
         explanation = "当前角色没有执行该助手意图的权限；未创建业务写操作。"
@@ -375,6 +437,11 @@ def post_message(
     if mode == "READ" and tool is None:
         mode = "BLOCKED"
         explanation = "对应真实 Agent Tool 尚未登记或已禁用；未执行查询。"
+    target_error = _target_error(action_code, target_type, target_id)
+    if mode in {"READ", "WRITE"} and target_error:
+        mode = "BLOCKED"
+        explanation = target_error[1]
+        target_id = None
     if mode == "READ":
         plan_status = "READY"
         step_status = "READY"
@@ -414,6 +481,7 @@ def post_message(
             "planner": "LOCAL_REAL_DETERMINISTIC",
             "intent_code": action_code,
             "mode": mode,
+            "target_type": target_type,
             "target_id": target_id,
             "explanation": explanation,
             "raw_data_accessed": False,
@@ -422,6 +490,7 @@ def post_message(
             {
                 "intent_code": action_code,
                 "mode": mode,
+                "target_type": target_type,
                 "target_id": target_id,
                 "explanation": explanation,
             }
@@ -438,13 +507,13 @@ def post_message(
         sequence_no=1,
         action_code=action_code,
         tool_code=tool.tool_code if tool else ACTION_TOOL_CODES.get(action_code),
-        target_type=session.entity_type,
+        target_type=target_type,
         target_id=target_id,
         mode=mode,
         status=step_status,
         state_version=1,
         request_id=request_id,
-        input_json={"page_path": session.page_path, "entity_type": session.entity_type, "target_id": target_id},
+        input_json={"page_path": session.page_path, "entity_type": target_type, "target_id": target_id},
         output_json={},
         capability_label="LOCAL_REAL_DETERMINISTIC" if mode == "READ" else "BLOCKED" if mode == "BLOCKED" else "PENDING_REVIEW",
         source_of_truth="agent_tools/assistant_planner",
@@ -728,7 +797,22 @@ def _audit_read(db: Session, user: User, target_id: str | None) -> dict[str, Any
     }
 
 
-def _run_read_action(db: Session, user: User, action_code: str, target_id: str | None) -> dict[str, Any]:
+def _run_read_action(db: Session, user: User, action_code: str, target_id: str | None, target_type: str | None = None) -> dict[str, Any]:
+    if action_code == "CHECK_TTC_STATUS" and target_type == "privacy_compute_job":
+        from .trust_space import computation_detail
+
+        detail = computation_detail(db, target_id, user) if target_id else None
+        if detail is None:
+            return {"status": "BLOCKED", "error_code": "COMPUTE_SCOPE_DENIED", "raw_data_accessed": False}
+        job = detail["job"]
+        return {"status": "SUCCEEDED", "job_id": job["job_id"], "task_id": job["task_id"], "task_kind": job["task_kind"], "status_value": job["status"], "raw_data_accessed": False}
+    if action_code == "EXPLAIN_AUDIT" and target_type == "audit_report":
+        from .trust_space import ttc_detail
+
+        report = db.get(AuditReport, target_id) if target_id else None
+        if report is None or ttc_detail(db, report.task_id, user) is None:
+            return {"status": "BLOCKED", "error_code": "AUDIT_SCOPE_DENIED", "raw_data_accessed": False}
+        return {**_audit_read(db, user, report.task_id), "report_id": report.report_id}
     if action_code == "CHECK_ASSET_INTEGRITY":
         return _asset_read(db, user, target_id)
     if action_code == "QUERY_AUTHORIZATION_STATUS":
@@ -764,6 +848,19 @@ def execute_plan(
         raise LookupError("ASSISTANT_STEP_NOT_FOUND")
     if step.status in {"SUCCEEDED", "CANCELLED"}:
         return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan, replay=True)}
+    if step.status == "BLOCKED":
+        return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan, replay=True)}
+    # Validate before both read invocation and write-review side effects.
+    target_error = _execution_error(db, user, step)
+    if target_error:
+        step.status = plan.status = "BLOCKED"
+        step.error_code = target_error[0]
+        step.output_json = {"status": "BLOCKED", "error_code": target_error[0], "message": target_error[1], "raw_data_accessed": False}
+        step.state_version += 1
+        plan.state_version += 1
+        add_audit_log(db, action="ASSISTANT_TARGET_REJECTED", target_type="ASSISTANT_PLAN_STEP", target_id=step.step_id, result="BLOCKED", user=user, details={"action_code": step.action_code, "target_type": step.target_type, "error_code": target_error[0], "raw_data_accessed": False})
+        db.commit()
+        return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan)}
     if step.status == "PENDING_REVIEW" and step.mode == "WRITE":
         # A write intent is never executed by the assistant.  The first
         # explicit execution call records a durable review request envelope;
@@ -794,10 +891,8 @@ def execute_plan(
         )
         db.commit()
         return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan)}
-    if step.status == "BLOCKED":
-        return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan, replay=True)}
     invocation_id = f"assistant-invocation-{step.step_id}"
-    output = _run_read_action(db, user, step.action_code, step.target_id)
+    output = _run_read_action(db, user, step.action_code, step.target_id, step.target_type)
     step.invocation_id = invocation_id
     step.output_json = output
     step.state_version += 1
@@ -876,9 +971,11 @@ def retry_plan(
     _if_match(if_match, plan.state_version)
     if plan.status not in {"FAILED", "BLOCKED"}:
         raise ValueError("ASSISTANT_PLAN_NOT_RETRYABLE")
+    steps = db.scalars(select(AssistantPlanStep).where(AssistantPlanStep.plan_id == plan.plan_id)).all()
+    if any(_execution_error(db, user, step) for step in steps):
+        return {"session": _session_payload(session, user), "plan": _plan_payload(db, plan, replay=True)}
     plan.status = "READY"
     plan.state_version += 1
-    steps = db.scalars(select(AssistantPlanStep).where(AssistantPlanStep.plan_id == plan.plan_id)).all()
     for step in steps:
         if step.status in {"BLOCKED", "FAILED"}:
             step.status = "READY"

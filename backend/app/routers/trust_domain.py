@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import BUSINESS_ROLES, require_roles
+from ..dependencies import BUSINESS_ROLES, require_business_roles, require_roles
 from ..models import (
     DataContract,
     DataUpload,
@@ -42,6 +42,8 @@ from ..services.trust_domain import (
     verify_active_identity,
 )
 from ..services.algorithm_registry import AlgorithmRegistry
+from ..services.workflow import _scoped_task_allowed
+from ..services import trust_space as trust_space_service
 
 
 class _StrictModel(BaseModel):
@@ -123,24 +125,16 @@ def _assert_if_match(task: SettlementTask, if_match: str) -> None:
 def _require_task_visibility(db: Session, user: User, task: SettlementTask) -> None:
     """Prevent business participants from enumerating unrelated TTC records."""
 
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
-        return
-    participant = db.scalar(
-        select(TaskParticipant.participant_id).where(
-            TaskParticipant.task_id == task.task_id,
-            TaskParticipant.org_id == user.org_id,
-        )
-    )
-    if participant is None:
+    if not _scoped_task_allowed(db, task, user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TTC task not found")
 
 
-def _require_asset_visibility(user: User, asset: DataAsset) -> None:
+def _require_asset_visibility(db: Session, user: User, asset: DataAsset) -> None:
     """Keep asset passports tenant-scoped outside trusted oversight roles."""
 
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
-        return
-    if asset.owner_org_id != user.org_id:
+    if user.role_code not in {"EXCHANGE", "REGULATOR"} and asset.owner_org_id != user.org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
+    if trust_space_service.asset_detail(db, asset.asset_id, user) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
 
 
@@ -207,7 +201,7 @@ def build_trust_domain_router(
     *,
     db_dependency: Callable[..., Session] = get_db,
     read_user_dependency: Callable[..., User] = require_roles(*BUSINESS_ROLES),
-    operate_user_dependency: Callable[..., User] = require_roles(
+    operate_user_dependency: Callable[..., User] = require_business_roles(
         "EXCHANGE", "REGULATOR", "ADMIN"
     ),
 ) -> APIRouter:
@@ -295,6 +289,7 @@ def build_trust_domain_router(
         task = db.get(SettlementTask, task_id)
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TTC task not found")
+        _require_task_visibility(db, user, task)
         _assert_if_match(task, if_match)
         if payload.to_state not in MANUAL_TTC_TARGETS:
             raise HTTPException(
@@ -339,6 +334,7 @@ def build_trust_domain_router(
         task = db.get(SettlementTask, task_id)
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="TTC task not found")
+        _require_task_visibility(db, user, task)
         _assert_if_match(task, if_match)
         rule = db.get(SettlementRule, payload.rule_id or task.rule_id)
         if rule is None:
@@ -393,7 +389,7 @@ def build_trust_domain_router(
         asset = db.get(DataAsset, asset_id)
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
-        _require_asset_visibility(user, asset)
+        _require_asset_visibility(db, user, asset)
         version = db.scalar(
             select(DataAssetVersion)
             .where(DataAssetVersion.asset_id == asset_id)

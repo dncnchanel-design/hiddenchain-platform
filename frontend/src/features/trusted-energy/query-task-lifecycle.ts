@@ -1,6 +1,7 @@
 export const QUERY_TASK_STORAGE_KEY = "hiddenchain:trusted-query:pending:v1";
 
 export type PendingQuerySubmission = {
+  asset_id?: string;
   authorization_id?: string;
   provider_org_id: string;
   energy_domain: string;
@@ -33,8 +34,9 @@ function pendingSubmission(value: unknown): PendingQuerySubmission | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as Record<string, unknown>;
   const authorizationId = optionalIdentifier(source.authorization_id, 160);
+  const assetId = optionalIdentifier(source.asset_id, 160);
   const region = optionalIdentifier(source.region, 160);
-  if (authorizationId === null || region === null) return null;
+  if (authorizationId === null || assetId === null || region === null) return null;
   if (!validIdentifier(source.provider_org_id, 160)
     || !validIdentifier(source.energy_domain, 80)
     || !validIdentifier(source.resource, 160)
@@ -47,6 +49,7 @@ function pendingSubmission(value: unknown): PendingQuerySubmission | null {
     || Number(source.decimals) < 0
     || Number(source.decimals) > 6) return null;
   return {
+    ...(assetId ? { asset_id: assetId } : {}),
     ...(authorizationId ? { authorization_id: authorizationId } : {}),
     provider_org_id: source.provider_org_id,
     energy_domain: source.energy_domain,
@@ -84,6 +87,7 @@ export function writePendingQueryTask(store: Pick<SessionStore, "setItem">, valu
       task_id: value.taskId,
       idempotency_key: value.idempotencyKey,
       submission: value.submission ? {
+        ...(value.submission.asset_id ? { asset_id: value.submission.asset_id } : {}),
         ...(value.submission.authorization_id ? { authorization_id: value.submission.authorization_id } : {}),
         provider_org_id: value.submission.provider_org_id,
         energy_domain: value.submission.energy_domain,
@@ -112,7 +116,7 @@ export function clearPendingQueryTask(store: Pick<SessionStore, "removeItem">) {
 
 export async function recoverPendingQuerySubmission<Result>(
   pending: PendingQueryTask,
-  confirm: (submission: PendingQuerySubmission, signal?: AbortSignal) => Promise<{ confirmation_token: string }>,
+  confirm: (submission: PendingQuerySubmission, signal?: AbortSignal) => Promise<{ confirmation_token: string; authorization_id?: string; provider_org_id?: string; asset_id?: string }>,
   execute: (
     submission: PendingQuerySubmission & { confirmation_token: string },
     idempotencyKey: string,
@@ -123,7 +127,7 @@ export async function recoverPendingQuerySubmission<Result>(
   if (pending.taskId !== null || !pending.submission) throw new Error("待恢复查询元数据不完整");
   const confirmation = await confirm(pending.submission, signal);
   return execute(
-    { ...pending.submission, confirmation_token: confirmation.confirmation_token },
+    { ...pending.submission, ...(confirmation.authorization_id ? { authorization_id: confirmation.authorization_id } : {}), ...(confirmation.provider_org_id ? { provider_org_id: confirmation.provider_org_id } : {}), ...(confirmation.asset_id ? { asset_id: confirmation.asset_id } : {}), confirmation_token: confirmation.confirmation_token },
     pending.idempotencyKey,
     signal,
   );

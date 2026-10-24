@@ -40,5 +40,7 @@ describe("audit action pages reused inside trusted space", () => {
     expect(markup).toContain("目标事件");
     expect(markup).not.toContain("其他事件");
     expect(markup).toContain("处置</button>");
+    expect(markup).toContain('href="/trusted-space/audit/tasks/task-1"');
+    expect(markup).not.toContain('href="/trusted-space/ttc/task-1"');
   });
 });

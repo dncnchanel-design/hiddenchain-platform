@@ -681,12 +681,15 @@ def test_audit_query_is_grounded_in_evidence(client, auth_headers):
 
 
 def test_deepseek_agent_endpoint_never_fakes_success_when_disabled(client, auth_headers):
-    status = client.get("/api/agents/llm/status", headers=auth_headers["admin"])
+    assert client.get("/api/agents/llm/status", headers=auth_headers["admin"]).status_code == 403
+    denied = client.post("/api/agents/ORCHESTRATOR/invoke", headers=auth_headers["admin"], json={"task_id": "task-ready-t01", "instruction": "核对当前任务编排状态。"})
+    assert denied.status_code == 403
+    status = client.get("/api/agents/llm/status", headers=auth_headers["exchange"])
     assert status.status_code == 200
     assert status.json()["enabled"] is False
     response = client.post(
         "/api/agents/ORCHESTRATOR/invoke",
-        headers=auth_headers["admin"],
+        headers=auth_headers["exchange"],
         json={
             "task_id": "task-ready-t01",
             "instruction": "核对当前任务编排状态。",
@@ -1328,7 +1331,9 @@ def test_trusted_execution_cross_energy_query_is_aggregate_only(client, auth_hea
 
     confirmed = client.get(
         f"/api/trusted-execution/reviews/{payload['request_id']}",
-        headers=auth_headers["admin"],
+        headers=auth_headers["regulator"],
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["verification_status"] == "CONFIRMED"
+    denied = client.get(f"/api/trusted-execution/reviews/{payload['request_id']}", headers=auth_headers["admin"])
+    assert denied.status_code == 403

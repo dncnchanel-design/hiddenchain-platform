@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..dependencies import BUSINESS_ROLES, get_current_user, require_roles
+from ..dependencies import BUSINESS_ROLES, get_current_user, require_business_roles, require_roles
 from ..models import (
     AnomalyEvent,
     AuditReport,
@@ -48,12 +48,15 @@ from ..services.duckdb_connector import DuckDBMetadataAdapter
 from ..services.odcs_connector import OpenDataContractAdapter
 from ..services.solar import PvlibSolarAdapter
 from ..services.workflow import (
+    _scoped_task_allowed,
     ensure_data_capsule,
     run_privacy_analysis,
     run_settlement_workflow,
     task_summary,
     workflow_bundle,
+    settlement_task_scope_query,
 )
+from ..services.audit_scope import AUDIT_SCOPE_ALL, has_audit_permission
 from ..services.trust_domain import (
     TTCState,
     TtcStateMachine,
@@ -69,6 +72,12 @@ from ..trust_models import AgentToolCall, ExecutionSnapshot, TtcAttempt
 
 
 router = APIRouter(tags=["trade"])
+
+
+def _require_electricity_exchange(db: Session, user: User) -> None:
+    organization = db.get(Organization, user.org_id)
+    if organization is None or organization.energy_domain != "electricity":
+        raise HTTPException(403, "电力结算仅适用于电力交易中心，其他能源请使用本能源受控查询计算")
 
 
 def _etag(task: SettlementTask) -> str:
@@ -262,30 +271,36 @@ def _assert_settlement_audit_gate(
 
 @router.get("/algorithms/registry")
 def list_algorithm_registry(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
 ) -> list[dict]:
     return AlgorithmRegistry.list()
 
 
 def _task_ids_for_user(db: Session, user: User) -> list[str] | None:
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
-        return None
-    return list(
-        db.scalars(
-            select(TaskParticipant.task_id).where(TaskParticipant.org_id == user.org_id)
-        ).all()
-    )
+    return list(db.scalars(settlement_task_scope_query(db, user).with_only_columns(SettlementTask.task_id)).all())
 
 
 def _dataset_ids_for_user(db: Session, user: User) -> set[str] | None:
-    """Return the data references visible to a role, or None for trusted roles."""
-    if user.role_code in {"EXCHANGE", "REGULATOR", "ADMIN"}:
+    """Return owned/authorized task references; only an explicit audit grant is global."""
+    if user.role_code == "REGULATOR" and has_audit_permission(user) and AUDIT_SCOPE_ALL in (user.permissions_json or []):
         return None
+    task_ids = (_task_ids_for_user(db, user) or []) if user.role_code in {"EXCHANGE", "REGULATOR"} else []
     return set(
         db.scalars(
-            select(DataUpload.upload_id).where(DataUpload.owner_org_id == user.org_id)
+            select(DataUpload.upload_id).where(or_(DataUpload.owner_org_id == user.org_id, DataUpload.task_id.in_(task_ids)))
         ).all()
     )
+
+
+def _agreement_visible(db: Session, agreement: DataSpaceAgreement, user: User) -> bool:
+    if user.org_id in {agreement.provider_org_id, agreement.consumer_org_id}:
+        return True
+    if user.role_code == "REGULATOR" and has_audit_permission(user):
+        if AUDIT_SCOPE_ALL in (user.permissions_json or []):
+            return True
+        task = db.get(SettlementTask, agreement.task_id) if agreement.task_id else None
+        return task is not None and _scoped_task_allowed(db, task, user)
+    return False
 
 
 def _record_ttc_run_failure(
@@ -442,12 +457,7 @@ def data_space_protocol(
     db: Session = Depends(get_db),
 ) -> dict:
     agreements = db.scalars(select(DataSpaceAgreement)).all()
-    if user.role_code in {"GENERATOR", "RETAILER"}:
-        agreements = [
-            item
-            for item in agreements
-            if item.provider_org_id == user.org_id or item.consumer_org_id == user.org_id
-        ]
+    agreements = [item for item in agreements if _agreement_visible(db, item, user)]
     active = [item for item in agreements if item.state in {"NEGOTIATED", "ACTIVE"}]
     consumed = [item for item in agreements if item.state == "CONSUMED"]
     return {
@@ -491,11 +501,13 @@ def data_space_protocol(
 @router.post("/data-space/usage-control/check")
 def check_usage_control(
     payload: UsageControlCheckRequest,
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> dict:
     agreement = db.get(DataSpaceAgreement, payload.agreement_id)
     if agreement is None:
+        raise HTTPException(status_code=404, detail="数据空间协议不存在")
+    if not _agreement_visible(db, agreement, user):
         raise HTTPException(status_code=404, detail="数据空间协议不存在")
     decision = DataSpaceConnectorAdapter.enforce(
         db,
@@ -522,7 +534,7 @@ def check_usage_control(
 
 @router.get("/rules")
 def list_rules(
-    user: User = Depends(require_roles("EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     return [model_dict(item) for item in db.scalars(select(SettlementRule).order_by(SettlementRule.created_at.desc())).all()]
@@ -534,6 +546,7 @@ def create_rule(
     user: User = Depends(require_roles("EXCHANGE")),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_electricity_exchange(db, user)
     version_no = (db.scalar(select(func.count(SettlementRule.rule_id))) or 0) + 1
     parameters = {
         "contract_price": payload.contract_price,
@@ -585,6 +598,7 @@ def activate_rule(
     user: User = Depends(require_roles("EXCHANGE")),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_electricity_exchange(db, user)
     rule = db.get(SettlementRule, rule_id)
     if rule is None:
         raise HTTPException(status_code=404, detail="规则不存在")
@@ -647,9 +661,7 @@ def create_task(
     db: Session = Depends(get_db),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    organization = db.get(Organization, user.org_id)
-    if organization is None or organization.energy_domain != "electricity":
-        raise HTTPException(403, "电力结算仅适用于电力交易中心，其他能源请使用本能源受控查询计算")
+    _require_electricity_exchange(db, user)
     if not user.is_org_owner and "CREATE_COMPUTE_TASK" not in (user.permissions_json or []):
         raise HTTPException(403, "当前账号尚未获授创建计算任务权限")
     request_fingerprint = sha256_json(payload.model_dump(mode="json"))
@@ -822,6 +834,10 @@ def run_task(
     )
     if requested_task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if not _scoped_task_allowed(db, requested_task, user):
+        raise HTTPException(status_code=403, detail="无权执行该结算任务")
+    if not user.is_org_owner and "CREATE_COMPUTE_TASK" not in (user.permissions_json or []):
+        raise HTTPException(status_code=403, detail="当前账号尚未获授执行结算任务权限")
     normalized_idempotency_key = idempotency_key.strip() if idempotency_key else None
     request_fingerprint = sha256_json(payload.model_dump(mode="json"))
     if normalized_idempotency_key is not None:
@@ -981,6 +997,7 @@ def list_results(
     )
     if task_id:
         query = query.where(SettlementResult.task_id == task_id)
+    query = query.where(SettlementResult.task_id.in_(_task_ids_for_user(db, user) or []))
     if user.role_code in {"GENERATOR", "RETAILER"}:
         query = query.where(SettlementResult.org_id == user.org_id)
     return [model_dict(item) for item in db.scalars(query).all()]
@@ -1477,7 +1494,7 @@ def confirm_result(
 
 @router.get("/privacy/analysis/jobs")
 def list_analysis_jobs(
-    user: User = Depends(require_roles("RETAILER", "EXCHANGE", "REGULATOR", "ADMIN")),
+    user: User = Depends(require_business_roles("RETAILER", "EXCHANGE", "REGULATOR")),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     records = db.scalars(select(PrivacyAnalysisJob).order_by(PrivacyAnalysisJob.created_at.desc())).all()
@@ -1516,7 +1533,8 @@ def create_analysis_job(
         raise HTTPException(status_code=400, detail="只能选择用户负荷曲线数据引用")
     if len(set(payload.dataset_ids)) != len(payload.dataset_ids):
         raise HTTPException(status_code=400, detail="数据引用不能重复")
-    if user.role_code == "RETAILER" and any(item.owner_org_id != user.org_id for item in datasets if item):
+    visible_datasets = _dataset_ids_for_user(db, user)
+    if visible_datasets is not None and not set(payload.dataset_ids).issubset(visible_datasets):
         raise HTTPException(status_code=403, detail="只能分析本主体授权的用户负荷数据")
     strategy = AdaptivePrivacyRouter.recommend(
         payload.scenario_code,

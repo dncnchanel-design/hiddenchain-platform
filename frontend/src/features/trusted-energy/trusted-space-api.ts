@@ -241,10 +241,13 @@ export type CatalogAsset = CapabilityEnvelope & {
     schema_version: string;
     data_hash: string;
     record_count?: number | null;
+    period_start?: string | null;
+    period_end?: string | null;
     status: string;
   } | null;
   actions: {
     can_request_usage: boolean;
+    can_compute_own?: boolean;
     can_review_inbound: boolean;
     can_view_passport: boolean;
   };
@@ -261,6 +264,7 @@ export type CatalogPayload = CapabilityEnvelope & {
   total: number;
   page: number;
   page_size: number;
+  filter_options?: { asset_types: string[]; domains: string[] };
   filters: {
     query?: string | null;
     asset_type?: string | null;
@@ -524,6 +528,7 @@ export type ConnectorCatalogResource = {
 };
 
 export type ConnectorCatalogPayload = {
+  availability?: { can_upload: boolean; reason: string | null };
   connector: {
     connector_id: string;
     organization_id: string;
@@ -627,6 +632,9 @@ export type PrototypeAuditPayload = { records: PrototypeAuditRecord[]; blocks: P
 export type QueryConfirmation = {
   confirmed: boolean;
   confirmation_token: string;
+  authorization_id?: string;
+  provider_org_id?: string;
+  asset_id?: string;
   notice: string;
 };
 
@@ -1563,6 +1571,7 @@ export function restorePrototypeAudit(options: ApiCommandOptions = {}) {
 }
 
 export function confirmTrustedQuery(body: {
+  asset_id?: string;
   authorization_id?: string;
   provider_org_id?: string;
   energy_domain: string;
@@ -1577,6 +1586,7 @@ export function confirmTrustedQuery(body: {
 }
 
 export function executeTrustedQuery(body: {
+  asset_id?: string;
   authorization_id?: string;
   provider_org_id?: string;
   energy_domain: string;

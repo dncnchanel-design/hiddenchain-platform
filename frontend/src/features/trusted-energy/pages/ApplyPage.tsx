@@ -66,7 +66,7 @@ export function ApplyPage() {
       && effectiveDurationDays <= durationPolicy.max_days
       && (effectiveMaxDuration === undefined || effectiveDurationDays <= effectiveMaxDuration),
   );
-  const conditionsValid = termsAccepted && durationValid && (!regulatoryPurpose || authorityRef.trim().length > 0);
+  const conditionsValid = termsAccepted && durationValid && (!isRegulator || regulatoryPurpose) && (!regulatoryPurpose || authorityRef.trim().length > 0);
 
   function selectPurpose(nextPurpose: PurposeId) {
     const nextRegulatory = regulatoryUseCases.find((item) => item.id === nextPurpose);
@@ -149,8 +149,8 @@ export function ApplyPage() {
       <Steps steps={steps} current={step} />
       {submission ? <Card className="trusted-submit-success"><CardContent><span className="trusted-success-icon"><Check size={24} /></span><h2>申请已提交至提供方审核</h2><p>申请编号 <code>{submission.request_id}</code> 已生成，当前状态为 <strong>{requestStatusLabel(submission.status)}</strong>，状态版本 {submission.state_version}。</p><p>申请期限 {submission.duration_days} 日 · {policySourceLabel(submission.duration_policy?.source)}。系统不会代替提供方批准，也不会自动执行计算。</p><div className="trusted-submit-actions"><Button variant="secondary" onClick={() => navigate(routeForView("catalog"))}>返回数据目录</Button><Button variant="primary" onClick={() => navigate(`${routeForView("authorizations")}?view=outbound&request=${encodeURIComponent(submission.request_id)}`)}>查看我的申请 <ArrowRight size={14} /></Button></div></CardContent></Card> : <Card className="trusted-step-card"><CardHeader><CardTitle>{steps[step]}</CardTitle></CardHeader><CardContent>
         {step === 0 && <>
-          <p className="trusted-muted">通用业务用途</p>
-          <div className="trusted-option-grid">{useCases.map(({ id, title, desc, icon: Icon }) => <button type="button" className={`trusted-option-card${activePurpose === id ? " is-selected" : ""}`} key={id} onClick={() => selectPurpose(id)}><span className="trusted-option-radio">{activePurpose === id && <i />}</span><Icon size={18} /><span><strong>{title}</strong><small>{desc}</small></span></button>)}</div>
+          {!isRegulator && <><p className="trusted-muted">通用业务用途</p>
+          <div className="trusted-option-grid">{useCases.map(({ id, title, desc, icon: Icon }) => <button type="button" className={`trusted-option-card${activePurpose === id ? " is-selected" : ""}`} key={id} onClick={() => selectPurpose(id)}><span className="trusted-option-radio">{activePurpose === id && <i />}</span><Icon size={18} /><span><strong>{title}</strong><small>{desc}</small></span></button>)}</div></>}
           {isRegulator && <><p className="trusted-muted">监管白名单用途</p><div className="trusted-option-grid">{regulatoryUseCases.map(({ id, title, desc, icon: Icon }) => <button type="button" className={`trusted-option-card${activePurpose === id ? " is-selected" : ""}`} key={id} onClick={() => selectPurpose(id)}><span className="trusted-option-radio">{activePurpose === id && <i />}</span><Icon size={18} /><span><strong>{title}</strong><small>{desc}</small></span></button>)}</div></>}
         </>}
         {step === 1 && <div className="trusted-option-grid trusted-method-grid">{methods.map(({ id, title, desc, badge }) => <button type="button" className={`trusted-option-card${method === id ? " is-selected" : ""}`} key={id} onClick={() => setMethod(id)}><span className="trusted-option-radio">{method === id && <i />}</span><Network size={18} /><span><strong>{title}</strong><small>{desc}</small><Badge tone={badge === "ADAPTER" ? "warning" : "success"}>{capabilityLabel(badge)}</Badge></span></button>)}</div>}

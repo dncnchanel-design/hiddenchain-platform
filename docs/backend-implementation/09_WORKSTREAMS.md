@@ -1,5 +1,16 @@
 # Workstreams and File Ownership
 
+## 完整账号与交互复验 — 2026-10-24
+
+| 工作项 | 文件所有权 | 完成与证据 |
+| --- | --- | --- |
+| 功能清单、真实 HTTP 验收 | 12_FULL_FUNCTION_ACCEPTANCE.md、tools/verify-deep-workflows.py；功能复核 Agent，已交协调 Agent | 新鲜栈 109 项 / 596 请求，0 FAIL；5 不可达状态不计成功 |
+| 旧主体/能源/运维隔离 | dependencies、workflow、trade/trust/trust_domain/execution/energy/evidence；权限复核 Agent | 79 新范围测试、合法创建/执行/确认/监管回归通过，最终冻结 |
+| 比较、签名、节点预算与日期 | connector main、trusted_query、privacy_attestation、query_periods、self_owned_query；计算复核 Agent | 节点 85、平台组合 180、日期 43 等通过，最终冻结 |
+| 助手目标与跨页会话 | assistant、AgentSheet、assistant-context；功能复核 Agent | 后端组合 39、前端 context 4，通过真实 job/资产切页复验 |
+| 页面操作与恢复 | data_usage_requests、trust_space、connector_ingestion、查询/申请/目录/合同/连接/风险页面；协调 Agent | 13 账号真实使用，前端最终 206 项及生产构建通过，界面证据保留于独立 JSON |
+| 正式发布 | 三份进度记录、GitHub、Render；仅协调 Agent | 以 runtime/account-release-evidence.json 的检查结果与八服务 build_sha 为准 |
+
 ## 查询授权入口与历史虚拟数据 — 2026-10-24
 
 | 工作项 | 文件范围 | 状态 |

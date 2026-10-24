@@ -24,6 +24,7 @@ from ..config import settings
 from ..database import SessionLocal, get_db
 from ..dependencies import get_current_user
 from ..models import (
+    AccessRule,
     AnomalyEvent,
     DataRequestBatch,
     DataRequestItem,
@@ -38,6 +39,7 @@ from ..models import (
     utc_now,
 )
 from ..services.common import add_audit_log
+from ..services.data_usage_requests import UsageRequestError
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
 from ..services.privacy_attestation import (
@@ -54,6 +56,8 @@ from ..services.trusted_query_results import (
     validated_aggregate_result,
     validated_trend,
 )
+from ..services.query_periods import comparison_fields
+from ..services.self_owned_query import confirm_owned_query, validate_self_owned_query
 from ..security import canonical_json, sha256_json
 from ..schemas import TrustedSpaceQueryTranslation
 from ..services.local_data_boundary import matching_rule, rule_decision, subject_node_config
@@ -158,6 +162,7 @@ class ParseRequest(BaseModel):
 class ExecuteRequest(BaseModel):
     authorization_id: str | None = None
     provider_org_id: str | None = None
+    asset_id: str | None = Field(default=None, min_length=1, max_length=160)
     energy_domain: str
     resource: str
     function: str
@@ -174,12 +179,16 @@ class ExecuteRequest(BaseModel):
 class ConfirmRequest(BaseModel):
     authorization_id: str | None = None
     provider_org_id: str | None = None
+    asset_id: str | None = Field(default=None, min_length=1, max_length=160)
     energy_domain: str
     resource: str
     function: str
     start_date: date
     end_date: date
     region: str | None = None
+    hour: int | None = Field(default=None, ge=0, le=23)
+    threshold: float | None = Field(default=None, allow_inf_nan=False)
+    group_by: str | None = None
     decimals: int = Field(default=2, ge=0, le=6)
 
 
@@ -301,31 +310,86 @@ def _manual_period(question: str) -> tuple[date | None, date | None]:
     """Parse only explicit, deterministic periods for the offline fallback."""
 
     today = utc_now().date()
-    full_date = re.search(r"(20\d{2})年(\d{1,2})月(\d{1,2})日?", question)
-    if full_date:
-        year, month, day = (int(value) for value in full_date.groups())
+    text = re.sub(r"\s+", "", question)
+    named_years = {today.year + offset for word, offset in (("今年", 0), ("去年", -1), ("前年", -2), ("明年", 1)) if word in text}
+    if len(named_years) > 1 or re.search(r"往年|历年|以往|早年|前[几些]年|近[几些]年|明后年|大前年|后年|(?:\d+|两|几)年前", text):
+        return None, None
+    reference_year = next(iter(named_years), today.year)
+    full_pattern = r"(?<!\d)(?:(20\d{2})年)?(\d{1,2})月(\d{1,2})日?(?!\d)|(?<!\d)(20\d{2})[-/](\d{1,2})[-/](\d{1,2})(?!\d)"
+    full_dates = list(re.finditer(full_pattern, text))
+    delimiter = r"(?:至|到|—|–|~|～|-)"
+    extra_period = r"20\d{2}年|\d+月|\d+日|20\d{2}[-/]"
+    if full_dates:
+        first = full_dates[0]
+        parts = first.groups()
+        year, month, day = parts[:3] if parts[1] else parts[3:]
         try:
-            parsed = date(year, month, day)
+            start = date(int(year or reference_year), int(month), int(day))
+            tail = text[first.end():]
+            separator = re.match(delimiter, tail)
+            if separator:
+                tail = tail[separator.end():]
+                endpoint = re.match(full_pattern, tail)
+                if endpoint:
+                    parts = endpoint.groups()
+                    year, month, day = parts[:3] if parts[1] else parts[3:]
+                else:
+                    endpoint = re.match(r"(?:(20\d{2})年)?(?:(\d{1,2})月)?(\d{1,2})日?(?!\d|年|月|[-/]\d)", tail)
+                    if endpoint is None:
+                        return None, None
+                    year, month, day = endpoint.groups()
+                end = date(int(year or start.year), int(month or start.month), int(day))
+                if start > end or re.search(extra_period, tail[endpoint.end():]):
+                    return None, None
+                return start, end
+            if len(full_dates) != 1 or re.search(extra_period, tail):
+                return None, None
+            return start, start
         except ValueError:
             return None, None
-        return parsed, parsed
 
-    month = re.search(r"(?:(20\d{2})年?)?(\d{1,2})月", question)
-    if month:
-        year = int(month.group(1) or today.year)
-        month_number = int(month.group(2))
-        if 1 <= month_number <= 12:
-            return date(year, month_number, 1), date(year, month_number, monthrange(year, month_number)[1])
+    if re.search(r"\d+月\d+", text):
+        return None, None
+    month_pattern = r"(?<!\d)(?:(20\d{2})年)?(\d{1,2})月份?"
+    months = list(re.finditer(month_pattern, text))
+    if months:
+        first = months[0]
+        year, month = int(first.group(1) or reference_year), int(first.group(2))
+        try:
+            start = date(year, month, 1)
+            end = date(year, month, monthrange(year, month)[1])
+            tail = text[first.end():]
+            separator = re.match(delimiter, tail)
+            if separator:
+                tail = tail[separator.end():]
+                endpoint = re.match(month_pattern, tail)
+                if endpoint is None:
+                    return None, None
+                end_year, end_month = int(endpoint.group(1) or year), int(endpoint.group(2))
+                end = date(end_year, end_month, monthrange(end_year, end_month)[1])
+                tail = tail[endpoint.end():]
+            elif len(months) != 1:
+                return None, None
+            return (start, end) if start <= end and not re.search(extra_period, tail) else (None, None)
+        except ValueError:
+            return None, None
 
-    if "上月" in question or "上个月" in question:
+    if "上月" in text or "上个月" in text:
         previous_month = today.replace(day=1) - timedelta(days=1)
         return previous_month.replace(day=1), previous_month
-    relative_days = re.search(r"(?:近|最近)(\d{1,3})天", question)
+    relative_days = re.search(r"(?:近|最近)(\d{1,3})天", text)
     if relative_days:
         days = int(relative_days.group(1))
         if days > 0:
             return today - timedelta(days=days - 1), today
     return None, None
+
+
+def _comparison_fields(function: str, start: date, end: date) -> dict[str, str]:
+    try:
+        return comparison_fields(function, start, end)
+    except (ValueError, OverflowError) as exc:
+        raise HTTPException(422, "比较基期超出有效日期范围") from exc
 
 
 def _confirmation_claims(payload: ConfirmRequest, user: User) -> dict[str, Any]:
@@ -340,6 +404,8 @@ def _confirmation_claims(payload: ConfirmRequest, user: User) -> dict[str, Any]:
         "end_date": payload.end_date.isoformat(),
         "region": payload.region or None,
         "decimals": payload.decimals,
+        **_comparison_fields(payload.function, payload.start_date, payload.end_date),
+        **{key: getattr(payload, key) for key in ("asset_id", "hour", "threshold", "group_by") if getattr(payload, key) is not None},
     }
 
 
@@ -370,6 +436,8 @@ def _verify_confirmation_token(token: str, payload: ExecuteRequest, user: User) 
         "end_date": payload.end_date.isoformat(),
         "region": payload.region or None,
         "decimals": payload.decimals,
+        **_comparison_fields(payload.function, payload.start_date, payload.end_date),
+        **{key: getattr(payload, key) for key in ("asset_id", "hour", "threshold", "group_by") if getattr(payload, key) is not None},
     }
     if claims != expected_claims:
         raise HTTPException(409, "查询条件已变化，请重新确认后再执行")
@@ -461,6 +529,8 @@ def _validate_authorization_scope(
     conditions: dict[str, Any],
 ) -> None:
     """Intersect query conditions with declared grant constraints, including legacy code lists."""
+    if conditions.get("asset_id") is not None and conditions["asset_id"] != asset.asset_id:
+        raise HTTPException(403, "选定的数据资产与已批准授权不一致")
     metadata = asset.metadata_json or {}
     if (
         metadata.get("domain") != conditions.get("energy_domain")
@@ -470,6 +540,7 @@ def _validate_authorization_scope(
     scope = authorization.requested_scope_json or {}
     if not isinstance(scope, dict):
         raise HTTPException(403, "授权范围格式无效，请由提供方重新确认")
+    _minimum_record_count(scope)
     try:
         start = date.fromisoformat(str(conditions["start_date"]))
         end = date.fromisoformat(str(conditions["end_date"]))
@@ -482,7 +553,27 @@ def _validate_authorization_scope(
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(403, "授权日期范围无效，请由提供方重新确认") from exc
 
-    for key in ("region", "resource", "function", "function_code"):
+    comparison = _comparison_fields(str(conditions.get("function") or ""), start, end)
+    source = (authorization.terms_json or {}).get("authorization_source")
+    if source == "SELF_OWNED_QUERY" or source == "SUBJECT_APPROVED_RULE" and comparison:
+        if (source == "SELF_OWNED_QUERY" and not _is_self_owned_authorization(authorization, asset)) or (authorization.terms_json or {}).get("confirmed_period") != {
+            "start_date": start.isoformat(), "end_date": end.isoformat(), **comparison,
+        }:
+            raise HTTPException(403, "计算的当前期或比较基期与确认范围不一致，请重新确认")
+    if comparison:
+        if any(key in conditions and conditions[key] != value for key, value in comparison.items()):
+            raise HTTPException(403, "比较基期与固定日历规则不一致，请重新确认")
+        try:
+            for key in ("start_date", "period_start"):
+                if scope.get(key) and date.fromisoformat(comparison["comparison_start_date"]) < date.fromisoformat(str(scope[key])):
+                    raise HTTPException(403, "同比或环比的基期超出已批准授权范围，请申请覆盖基期的授权")
+            for key in ("end_date", "period_end"):
+                if scope.get(key) and date.fromisoformat(comparison["comparison_end_date"]) > date.fromisoformat(str(scope[key])):
+                    raise HTTPException(403, "同比或环比的基期超出已批准授权范围，请申请覆盖基期的授权")
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(403, "授权基期日期范围无效，请由提供方重新确认") from exc
+
+    for key in ("region", "resource", "function", "function_code", "hour", "threshold", "group_by"):
         expected = scope.get(key)
         query_key = "function" if key == "function_code" else key
         if expected not in (None, "") and conditions.get(query_key) != expected:
@@ -497,6 +588,75 @@ def _validate_authorization_scope(
     functions = {item for item in authorization.requested_fields_json or [] if isinstance(item, str) and item in FUNCTION_LABELS}
     if functions and conditions.get("function") not in functions:
         raise HTTPException(403, "该固定函数不在提供方已批准的字段范围内")
+
+
+def _is_self_owned_authorization(authorization: DataUsageRequest, asset: DataAsset) -> bool:
+    return ((authorization.terms_json or {}).get("authorization_source") == "SELF_OWNED_QUERY"
+            and authorization.applicant_org_id == authorization.provider_org_id == asset.owner_org_id)
+
+
+def _minimum_record_count(scope: dict[str, Any]) -> int | None:
+    minimum = scope.get("minimum_record_count")
+    if minimum is not None and (isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 1):
+        raise HTTPException(403, "记录数下限必须为正整数，请重新确认规则或授权")
+    return minimum
+
+
+def _validate_query_source_access(db: Session, user: User, authorization: DataUsageRequest, asset: DataAsset, conditions: dict[str, Any]) -> None:
+    source = (authorization.terms_json or {}).get("authorization_source")
+    if source == "SELF_OWNED_QUERY":
+        try:
+            validate_self_owned_query(db, user, authorization, asset)
+        except UsageRequestError as exc:
+            raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.detail}) from exc
+    elif source == "SUBJECT_APPROVED_RULE" and conditions.get("function") in {"yoy", "mom"}:
+        rule = db.get(AccessRule, (authorization.terms_json or {}).get("rule_id"))
+        if rule is None or (authorization.terms_json or {}).get("rule_version") != f"v{rule.version_no}":
+            raise HTTPException(403, "比较计算绑定的主体规则已变化，请重新确认")
+        minimum = _validate_comparison_rule(db, rule, asset, conditions)
+        if _minimum_record_count(authorization.requested_scope_json or {}) != minimum:
+            raise HTTPException(403, "比较计算的记录数下限已变化，请重新确认")
+
+
+def _validate_comparison_rule(db: Session, rule: AccessRule, asset: DataAsset, conditions: dict[str, Any]) -> int | None:
+    """One explicit rule must cover each window and their entire bounding span."""
+    start, end = date.fromisoformat(conditions["start_date"]), date.fromisoformat(conditions["end_date"])
+    comparison = _comparison_fields(conditions["function"], start, end)
+    if not comparison:
+        return None
+    baseline_start, baseline_end = date.fromisoformat(comparison["comparison_start_date"]), date.fromisoformat(comparison["comparison_end_date"])
+    span_start, span_end = min(start, baseline_start), max(end, baseline_end)
+    granularity = "HOUR" if conditions.get("hour") is not None else "DAY"
+    if (rule.status != "ACTIVE" or rule.revoked_at is not None or rule_decision(rule) != "AUTO_CALL"
+            or rule.owner_org_id != asset.owner_org_id or rule.resource_id != conditions["resource"] or rule.function_code != conditions["function"]
+            or rule.asset_id not in (None, asset.asset_id) or rule.energy_domain not in (None, conditions["energy_domain"])):
+        raise HTTPException(403, "比较期间未命中同一条有效的主体自动调用规则")
+    for window_start, window_end in ((start, end), (baseline_start, baseline_end), (span_start, span_end)):
+        try:
+            matched = matching_rule(db, owner_org_id=asset.owner_org_id, resource_id=conditions["resource"], function_code=conditions["function"],
+                                    requested_scope={**conditions, "start_date": window_start.isoformat(), "end_date": window_end.isoformat(),
+                                                     "duration_days": (window_end - window_start).days + 1, "granularity": granularity,
+                                                     "output_mode": "AGGREGATE_ONLY", "raw_data_export": False})
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(403, "主体比较规则的约束格式无效") from exc
+        if matched is None or matched.rule_id != rule.rule_id or rule_decision(matched) != "AUTO_CALL":
+            raise HTTPException(403, "比较基期或两期跨度超出同一主体自动调用规则的范围")
+    minimums = []
+    for constraints in (rule.scope_json, rule.limits_json):
+        if not isinstance(constraints, dict):
+            raise HTTPException(403, "主体比较规则的约束格式无效")
+        maximum = constraints.get("max_duration_days")
+        if maximum is not None and (isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1 or (span_end - span_start).days + 1 > maximum):
+            raise HTTPException(403, "比较基期或两期跨度超出主体规则的日期上限")
+        for key, value in (("granularity", granularity), ("output_mode", "AGGREGATE_ONLY")):
+            if constraints.get(key) is not None and constraints[key] != value:
+                raise HTTPException(403, "比较计算的时间粒度或输出模式超出主体规则范围")
+        minimum = _minimum_record_count(constraints)
+        if minimum is not None:
+            minimums.append(minimum)
+        # Reuse the grant intersection checks without persisting a new grant.
+        _validate_authorization_scope(DataUsageRequest(requested_scope_json=constraints), asset, {**conditions, **comparison})
+    return max(minimums) if minimums else None
 
 
 def _authorization_query_use_limit(db: Session, authorization: DataUsageRequest) -> int | None:
@@ -608,6 +768,8 @@ def _resolve_authorization(
     end_date: date,
     region: str | None,
     user: User,
+    asset_id: str | None = None,
+    hour: int | None = None,
 ) -> tuple[DataUsageRequest, DataAsset]:
     if authorization_id:
         return _authorization(db, authorization_id, user)
@@ -625,6 +787,7 @@ def _resolve_authorization(
             for item in assets
             if (item.metadata_json or {}).get("domain") == energy_domain
             and (item.metadata_json or {}).get("resource_id") == resource
+            and (asset_id is None or item.asset_id == asset_id)
         ),
         None,
     )
@@ -639,6 +802,7 @@ def _resolve_authorization(
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "region": region,
+            "granularity": "HOUR" if hour is not None else "DAY",
             "duration_days": max(1, (end_date - start_date).days + 1),
             "output_mode": "AGGREGATE_ONLY",
             "raw_data_export": False,
@@ -646,6 +810,13 @@ def _resolve_authorization(
     )
     if rule is None or rule_decision(rule) != "AUTO_CALL":
         raise HTTPException(403, "该请求未命中主体批准的自动调用规则，请先向企业申请")
+    comparison = _comparison_fields(function, start_date, end_date)
+    minimum = None
+    if comparison:
+        minimum = _validate_comparison_rule(db, rule, asset, {"energy_domain": energy_domain, "resource": resource, "function": function,
+                                                             "start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "region": region, "hour": hour})
+    bound_start = min(start_date.isoformat(), comparison.get("comparison_start_date", start_date.isoformat()))
+    bound_end = max(end_date.isoformat(), comparison.get("comparison_end_date", end_date.isoformat()))
     version = db.scalar(
         select(DataAssetVersion).where(DataAssetVersion.asset_id == asset.asset_id, DataAssetVersion.status == "ACTIVE").order_by(DataAssetVersion.version_no.desc())
     )
@@ -666,6 +837,9 @@ def _resolve_authorization(
             "function": function,
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
+            **comparison,
+            **({"hour": hour} if comparison and hour is not None else {}),
+            **({"minimum_record_count": minimum} if minimum is not None else {}),
             "region": region,
             "rule_id": rule.rule_id,
         }
@@ -694,8 +868,9 @@ def _resolve_authorization(
         purpose="REGULATORY_CROSS_ENERGY_REVIEW",
         usage_mode="MPC_AGGREGATE",
         requested_scope_json={
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
+            "start_date": bound_start,
+            "end_date": bound_end,
+            **({"minimum_record_count": minimum} if minimum is not None else {}),
             "region": region,
             "output_mode": "AGGREGATE_ONLY",
             "raw_data_export": False,
@@ -707,8 +882,9 @@ def _resolve_authorization(
             "authorization_source": "SUBJECT_APPROVED_RULE",
             "rule_id": rule.rule_id,
             "rule_version": f"v{rule.version_no}",
+            **({"confirmed_period": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), **comparison}} if comparison else {}),
         },
-        duration_days=max(1, (end_date - start_date).days + 1),
+        duration_days=(date.fromisoformat(bound_end) - date.fromisoformat(bound_start)).days + 1,
         expires_at=now + timedelta(days=1),
         status="APPROVED",
         decision_reason="命中主体预先批准的自动调用规则",
@@ -732,6 +908,7 @@ def _resolve_authorization(
             "provider_org_id": provider_org_id,
             "rule_id": rule.rule_id,
             "rule_version": rule.version_no,
+            **({"confirmed_period": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), **comparison}} if comparison else {}),
             "raw_data_accessed": False,
         },
     )
@@ -774,12 +951,16 @@ def _request_item(
 
     metadata = asset.metadata_json or {}
     resource_id = str(metadata.get("resource_id") or payload.resource)
+    minimum = _minimum_record_count(authorization.requested_scope_json or {})
     requested_scope = {
         "start_date": payload.start_date.isoformat(),
         "end_date": payload.end_date.isoformat(),
+        **_comparison_fields(payload.function, payload.start_date, payload.end_date),
+        **({"minimum_record_count": minimum} if minimum is not None else {}),
         "region": payload.region,
         "function": payload.function,
         "hour": payload.hour,
+        "granularity": "HOUR" if payload.hour is not None else "DAY",
         "threshold": payload.threshold,
         "group_by": payload.group_by,
         "decimals": payload.decimals,
@@ -787,7 +968,7 @@ def _request_item(
         "output_mode": "AGGREGATE_ONLY",
         "raw_data_export": False,
     }
-    rule = matching_rule(
+    rule = None if _is_self_owned_authorization(authorization, asset) else matching_rule(
         db,
         owner_org_id=authorization.provider_org_id,
         resource_id=resource_id,
@@ -804,6 +985,7 @@ def _request_item(
             "function": payload.function,
             "start_date": payload.start_date.isoformat(),
             "end_date": payload.end_date.isoformat(),
+            **_comparison_fields(payload.function, payload.start_date, payload.end_date),
         }
     )
     batch = DataRequestBatch(
@@ -946,19 +1128,34 @@ def confirm_query(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
-    authorization, asset = _resolve_authorization(
-        db,
-        authorization_id=payload.authorization_id,
-        provider_org_id=payload.provider_org_id,
-        energy_domain=payload.energy_domain,
-        resource=payload.resource,
-        function=payload.function,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        region=payload.region,
-        user=user,
-    )
+    if not payload.authorization_id and payload.provider_org_id == user.org_id:
+        if not payload.asset_id:
+            raise HTTPException(422, "本方数据计算必须明确选择数据资产")
+        try:
+            authorization, asset = confirm_owned_query(
+                db, user, payload.asset_id, payload.energy_domain, payload.resource, payload.function,
+                payload.start_date, payload.end_date, payload.region,
+                _comparison_fields(payload.function, payload.start_date, payload.end_date),
+            )
+        except UsageRequestError as exc:
+            raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.detail}) from exc
+    else:
+        authorization, asset = _resolve_authorization(
+            db,
+            authorization_id=payload.authorization_id,
+            provider_org_id=payload.provider_org_id,
+            asset_id=payload.asset_id,
+            hour=payload.hour,
+            energy_domain=payload.energy_domain,
+            resource=payload.resource,
+            function=payload.function,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            region=payload.region,
+            user=user,
+        )
     _validate_authorization_scope(authorization, asset, payload.model_dump(mode="json"))
+    _validate_query_source_access(db, user, authorization, asset, payload.model_dump(mode="json"))
     if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
         raise HTTPException(403, "确认的主体与授权主体不一致")
     payload.authorization_id = authorization.request_id
@@ -982,6 +1179,10 @@ def confirm_query(
     return {
         "confirmed": True,
         "confirmation_token": token,
+        "authorization_id": authorization.request_id,
+        "provider_org_id": authorization.provider_org_id,
+        "asset_id": asset.asset_id,
+        **_comparison_fields(payload.function, payload.start_date, payload.end_date),
         "notice": "查询条件已确认，只有完全一致的条件才能执行。",
     }
 
@@ -1000,6 +1201,8 @@ def _canonical_execute_payload(payload: ExecuteRequest) -> dict[str, Any]:
         "threshold": payload.threshold,
         "group_by": payload.group_by,
         "decimals": payload.decimals,
+        **({"asset_id": payload.asset_id} if payload.asset_id is not None else {}),
+        **_comparison_fields(payload.function, payload.start_date, payload.end_date),
     }
 
 
@@ -1107,6 +1310,8 @@ def execute_query(
         db,
         authorization_id=payload.authorization_id,
         provider_org_id=payload.provider_org_id,
+        asset_id=payload.asset_id,
+        hour=payload.hour,
         energy_domain=payload.energy_domain,
         resource=payload.resource,
         function=payload.function,
@@ -1116,7 +1321,10 @@ def execute_query(
         user=user,
     )
     _validate_authorization_scope(authorization, asset, payload.model_dump(mode="json"))
+    _validate_query_source_access(db, user, authorization, asset, payload.model_dump(mode="json"))
     payload.authorization_id = authorization.request_id
+    if payload.provider_org_id and payload.provider_org_id != authorization.provider_org_id:
+        raise HTTPException(403, "执行主体与授权主体不一致")
     payload.provider_org_id = authorization.provider_org_id
     _verify_confirmation_token(payload.confirmation_token, payload, user)
     submitted_payload = _canonical_execute_payload(payload)
@@ -1392,6 +1600,10 @@ def _revalidate_query_dispatch(
     payload = task.canonical_payload_json or {}
     try:
         _validate_authorization_scope(authorization, asset, payload)
+        _validate_query_source_access(db, user, authorization, asset, payload)
+        comparison = _comparison_fields(str(payload.get("function") or ""), date.fromisoformat(str(payload["start_date"])), date.fromisoformat(str(payload["end_date"])))
+        if any(payload.get(key) != value for key, value in comparison.items()):
+            raise HTTPException(403, "冻结的比较基期缺失或已变化，请重新确认")
         use_limit = _authorization_query_use_limit(db, authorization)
     except HTTPException as exc:
         raise TrustedQueryExecutionError("AUTHORIZATION_SCOPE_CHANGED", str(exc.detail), retryable=False) from exc
@@ -1455,12 +1667,16 @@ def _revalidate_query_dispatch(
             "主体请求项已撤销或拒绝",
             retryable=False,
         )
+    if (request_item.scope_json or {}).get("minimum_record_count") != _minimum_record_count(authorization.requested_scope_json or {}):
+        raise TrustedQueryExecutionError("REQUEST_ITEM_SCOPE_CHANGED", "主体请求项的记录数下限已变化", retryable=False)
     requested_scope = {
         "start_date": payload.get("start_date"),
         "end_date": payload.get("end_date"),
+        **{key: payload[key] for key in ("comparison_start_date", "comparison_end_date") if payload.get(key) is not None},
         "region": payload.get("region"),
         "function": payload.get("function"),
         "hour": payload.get("hour"),
+        "granularity": "HOUR" if payload.get("hour") is not None else "DAY",
         "threshold": payload.get("threshold"),
         "group_by": payload.get("group_by"),
         "decimals": payload.get("decimals"),
@@ -1475,7 +1691,7 @@ def _revalidate_query_dispatch(
         "output_mode": "AGGREGATE_ONLY",
         "raw_data_export": False,
     }
-    current_rule = matching_rule(
+    current_rule = None if _is_self_owned_authorization(authorization, asset) else matching_rule(
         db,
         owner_org_id=authorization.provider_org_id,
         resource_id=str(payload.get("resource") or ""),
@@ -1548,6 +1764,9 @@ def _connector_query_payload(
             "function": payload.get("function"),
             "start_date": payload.get("start_date"),
             "end_date": payload.get("end_date"),
+            "comparison_start_date": payload.get("comparison_start_date"),
+            "comparison_end_date": payload.get("comparison_end_date"),
+            "minimum_record_count": _minimum_record_count(authorization.requested_scope_json or {}),
             "region": payload.get("region"),
             "hour": payload.get("hour"),
             "threshold": payload.get("threshold"),

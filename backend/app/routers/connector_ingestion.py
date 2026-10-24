@@ -291,7 +291,22 @@ def connector_catalog(
     user: User = Depends(require_roles(*CONNECTOR_OWNER_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    organization, node, config = _owner_context(db, user)
+    try:
+        organization, node, config = _owner_context(db, user)
+    except HTTPException as error:
+        if error.status_code != 503:
+            raise
+        organization = db.get(Organization, user.org_id)
+        return {
+            "connector": {
+                "connector_id": "", "organization_id": organization.org_id,
+                "organization_name": organization.org_name, "energy_domain": organization.energy_domain,
+                "endpoint": "", "status": "NOT_CONFIGURED", "capability_state": "BLOCKED",
+            },
+            "availability": {"can_upload": False, "reason": str(error.detail)},
+            "resources": [],
+            "upload_contract": {"mode": "BROWSER_TO_SUBJECT_CONNECTOR", "file_format": "csv", "max_bytes": MAX_INGEST_BYTES, "ticket_lifetime_seconds": TICKET_LIFETIME_SECONDS},
+        }
     receipts = db.scalars(
         select(ConnectorIngestionReceipt)
         .where(ConnectorIngestionReceipt.org_id == user.org_id)
@@ -330,6 +345,7 @@ def connector_catalog(
             "capability_state": "LOCAL_REAL",
         },
         "resources": resources,
+        "availability": {"can_upload": True, "reason": None},
         "upload_contract": {
             "mode": "BROWSER_TO_SUBJECT_CONNECTOR",
             "file_format": "csv",
