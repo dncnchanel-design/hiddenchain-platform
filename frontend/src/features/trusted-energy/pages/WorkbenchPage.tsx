@@ -1,5 +1,6 @@
 import { Activity, ArrowRight, Database, FileCheck2, Link2, Map as MapIcon, Search, ShieldCheck, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useEffect, useRef } from "react";
 import { useRemote } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { RemoteState } from "../components/ui-primitives";
@@ -69,6 +70,39 @@ function RoleFocusPanel({ view, notice, dataMode, dataStatus }: { view: Prototyp
 export function WorkbenchPage() {
   const remote = useRemote(loadPrototypeDashboard, []);
   const data = remote.data;
+  const retryCount = useRef(0);
+  const { loading, refreshing, error, refreshError, errorStatus, refreshErrorStatus, reload } = remote;
+  const metricStatus = data?.metric.status;
+  const metricRetryable = data?.metric.retryable === true;
+  const requestStatus = errorStatus ?? refreshErrorStatus;
+  const requestRetryable = requestStatus !== null && requestStatus !== undefined
+    && ([408, 425, 429].includes(requestStatus) || (requestStatus >= 500 && requestStatus < 600));
+  const recoveryAllowed = error || refreshError ? requestRetryable : metricRetryable;
+  useEffect(() => {
+    if (metricStatus === "available" || metricStatus === "not_configured") {
+      retryCount.current = 0;
+      return undefined;
+    }
+    if (loading || refreshing || !recoveryAllowed || retryCount.current >= 3) return undefined;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+      if (document.visibilityState === "hidden") return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        if (document.visibilityState === "hidden" || retryCount.current >= 3) return;
+        retryCount.current += 1;
+        void reload();
+      }, 10_000);
+    };
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [loading, metricStatus, recoveryAllowed, refreshing, reload]);
   const isRegionalMap = data?.view.visualization === "regional_map";
   const index = isRegionalMap ? Math.max(0, (data?.map.days.length || 1) - 1) : 0;
 

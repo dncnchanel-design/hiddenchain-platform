@@ -39,7 +39,7 @@ from .services.tool_catalog import agent_tool_catalog_readiness, ensure_agent_to
 from .services.formal_evidence import selected_anchor_adapter_status
 from .services.mpc import AdditiveSecretSharingMPC
 from .version import VERSION, version_payload
-from .services.common import trace_id
+from .services.common import add_audit_log, trace_id
 
 
 @asynccontextmanager
@@ -70,6 +70,14 @@ async def lifespan(app: FastAPI):
             from .demo_seed import seed_demo_business
 
             seed_demo_business(db)
+        add_audit_log(
+            db, action="SYSTEM_STARTUP", target_type="SYSTEM", target_id="platform", result="SUCCESS",
+            details={
+                "service": settings.app_name, "service_version": VERSION,
+                "build_sha": version_payload()["build_sha"], "environment": settings.app_env,
+                "startup_state": "INITIALIZED",
+            },
+        )
         db.commit()
     yield
 

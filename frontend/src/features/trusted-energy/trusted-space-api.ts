@@ -461,6 +461,7 @@ export type PrototypeDashboardPayload = {
     value: number | null;
     unit: string;
     status: "available" | "not_configured" | "unavailable";
+    retryable?: boolean;
     status_label: string;
     source: string;
     latest_date: string | null;
@@ -1379,7 +1380,10 @@ export function loadPrototypeHeader(signal?: AbortSignal) {
 }
 
 export function loadPrototypeDashboard(signal?: AbortSignal) {
-  return api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500 });
+  return api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500, timeoutMs: 25_000, retry: 0 }).catch((error: unknown) => {
+    if (error instanceof TypeError) throw new ApiError("网络连接失败，请检查连接后重试", 503);
+    throw error;
+  });
 }
 
 export function askPrototypeQuery(text: string, options: ApiCommandOptions = {}) {

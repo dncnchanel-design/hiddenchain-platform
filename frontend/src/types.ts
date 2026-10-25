@@ -329,6 +329,7 @@ export const ACTION_LABELS: Record<string, string> = {
   LIST_AUDIT_REPORTS: "查看审计报告",
   LIST_NOTIFICATIONS: "查看通知",
   SYSTEM_OVERVIEW: "查看系统状态",
+  SYSTEM_STARTUP: "系统启动",
   ASSISTANT_HELP: "助手使用帮助",
   NAVIGATE_QUERY: "查询数据统计",
   NAVIGATE_ELECTRICITY: "电力交易计算",
@@ -374,6 +375,7 @@ export const ACTION_LABELS: Record<string, string> = {
 };
 
 export const TARGET_TYPE_LABELS: Record<string, string> = {
+  SYSTEM: "系统",
   USER: "用户",
   DATA_UPLOAD: "数据引用",
   DATA_SPACE_AGREEMENT: "数据调用协议",
@@ -400,6 +402,7 @@ export const FIELD_SCOPE_LABELS: Record<string, string> = {
 };
 
 export const ASSET_TYPE_LABELS: Record<string, string> = {
+  CONNECTOR_RESOURCE: "连接器数据",
   GENERATION_DATA: "发电计量数据",
   RETAIL_DATA: "售电履约数据",
   RENEWABLE_FORECAST: "新能源预测数据",

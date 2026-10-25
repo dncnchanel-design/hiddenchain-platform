@@ -256,6 +256,10 @@ def _install_success_connector(monkeypatch, private_key: Ed25519PrivateKey):
         return _signed_connector_response(json, private_key)
 
     monkeypatch.setattr(trusted_query.httpx, "post", post)
+    monkeypatch.setattr(trusted_query.httpx, "get", lambda url, **_kwargs: _discovery_response(url, {
+        "organization_id": "org-generator-t01", "energy_domain": "electricity",
+        "connector_id": "local-node-org-generator-t01", "public_key": _public_key(private_key),
+    }))
     return calls
 
 
@@ -1037,6 +1041,9 @@ def test_retry_reuses_connector_task_and_request_item_ids(client, auth_headers, 
         return _signed_connector_response(json, private_key)
 
     monkeypatch.setattr(trusted_query.httpx, "post", flaky_post)
+    # This case isolates durable identity reuse; readiness behavior has its
+    # own clock-controlled HTTP tests in test_trusted_query_cold_start.py.
+    monkeypatch.setattr(trusted_query, "_wait_for_connector_readiness", lambda **_kwargs: 0.0)
     accepted = _execute(client, auth_headers["exchange"], body, "retry-response-lost")
     task_id = accepted.json()["task_id"]
     with SessionLocal() as db:

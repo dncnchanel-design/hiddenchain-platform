@@ -28,6 +28,9 @@ def _install_rejection(monkeypatch, response, phase):
 
     monkeypatch.setattr(trusted_query.httpx, "get", reject)
     monkeypatch.setattr(trusted_query.httpx, "post", reject)
+    # Keep classifier tests independent of the separately tested readiness
+    # deadline; these mocks model the original rejected HTTP operation only.
+    monkeypatch.setattr(trusted_query, "_wait_for_connector_readiness", lambda **_kwargs: 0.0)
     if phase == "discovery":
         with SessionLocal() as db:
             node = db.scalar(select(LocalSubjectNode).where(LocalSubjectNode.org_id == "org-generator-t01"))
@@ -108,6 +111,7 @@ def test_compute_http_warning_is_metadata_only_and_does_not_change_failure_behav
         })
 
     monkeypatch.setattr(trusted_query.httpx, "post", reject)
+    monkeypatch.setattr(trusted_query, "_wait_for_connector_readiness", lambda **_kwargs: 0.0)
     caplog.set_level(logging.WARNING, logger=trusted_query.__name__)
     accepted = _execute(client, auth_headers["exchange"], body, "safe-http-diagnostics")
     assert accepted.status_code == 202, accepted.text

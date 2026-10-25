@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parents[1]
 AREAS = {"accounts", "authorization", "contract", "settlement", "assistant", "electricity", "queries", "own-queries", "notifications"}
 FUNCTIONS = ("sum", "average", "max", "min", "count", "median", "growth_rate", "yoy", "mom", "group_by", "threshold", "trend", "psi", "mpc_aggregation")
 UI_QUERY_FUNCTIONS = {"sum", "average", "max", "min", "count", "trend"}
+# Three bounded worker attempts can include readiness waits and Retry-After.
+QUERY_COMPLETION_TIMEOUT_SECONDS = 540
 
 
 class CheckFailure(AssertionError):
@@ -507,7 +509,7 @@ class Acceptance:
         if failure and "http_status" in task:
             return {"rejected_stage": "execute", "response": task, "task_created": False}
         self.own(task["task_id"])
-        deadline = time.monotonic() + 60
+        deadline = time.monotonic() + QUERY_COMPLETION_TIMEOUT_SECONDS
         while task["status"] not in {"SUCCEEDED", "FAILED"} and time.monotonic() < deadline:
             task = self.call(f"/trust-space/query/tasks/{task['task_id']}", "generator")
             if task["status"] not in {"SUCCEEDED", "FAILED"}:
@@ -693,7 +695,7 @@ class Acceptance:
                 key = self.key("own-query")
                 task = self.call("/trust-space/query/execute", account, body, key=key)
                 self.own(task["task_id"])
-                deadline = time.monotonic() + 60
+                deadline = time.monotonic() + QUERY_COMPLETION_TIMEOUT_SECONDS
                 while task["status"] not in {"SUCCEEDED", "FAILED"} and time.monotonic() < deadline:
                     task = self.call(f"/trust-space/query/tasks/{task['task_id']}", account)
                     if task["status"] not in {"SUCCEEDED", "FAILED"}:

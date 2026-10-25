@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import secrets
+import time
 from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -75,11 +76,12 @@ TRUSTED_QUERY_RECEIPT_SCHEMA = "TRUSTED_QUERY_RECEIPT_V2"
 
 
 class TrustedQueryExecutionError(RuntimeError):
-    def __init__(self, code: str, summary: str, *, retryable: bool) -> None:
+    def __init__(self, code: str, summary: str, *, retryable: bool, retry_delay_seconds: float | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.summary = summary
         self.retryable = retryable
+        self.retry_delay_seconds = retry_delay_seconds
 
 
 class TrustedQueryLeaseLost(RuntimeError):
@@ -1806,7 +1808,11 @@ def _connector_response_error(response: httpx.Response, *, discovery: bool = Fal
     else:
         code = "CONNECTOR_TEMPORARY_FAILURE" if retryable else "CONNECTOR_REQUEST_REJECTED"
         summary = "企业连接器暂时不可用，任务将在稍后重试" if retryable else "企业连接器拒绝了受控计算请求"
-    return TrustedQueryExecutionError(code, summary, retryable=retryable)
+    retry_delay = None
+    hint = response.headers.get("retry-after", "").strip()
+    if retryable and re.fullmatch(r"[0-9]{1,6}", hint) and int(hint) > 0:
+        retry_delay = float(min(60, int(hint)))
+    return TrustedQueryExecutionError(code, summary, retryable=retryable, retry_delay_seconds=retry_delay)
 
 
 def _discover_connector_public_key(
@@ -1815,8 +1821,10 @@ def _discover_connector_public_key(
     node: dict[str, Any],
     provider_org_id: str,
     energy_domain: str,
+    expected_public_key: str | None = None,
+    deadline: float | None = None,
 ) -> str:
-    if settings.app_env not in {"demo", "development", "test"}:
+    if not expected_public_key and settings.app_env not in {"demo", "development", "test"}:
         raise TrustedQueryExecutionError(
             "CONNECTOR_KEY_NOT_REGISTERED",
             "企业连接器公钥未登记",
@@ -1825,6 +1833,7 @@ def _discover_connector_public_key(
     parsed = urlparse(endpoint)
     if (
         parsed.scheme not in {"http", "https"}
+        or settings.app_env == "production" and parsed.scheme != "https"
         or not parsed.netloc
         or parsed.username is not None
         or parsed.password is not None
@@ -1836,10 +1845,19 @@ def _discover_connector_public_key(
         )
 
     def load_json(path: str) -> dict[str, Any]:
+        timeout = float(settings.connector_timeout_seconds)
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            raise TrustedQueryExecutionError(
+                "CONNECTOR_DISCOVERY_UNAVAILABLE",
+                "企业连接器身份发现暂不可用，任务将在稍后重试",
+                retryable=True,
+            )
         try:
             response = httpx.get(
                 f"{endpoint.rstrip('/')}{path}",
-                timeout=settings.connector_timeout_seconds,
+                timeout=timeout,
             )
         except httpx.HTTPError as exc:
             raise TrustedQueryExecutionError(
@@ -1847,6 +1865,15 @@ def _discover_connector_public_key(
                 "企业连接器身份发现暂不可用，任务将在稍后重试",
                 retryable=True,
             ) from exc
+        if expected_public_key:
+            media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+            content_category = "json" if media_type == "application/json" or media_type.endswith("+json") else (
+                "html" if media_type in {"text/html", "application/xhtml+xml"} else "other"
+            )
+            logger.warning(
+                "trusted_query_connector_readiness_response provider_org_id=%s endpoint_host=%s http_status=%s content_category=%s",
+                provider_org_id, parsed.hostname, response.status_code, content_category,
+            )
         if response.status_code >= 400:
             raise _connector_response_error(response, discovery=True)
         try:
@@ -1904,7 +1931,64 @@ def _discover_connector_public_key(
             "企业连接器身份公钥无效",
             retryable=False,
         ) from exc
+    if expected_public_key and public_key != expected_public_key:
+        raise TrustedQueryExecutionError(
+            "CONNECTOR_IDENTITY_MISMATCH",
+            "企业连接器签名公钥与登记信息不一致",
+            retryable=False,
+        )
     return public_key
+
+
+def _wait_for_connector_readiness(
+    *,
+    endpoint: str,
+    node: dict[str, Any],
+    provider_org_id: str,
+    energy_domain: str,
+    expected_public_key: str,
+) -> None:
+    """Wait only after this query failed transiently; never establish new trust.
+
+    A single configured deadline bounds all probes and sleeps. A server hint
+    that outlasts it is retained for the existing durable retry scheduler.
+    """
+    if not expected_public_key:
+        raise TrustedQueryExecutionError("CONNECTOR_KEY_NOT_REGISTERED", "企业连接器公钥未登记", retryable=False)
+    budget = max(0.1, min(60.0, float(settings.connector_timeout_seconds)))
+    deadline = time.monotonic() + budget
+    delay = 0.0
+    hinted_delay = False
+    backoff = 5.0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if delay > 0:
+            pause = min(delay, remaining)
+            time.sleep(pause)
+            delay -= pause
+        if time.monotonic() >= deadline:
+            break
+        try:
+            _discover_connector_public_key(
+                endpoint=endpoint, node=node, provider_org_id=provider_org_id,
+                energy_domain=energy_domain, expected_public_key=expected_public_key,
+                deadline=deadline,
+            )
+            return
+        except TrustedQueryExecutionError as error:
+            if not error.retryable:
+                raise
+            hinted_delay = error.retry_delay_seconds is not None
+            delay = error.retry_delay_seconds if error.retry_delay_seconds is not None else backoff
+            backoff = min(15.0, backoff * 2)
+    raise TrustedQueryExecutionError(
+        "CONNECTOR_DISCOVERY_UNAVAILABLE",
+        "企业连接器暂未就绪，任务将在稍后重试",
+        retryable=True,
+        retry_delay_seconds=max(0.0, delay) if hinted_delay else None,
+    )
 
 
 def _execute_claimed_query_task(
@@ -1930,6 +2014,7 @@ def _execute_claimed_query_task(
             retryable=True,
         )
     trust_bootstrap = "PRECONFIGURED_PUBLIC_KEY"
+    identity_waited = not expected_public_key or task.attempt > 1
     if not expected_public_key:
         expected_public_key = _discover_connector_public_key(
             endpoint=str(endpoint),
@@ -1938,7 +2023,21 @@ def _execute_claimed_query_task(
             energy_domain=str((task.canonical_payload_json or {}).get("energy_domain") or ""),
         )
         trust_bootstrap = "VERIFIED_HEALTH_DISCOVERY"
+    elif task.attempt > 1:
+        # Prior Retry-After is honored by the durable claim's due-time fence.
+        # A new readiness window must actually probe after that delay, even
+        # when the original hint consumed an entire connector timeout.
+        _heartbeat_query_task(db, task_id=task_id, lease_owner=lease_owner)
+        _wait_for_connector_readiness(
+            endpoint=str(endpoint), node=node or {}, provider_org_id=authorization.provider_org_id,
+            energy_domain=str((task.canonical_payload_json or {}).get("energy_domain") or ""),
+            expected_public_key=expected_public_key,
+        )
     task = _heartbeat_query_task(db, task_id=task_id, lease_owner=lease_owner)
+    if identity_waited:
+        # A grant, account, or dataset can change during connector readiness.
+        db.expire_all()
+        user, authorization, asset, version, request_item = _revalidate_query_dispatch(db, task=task)
     connector_payload = _connector_query_payload(task, authorization, version, request_item)
     timestamp = str(int(datetime.now(UTC).timestamp()))
     nonce = secrets.token_urlsafe(24)
@@ -2319,7 +2418,7 @@ def _persist_fenced_query_task_failure(
     now = utc_now()
     terminal = not error.retryable or task.attempt >= task.max_attempts
     next_attempt_at = (
-        None if terminal else now + timedelta(seconds=min(30, 2 ** task.attempt))
+        None if terminal else now + timedelta(seconds=max(min(30, 2 ** task.attempt), error.retry_delay_seconds or 0))
     )
     fence_conditions = [
         TrustedQueryTask.task_id == task.task_id,

@@ -21,6 +21,7 @@ PROFILES = (
     ("exchange_oil", "oil", "production", False), ("regulator", "electricity", "load", False),
 )
 WINDOWS = (("2026-08-12", "2026-08-14"), ("2026-08-15", "2026-08-17"))
+QUERY_COMPLETION_TIMEOUT_SECONDS = 540
 
 
 class WorkflowFixtureError(AssertionError):
@@ -120,7 +121,7 @@ def run_query(owner: Any, account: str, domain: str, resource: str, asset: dict[
             "confirmation_token": confirmed["confirmation_token"]}
     task = owner.call("/trust-space/query/execute", account, body, key=owner.key("workflow-execute-" + account))
     remember(owner, "owned_query_tasks", task["task_id"])
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + QUERY_COMPLETION_TIMEOUT_SECONDS
     while task["status"] not in {"SUCCEEDED", "FAILED"} and time.monotonic() < deadline:
         task = owner.call("/trust-space/query/tasks/" + task["task_id"], account)
         if task["status"] not in {"SUCCEEDED", "FAILED"}:

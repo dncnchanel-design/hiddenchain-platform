@@ -551,6 +551,7 @@ def _empty_subject_metric(
     status: str,
     status_label: str,
     message: str,
+    retryable: bool = False,
 ) -> dict[str, Any]:
     return {
         "title": "主体核心指标",
@@ -558,6 +559,7 @@ def _empty_subject_metric(
         "value": None,
         "unit": spec["unit"],
         "status": status,
+        "retryable": retryable,
         "status_label": status_label,
         "source": "主体本地连接器",
         "latest_date": None,
@@ -581,6 +583,7 @@ def _regulator_metric(view: dict[str, Any]) -> dict[str, Any]:
         "value": value,
         "unit": "项",
         "status": "available",
+        "retryable": False,
         "status_label": "平台汇总",
         "source": "可信空间目录",
         "latest_date": None,
@@ -590,6 +593,14 @@ def _regulator_metric(view: dict[str, Any]) -> dict[str, Any]:
         "message": "仅统计目录元数据，不代表跨主体业务数值",
         "raw_records_returned": False,
     }
+
+
+class _DashboardUnavailable(RuntimeError):
+    pass
+
+
+def _dashboard_retryable_status(status: int) -> bool:
+    return status in {408, 425, 429} or 500 <= status < 600
 
 
 def _dashboard_connector_public_key(
@@ -615,12 +626,19 @@ def _dashboard_connector_public_key(
             f"{endpoint.rstrip('/')}/health",
             timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
         )
-        if response.status_code >= 400:
-            raise httpx.HTTPError("connector health unavailable")
-        health = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.TransportError as exc:
         if not public_key:
-            raise ValueError("主体连接器身份发现暂不可用") from exc
+            raise _DashboardUnavailable("主体连接器身份发现暂不可用") from exc
+    else:
+        if response.status_code >= 400:
+            if not _dashboard_retryable_status(response.status_code):
+                raise ValueError("主体连接器身份发现被拒绝")
+            if not public_key:
+                raise _DashboardUnavailable("主体连接器身份发现暂不可用")
+        else:
+            health = response.json()
+            if not isinstance(health, dict):
+                raise ValueError("主体连接器身份发现格式无效")
     if health is not None:
         if not isinstance(health, dict) or (
             health.get("connector_id") != node.get("node_code")
@@ -716,6 +734,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
                 status="unavailable",
                 status_label="不可用",
                 message=f"主体连接器返回 {status_code}：{detail}",
+                retryable=_dashboard_retryable_status(response.status_code),
             )
 
         result = response.json()
@@ -781,6 +800,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             "value": latest["value"],
             "unit": str(result.get("unit") or spec["unit"]),
             "status": "available",
+            "retryable": False,
             "status_label": "已接入",
             "source": f"{energy_label}主体本地连接器 · 签名汇总",
             "latest_date": latest["date"],
@@ -792,6 +812,14 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             "privacy_verification": privacy_verification,
             "connector_audit": connector_audit,
         }
+    except (httpx.TransportError, _DashboardUnavailable):
+        return _empty_subject_metric(
+            spec,
+            status="unavailable",
+            status_label="不可用",
+            message="主体连接器暂不可用，未生成业务指标。",
+            retryable=True,
+        )
     except Exception:
         return _empty_subject_metric(
             spec,
