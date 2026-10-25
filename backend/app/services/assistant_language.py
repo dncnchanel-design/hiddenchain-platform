@@ -136,6 +136,10 @@ def _local_action(text: str) -> str:
         if _has(text, ("完整", "质量", "校验", "缺失", "缺字段", "护照", "integrity", "passport")):
             return "CHECK_ASSET_INTEGRITY"
         return "LIST_AUTHORIZED_DATA_ASSETS" if _has(text, ("已获准", "已授权", "能用", "可用", "可以用", "能让我用")) else "LIST_DATA_ASSETS"
+    # Polite prefixes can introduce either onboarding or a real object query.
+    # Resolve explicit business objects before this conversational fallback.
+    if re.search(r"(?:跟你|向你|对你).{0,6}(?:说|问|输入).{0,5}(?:什么|啥|哪些).{0,10}(?:办事|办理|操作|指令|功能|提问)|(?:怎么|如何|怎样).{0,6}(?:问你|向你提问)|(?:输入|说|问).{0,6}(?:什么|啥|哪些).{0,6}(?:指令|能办|可以办|才能办)", text):
+        return "ASSISTANT_HELP"
     return "UNKNOWN_INTENT"
 
 

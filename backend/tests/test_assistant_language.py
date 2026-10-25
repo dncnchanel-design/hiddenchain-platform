@@ -14,6 +14,12 @@ def reset_test_database(monkeypatch):
 
 @pytest.mark.parametrize(("question", "action"), [
     ("看看本方数据清单", "LIST_DATA_ASSETS"),
+    ("我该向你提问什么才能办理业务？", "ASSISTANT_HELP"),
+    ("第一次来，该输入哪些指令能办事？", "ASSISTANT_HELP"),
+    ("不熟悉流程，怎样问你才合适？", "ASSISTANT_HELP"),
+    ("向你查询一下我有哪些数据", "LIST_DATA_ASSETS"),
+    ("向你问一下我有哪些数据", "LIST_DATA_ASSETS"),
+    ("向你问一下哪些授权申请已经办理完成", "LIST_AUTHORIZATIONS"),
     ("我想知道有哪些数据可以申请", "LIST_VISIBLE_DATA_ASSETS"),
     ("我的申请批下来没有", "QUERY_AUTHORIZATION_STATUS"),
     ("列出还没处理的授权申请", "LIST_AUTHORIZATIONS"),
