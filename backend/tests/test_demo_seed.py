@@ -282,6 +282,37 @@ def test_startup_metadata_handshake_recovers_from_a_real_delayed_http_listener()
         thread.join(timeout=2)
 
 
+def test_startup_metadata_retries_availability_but_never_an_identity_mismatch(monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    owner, domain = "org-coal-t01", "coal"
+    catalog = _catalog(owner, domain, key)
+    health = {"connector_id": f"local-node-{owner}", "organization_id": owner, "energy_domain": domain, "public_key": catalog["public_key"]}
+    request = {"owner": owner, "domain": domain, "node": {"endpoint": "http://node.test", "node_code": health["connector_id"], "public_key": None}, "units": {resource: unit for resource, _name, unit in RESOURCE_DEFINITIONS[domain]}, "deadline": time.monotonic() + 5}
+    calls = []
+
+    def transient_then_ready(url, **_kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ConnectError("listener not yet ready")
+        return httpx.Response(200, json=health if url.endswith("/health") else catalog, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(synthetic_catalog.httpx, "get", transient_then_ready)
+    monkeypatch.setattr(synthetic_catalog.time, "sleep", lambda _seconds: None)
+    result_owner, verified, error = synthetic_catalog._fetch_catalog(request)
+    assert result_owner == owner and error is None and len(verified) == 6
+    assert calls == ["http://node.test/health", "http://node.test/health", "http://node.test/catalog"]
+
+    calls.clear()
+
+    def wrong_identity(url, **_kwargs):
+        calls.append(url)
+        return httpx.Response(200, json={**health, "organization_id": "another-owner"}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(synthetic_catalog.httpx, "get", wrong_identity)
+    assert synthetic_catalog._fetch_catalog(request) == (owner, None, "SYNTHETIC_CONNECTOR_IDENTITY_INVALID")
+    assert calls == ["http://node.test/health"]
+
+
 def test_every_configured_subject_can_start_its_handshake_while_other_nodes_are_cold(monkeypatch):
     enabled = replace(settings, app_env="demo", demo_catalog_seed=True)
     monkeypatch.setattr(synthetic_catalog, "settings", enabled)

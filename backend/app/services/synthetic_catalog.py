@@ -116,6 +116,8 @@ def verify_catalog(
 
 
 def _fetch_catalog(request: dict[str, Any]) -> tuple[str, dict[str, dict[str, Any]] | None, str | None]:
+    from ..routers.prototype import _DashboardUnavailable, _dashboard_connector_public_key
+
     owner, domain, node, units = (request[key] for key in ("owner", "domain", "node", "units"))
     deadline = request.get("deadline", time.monotonic() + STARTUP_SYNC_BUDGET_SECONDS)
     delay, error = 0.5, "SYNTHETIC_CONNECTOR_IDENTITY_UNAVAILABLE"
@@ -123,8 +125,6 @@ def _fetch_catalog(request: dict[str, Any]) -> tuple[str, dict[str, dict[str, An
         try:
             # Reuse the workbench trust anchor; retry availability, never an
             # identity/signature mismatch. All workers share one startup budget.
-            from ..routers.prototype import _dashboard_connector_public_key
-
             public_key, _source, _latest = _dashboard_connector_public_key(
                 endpoint=str(node["endpoint"]), node=node, provider_org_id=owner, energy_domain=domain,
             )
@@ -139,6 +139,8 @@ def _fetch_catalog(request: dict[str, Any]) -> tuple[str, dict[str, dict[str, An
             return owner, verify_catalog(payload, public_key=public_key, connector_id=node["node_code"], owner_org_id=owner, domain=domain, units=units), None
         except SyntheticCatalogError as exc:
             return owner, None, str(exc)
+        except _DashboardUnavailable:
+            error = "SYNTHETIC_CONNECTOR_IDENTITY_UNAVAILABLE"
         except ValueError as exc:
             if str(exc) != "主体连接器身份发现暂不可用":
                 return owner, None, "SYNTHETIC_CONNECTOR_IDENTITY_INVALID"
