@@ -318,7 +318,7 @@ export function QueryPage() {
     let active = true;
     let inFlight = false;
     let timer: number | undefined;
-    let controller: AbortController | null = null;
+    const controller = new AbortController();
     let failures = 0;
 
     const clearTimer = () => {
@@ -337,7 +337,6 @@ export function QueryPage() {
     const poll = async () => {
       if (!active || inFlight || document.visibilityState === "hidden") return;
       inFlight = true;
-      controller = new AbortController();
       try {
         const next = await loadTrustedQueryTask(pendingTaskId, controller.signal);
         if (!active) return;
@@ -425,7 +424,7 @@ export function QueryPage() {
     return () => {
       active = false;
       clearTimer();
-      controller?.abort();
+      controller.abort();
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   // The nonce is an explicit manual retry trigger for the same durable task.

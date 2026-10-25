@@ -23,6 +23,7 @@ from ..models import AccessRule, AuditLog, BlockchainEvidence, DataUsageRequest,
 from ..security import canonical_json, sha256_json
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.common import add_audit_log
+from ..services.connector_readiness import browser_connector_readiness
 from ..services.local_data_boundary import subject_node_config
 from ..services.privacy_attestation import (
     ConnectorAuditError,
@@ -940,7 +941,11 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
         timeline = demo_projection["timeline"]
     map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}}
     connectors = _dashboard_connectors(view, metric, ok, demo_projection)
+    readiness = browser_connector_readiness(db, user.org_id, view["energy_domain"]) if (
+        view["kind"] != "regulator" and metric["status"] == "unavailable" and metric.get("retryable") is True
+    ) else None
     return {
+        **({"connector_readiness": readiness} if readiness else {}),
         "kpis": {
             "resources": db.scalar(select(func.count(DataAsset.asset_id)).where(DataAsset.status == "ACTIVE")) or 0,
             "rules": db.scalar(select(func.count(AccessRule.rule_id)).where(AccessRule.status == "ACTIVE")) or 0,

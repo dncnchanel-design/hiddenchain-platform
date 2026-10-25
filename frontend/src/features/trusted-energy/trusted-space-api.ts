@@ -1,4 +1,5 @@
 import { ApiError, api, post, type ApiCommandOptions } from "../../api";
+import { prepareConnector, prepareQueryConnector, type ConnectorReadiness } from "./connector-readiness";
 
 export type CapabilityEnvelope = {
   capability_state?: string;
@@ -453,6 +454,7 @@ export type PrototypeHeaderPayload = {
 };
 
 export type PrototypeDashboardPayload = {
+  connector_readiness?: ConnectorReadiness;
   kpis: { resources: number; rules: number; identities: number; blocks: number; today_queries: number };
   map: { days: string[]; series: Record<string, number[]>; city_days?: Record<string, number[]> };
   metric: {
@@ -708,6 +710,7 @@ export type ControlledQueryResult = {
 export type TrustedQueryTaskStatus = "QUEUED" | "RUNNING" | "PENDING_RETRY" | "SUCCEEDED" | "FAILED";
 
 export type TrustedQueryTask = {
+  connector_readiness?: ConnectorReadiness;
   task_id: string;
   status: TrustedQueryTaskStatus;
   status_url: string;
@@ -1379,11 +1382,18 @@ export function loadPrototypeHeader(signal?: AbortSignal) {
   return api<PrototypeHeaderPayload>("/prototype/header", { signal, cacheTtlMs: 2_000 });
 }
 
-export function loadPrototypeDashboard(signal?: AbortSignal) {
-  return api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500, timeoutMs: 25_000, retry: 0 }).catch((error: unknown) => {
+export async function loadPrototypeDashboard(signal?: AbortSignal) {
+  try {
+    const data = await api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500, timeoutMs: 25_000, retry: 0 });
+    if (data.metric?.status === "unavailable" && data.metric.retryable === true && data.connector_readiness
+      && await prepareConnector(data.connector_readiness, signal)) {
+      return await api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cache: "no-store", timeoutMs: 25_000, retry: 0 });
+    }
+    return data;
+  } catch (error: unknown) {
     if (error instanceof TypeError) throw new ApiError("网络连接失败，请检查连接后重试", 503);
     throw error;
-  });
+  }
 }
 
 export function askPrototypeQuery(text: string, options: ApiCommandOptions = {}) {
@@ -1617,7 +1627,10 @@ export function loadTrustedQueryTask(taskId: string, signal?: AbortSignal) {
     signal,
     cache: "no-store",
     retry: 0,
-  }).then(trustedQueryTaskPayload);
+  }).then(trustedQueryTaskPayload).then((task) => {
+    prepareQueryConnector(task, signal);
+    return task;
+  });
 }
 
 export function loadTrustedQueryResult(taskId: string, signal?: AbortSignal) {

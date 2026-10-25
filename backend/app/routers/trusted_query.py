@@ -41,6 +41,7 @@ from ..models import (
     utc_now,
 )
 from ..services.common import add_audit_log
+from ..services.connector_readiness import browser_connector_readiness
 from ..services.data_usage_requests import UsageRequestError
 from ..services.llm import DeepSeekUnavailable, translate_trusted_space_query
 from ..services.query_translation import redact_query_text
@@ -2564,6 +2565,17 @@ def get_query_task_status(
 ) -> dict[str, Any]:
     task = _scoped_query_task(db, task_id=task_id, user=user)
     response = _query_task_status_payload(task)
+    if task.status in {"QUEUED", "RUNNING", "PENDING_RETRY"}:
+        try:
+            _revalidate_query_dispatch(db, task=task)
+        except TrustedQueryExecutionError:
+            pass
+        else:
+            readiness = browser_connector_readiness(
+                db, task.provider_org_id, str((task.canonical_payload_json or {}).get("energy_domain") or ""),
+            )
+            if readiness:
+                response["connector_readiness"] = readiness
     if _query_task_is_due(task):
         background_tasks.add_task(run_trusted_query_task, task.task_id)
     return response
