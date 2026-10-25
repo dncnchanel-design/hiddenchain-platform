@@ -1776,6 +1776,37 @@ def _connector_query_payload(
     )
 
 
+def _connector_response_error(response: httpx.Response, *, discovery: bool = False) -> TrustedQueryExecutionError:
+    """Recognize fixed privacy denials without exposing arbitrary node details."""
+    if response.status_code == 429:
+        summaries = {
+            "REPEATED_QUERY_LIMIT": "已达到隐私保护的重复查询上限，当前请求不再自动重试",
+            "CONNECTOR_BUDGET_EXHAUSTED": "本连接器的隐私查询预算已用尽，当前请求不再自动重试",
+        }
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        structured = detail if isinstance(detail, dict) else payload if isinstance(payload, dict) else {}
+        code = structured.get("code", structured.get("error_code"))
+        if not isinstance(code, str) or code not in summaries:
+            code = {
+                "相同或近似查询次数已达到隐私保护上限": "REPEATED_QUERY_LIMIT",
+                "本连接器查询预算已用尽": "CONNECTOR_BUDGET_EXHAUSTED",
+            }.get(detail) if isinstance(detail, str) else None
+        if code is not None:
+            return TrustedQueryExecutionError(code, summaries[code], retryable=False)
+    retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
+    if discovery:
+        code = "CONNECTOR_DISCOVERY_UNAVAILABLE" if retryable else "CONNECTOR_DISCOVERY_REJECTED"
+        summary = "企业连接器身份发现暂不可用，任务将在稍后重试" if retryable else "企业连接器拒绝了身份发现请求"
+    else:
+        code = "CONNECTOR_TEMPORARY_FAILURE" if retryable else "CONNECTOR_REQUEST_REJECTED"
+        summary = "企业连接器暂时不可用，任务将在稍后重试" if retryable else "企业连接器拒绝了受控计算请求"
+    return TrustedQueryExecutionError(code, summary, retryable=retryable)
+
+
 def _discover_connector_public_key(
     *,
     endpoint: str,
@@ -1815,18 +1846,7 @@ def _discover_connector_public_key(
                 retryable=True,
             ) from exc
         if response.status_code >= 400:
-            retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
-            raise TrustedQueryExecutionError(
-                "CONNECTOR_DISCOVERY_UNAVAILABLE"
-                if retryable
-                else "CONNECTOR_DISCOVERY_REJECTED",
-                (
-                    "企业连接器身份发现暂不可用，任务将在稍后重试"
-                    if retryable
-                    else "企业连接器拒绝了身份发现请求"
-                ),
-                retryable=retryable,
-            )
+            raise _connector_response_error(response, discovery=True)
         try:
             value = response.json()
         except ValueError as exc:
@@ -1949,16 +1969,7 @@ def _execute_claimed_query_task(
             retryable=True,
         ) from exc
     if response.status_code >= 400:
-        retryable = response.status_code in {408, 425, 429} or response.status_code >= 500
-        raise TrustedQueryExecutionError(
-            "CONNECTOR_TEMPORARY_FAILURE" if retryable else "CONNECTOR_REQUEST_REJECTED",
-            (
-                "企业连接器暂时不可用，任务将在稍后重试"
-                if retryable
-                else "企业连接器拒绝了受控计算请求"
-            ),
-            retryable=retryable,
-        )
+        raise _connector_response_error(response)
     try:
         result = response.json()
     except ValueError as exc:
