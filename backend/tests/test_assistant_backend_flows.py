@@ -1,4 +1,5 @@
 """Real assistant HTTP flows using the shared seeded application fixture."""
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -10,7 +11,7 @@ from app.models import (
     SettlementTask, User, UserNotification, utc_now,
 )
 from app.security import create_access_token
-from app.services import trust_space
+from app.services import assistant as assistant_service, assistant_catalog, assistant_language as language, trust_space
 from app.trust_models import DataAsset, DataAssetVersion
 
 
@@ -379,3 +380,149 @@ def test_historical_who_and_trailing_which_questions_never_create_review_envelop
         assert db.get(DataUsageRequest, approved_id).status == "APPROVED"
         assert db.get(DataUsageRequest, pending_id).status == "SUBMITTED"
         assert db.scalar(select(func.count(AuditLog.log_id)).where(AuditLog.action_code == "ASSISTANT_WRITE_REVIEW_REQUESTED")) == 0
+
+
+def injected_model(monkeypatch, action, *, clarify=False):
+    """Inject only classification JSON; all HTTP authorization and reads stay real."""
+    observed = []
+    monkeypatch.setattr(language, "settings", SimpleNamespace(deepseek_enabled=True, deepseek_api_key="injected-offline-classifier"))
+    def classify(**kwargs):
+        observed.append(kwargs)
+        return {"payload": {"action": action, "target_text": None, "choice_index": None, "clarify": clarify}, "model": "injected-classifier"}
+    monkeypatch.setattr(language, "translate_assistant_intent", classify)
+    return observed
+
+
+def metadata_candidate(db, name):
+    owner = db.scalar(select(User).where(User.username == "generator"))
+    reference = db.scalar(select(DataAsset).where(DataAsset.owner_org_id == owner.org_id))
+    identity = "asset-http-" + uuid4().hex[:16]
+    item = DataAsset(asset_id=identity, asset_code=identity, asset_name=name,
+                     owner_org_id=owner.org_id, source_id=reference.source_id,
+                     asset_type="ENERGY_METRIC", classification="ENTERPRISE_DATA_PRODUCT", sensitivity_level="L2", status="ACTIVE")
+    db.add(item)
+    db.flush()
+    return identity
+
+
+@pytest.mark.parametrize("scope_changed", [False, True])
+def test_model_contract_exact_candidate_binds_old_identity_before_classification(client, accounts, monkeypatch, scope_changed):
+    label = "A HTTP候选绑定对象"
+    with SessionLocal() as db:
+        original_id = metadata_candidate(db, label)
+        db.commit()
+    headers = accounts["generator"]
+    pending = ask(client, headers, start(client, headers), "检查资产完整性")
+    assert pending["plan"]["status"] == "NEEDS_INPUT"
+    assert any(item["entity_id"] == original_id and item["label"] == label for item in pending["plan"]["plan"]["candidates"])
+    replacement_id = None
+    if scope_changed:
+        with SessionLocal() as db:
+            outsider = db.scalar(select(User).where(User.username == "retailer"))
+            db.get(DataAsset, original_id).owner_org_id = outsider.org_id
+            replacement_id = metadata_candidate(db, label)
+            db.commit()
+    def forbidden_classifier(*args, **kwargs):
+        pytest.fail("An exact previous candidate label must bind before understand/model classification")
+    monkeypatch.setattr(assistant_service, "understand", forbidden_classifier)
+    selected = ask(client, headers, pending["session"], label)
+    plan = selected["plan"]
+    assert plan["intent_code"] == "CHECK_ASSET_INTEGRITY"
+    assert plan["plan"]["understanding"]["selection_rule"] == "PREVIOUS_SCOPED_CANDIDATE"
+    assert plan["steps"][0]["target_id"] == original_id
+    assert plan["steps"][0]["target_id"] != replacement_id
+    result = execute(client, headers, selected)
+    if scope_changed:
+        assert plan["status"] == "BLOCKED" and plan["steps"][0]["error_code"] == "ASSET_SCOPE_DENIED"
+        assert result["plan"]["steps"][0]["invocation_id"] is None
+        assert result["plan"]["steps"][0]["output"] == {}
+    else:
+        assert plan["status"] == "READY"
+        assert result["plan"]["steps"][0]["output"]["asset_id"] == original_id
+        assert result["plan"]["steps"][0]["output"]["raw_data_accessed"] is False
+
+
+def test_model_contract_duplicate_candidate_labels_require_an_explicit_ordinal(client, accounts, monkeypatch):
+    label = "A HTTP同名候选"
+    with SessionLocal() as db:
+        identities = {metadata_candidate(db, label), metadata_candidate(db, label)}
+        db.commit()
+    headers = accounts["generator"]
+    pending = ask(client, headers, start(client, headers), "检查资产完整性")
+    assert pending["plan"]["status"] == "NEEDS_INPUT"
+    real_understand = assistant_service.understand
+    def forbid_label(content, **kwargs):
+        if content == label:
+            pytest.fail("A duplicate previous label must request an ordinal before model classification")
+        return real_understand(content, **kwargs)
+    monkeypatch.setattr(assistant_service, "understand", forbid_label)
+    ambiguous = ask(client, headers, pending["session"], label)
+    plan = ambiguous["plan"]
+    assert plan["status"] == "NEEDS_INPUT" and plan["steps"][0]["target_id"] is None
+    assert "execute" not in plan["allowed_actions"] and "序号" in plan["plan"]["explanation"]
+    choices = plan["plan"]["candidates"]
+    assert {item["entity_id"] for item in choices if item["label"] == label} == identities
+    chosen = next(item for item in choices if item["entity_id"] in identities)
+    ordinal = choices.index(chosen) + 1
+    selected = ask(client, headers, ambiguous["session"], f"第{ordinal}个")
+    assert selected["plan"]["status"] == "READY" and selected["plan"]["steps"][0]["target_id"] == chosen["entity_id"]
+    assert execute(client, headers, selected)["plan"]["steps"][0]["output"]["asset_id"] == chosen["entity_id"]
+
+
+def test_model_contract_owned_inventory_cannot_be_replaced_by_usage_authority(client, accounts, monkeypatch):
+    current = actor("generator")
+    with SessionLocal() as db:
+        db.get(User, current.user_id).permissions_json = ["VIEW_DATA"]
+        db.commit()
+        assert assistant_catalog.read_action(db, db.get(User, current.user_id), "LIST_AUTHORIZED_DATA_ASSETS")["total"] == 0
+    observed = injected_model(monkeypatch, "LIST_AUTHORIZED_DATA_ASSETS")
+    headers = accounts["generator"]
+    planned = ask(client, headers, start(client, headers), "我想查询一下我现在有哪些数据")
+    plan = planned["plan"]
+    assert len(observed) == 1 and plan["intent_code"] == "LIST_DATA_ASSETS" and plan["status"] == "READY"
+    assert plan["plan"]["understanding"]["model_action"] == "LIST_AUTHORIZED_DATA_ASSETS"
+    assert plan["plan"]["understanding"]["scope_rule"] == "OWNED_REGISTRATION_INVENTORY"
+    output = execute(client, headers, planned)["plan"]["steps"][0]["output"]
+    expected = client.get("/api/trust-space/catalog?page_size=100&provider_org_id=" + current.org_id, headers=headers).json()
+    assert expected["total"] > 0 and output["total"] == expected["total"]
+    assert {item["asset_id"] for item in output["items"]} == {item["asset_id"] for item in expected["items"]}
+    assert output["scope"] == "OWN_ORGANIZATION" and output["raw_data_accessed"] is False
+
+
+def test_model_contract_missing_task_target_keeps_selection_instead_of_listing(client, accounts, monkeypatch):
+    observed = injected_model(monkeypatch, "LIST_TASKS")
+    headers = accounts["exchange"]
+    planned = ask(client, headers, start(client, headers), "帮我检查任务状态")
+    plan = planned["plan"]
+    assert len(observed) == 1 and plan["intent_code"] == "CHECK_TTC_STATUS"
+    assert plan["plan"]["understanding"]["model_action"] == "LIST_TASKS"
+    assert plan["status"] == "NEEDS_INPUT" and plan["steps"][0]["target_id"] is None
+    assert "execute" not in plan["allowed_actions"] and plan["plan"]["candidates"]
+    expected = client.get("/api/trust-space/ttc?page_size=100", headers=headers).json()["items"]
+    jobs = client.get("/api/trust-space/computations?page_size=100", headers=headers).json()["items"]
+    visible_ids = {item["task_id"] for item in expected} | {item["job_id"] for item in jobs}
+    assert {item["entity_id"] for item in plan["plan"]["candidates"]} <= visible_ids
+    assert execute(client, headers, planned)["plan"]["steps"][0]["invocation_id"] is None
+
+
+def test_model_contract_system_abstention_preserves_role_denial_and_safe_admin_ops(client, accounts, monkeypatch):
+    observed = injected_model(monkeypatch, "UNKNOWN_INTENT", clarify=True)
+    for account in (*BUSINESS_ACCOUNTS, "admin"):
+        headers = accounts[account]
+        planned = ask(client, headers, start(client, headers), "平台健康和账户数量如何")
+        plan = planned["plan"]
+        assert plan["intent_code"] == "SYSTEM_OVERVIEW", (account, plan)
+        assert plan["plan"]["understanding"]["source"] == "FALLBACK"
+        assert plan["plan"]["understanding"]["fallback_reason"] == "MODEL_INTENT_UNRESOLVED"
+        if account == "admin":
+            assert plan["status"] == "READY"
+            output = execute(client, headers, planned)["plan"]["steps"][0]["output"]
+            assert output["scope"] == "OPERATIONS_ONLY" and output["raw_data_accessed"] is False
+            assert not any(key in str(output) for key in ("asset_id", "request_id", "task_id", "data_ref", "password_hash", "public_key", "endpoint_ref"))
+        else:
+            assert plan["status"] == "BLOCKED", (account, plan)
+            assert plan["steps"][0]["error_code"] == "ASSISTANT_ROLE_DENIED"
+            assert "execute" not in plan["allowed_actions"]
+            assert execute(client, headers, planned)["plan"]["steps"][0]["invocation_id"] is None
+    assert len(observed) == len(BUSINESS_ACCOUNTS) + 1
+    assert all("available_actions" not in item["context"] for item in observed)

@@ -9,9 +9,9 @@ from ..config import settings
 from .llm import DeepSeekUnavailable, translate_assistant_intent
 
 DESCRIPTIONS = {
-    "LIST_DATA_ASSETS": "列出本方登记的数据/数据清单/数据数量",
-    "LIST_VISIBLE_DATA_ASSETS": "浏览当前账号可见的数据目录，使用权另行校验",
-    "LIST_AUTHORIZED_DATA_ASSETS": "列出本方可计算和当前已获有效授权的数据；具体计算仍需核对用途和期间",
+    "LIST_DATA_ASSETS": "默认数据盘点：当前账号所属主体登记的数据、资产清单、数量；不要求已有使用授权",
+    "LIST_VISIBLE_DATA_ASSETS": "明确询问他方发布或当前可浏览的资源目录；可见不表示已获使用权",
+    "LIST_AUTHORIZED_DATA_ASSETS": "仅明确询问已获授权、能使用或能用于计算的资源时选择；不替代本方登记的数据清单",
     "CHECK_ASSET_INTEGRITY": "检查某项数据的版本、护照、质量和完整性",
     "LIST_AUTHORIZATIONS": "列出本方申请或收到的授权申请及其状态",
     "QUERY_AUTHORIZATION_STATUS": "查询某一条授权申请的状态",
@@ -49,6 +49,8 @@ WRITE_WORDS = {
     "REVOKE_USAGE_AUTHORIZATION": ("撤销", "收回", "终止授权", "取消授权", "revoke"),
     "ADVANCE_TTC_STATE": ("推进", "下一步", "下一阶段", "advance"),
 }
+DATA_LIST_ACTIONS = frozenset({"LIST_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS"})
+TASK_WORDS = ("任务", "作业", "计算工作", "计算活", "活儿", "ttc", "transaction capsule")
 
 
 def _has(text: str, words: tuple[str, ...]) -> bool:
@@ -70,6 +72,32 @@ def _write_requested(text: str, action: str) -> bool:
         return False
     command = re.sub(r"^(?:(?:请|麻烦|帮我|替我|给我|你帮我|我想要|我想|我希望|我要|我需要|先|现在|直接|只|仅)|please\s+)+", "", text).strip()
     return any(command.startswith(word) for word in WRITE_WORDS[action]) or bool(re.match(r"^(?:把|将)", command) and _has(command, WRITE_WORDS[action]))
+
+
+def _owned_inventory_question(text: str) -> bool:
+    """Neutral ownership questions default to registration, never usage rights."""
+    return (_has(text, ("数据", "资产", "资源", "资料", "dataset", "asset"))
+            and bool(re.search(r"(?:我(?:们)?|我方|本方|本公司|本机构|本单位|咱们)(?:(?:现在|目前|当前|现有|名下|这边|手头|手上|的|这家|公司|都|自己)){0,4}(?:有|持有|拥有|登记|存|挂|数据|资产|资源|资料|哪些|什么|多少|几[项份条])", text))
+            and bool(re.search(r"哪些|什么|多少|几[项份条]|清单|列表|盘点", text))
+            and not _has(text, ("授权", "可用", "能用", "可以用", "使用", "计算", "可见", "能看到", "浏览", "别家", "别人", "其他", "对方", "他方", "他们", "外部", "合作公司", "合作方", "供应商", "供应方", "质量", "完整", "护照", "版本", "哈希")))
+
+
+def _specific_read(text: str, local: str, action: str, entity_type: str | None) -> str:
+    if local in {"LIST_TASKS", "CHECK_TTC_STATUS"} and action in DATA_LIST_ACTIONS and _has(text, TASK_WORDS):
+        return local
+    pairs = {"CHECK_ASSET_INTEGRITY": {"LIST_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS"},
+             "QUERY_AUTHORIZATION_STATUS": {"LIST_AUTHORIZATIONS"}, "CHECK_TTC_STATUS": {"LIST_TASKS"},
+             "EXPLAIN_AUDIT": {"LIST_AUDIT_REPORTS"}}
+    if _has(text, ("哪些", "全部", "所有", "列表", "清单", "列出", "多少", "几个", "几条", "几份", "这些", "那些", "各个", "每个", "都", "未完成", "失败的")):
+        return action
+    if action in pairs.get(local, set()):
+        return local
+    if _has(text, ("这批", "这项", "这个", "该", "眼前", "刚才", "上一条")):
+        if action == "LIST_TASKS" and entity_type in {"settlement_task", "privacy_compute_job"}:
+            return "CHECK_TTC_STATUS"
+        if action == "LIST_AUTHORIZATIONS" and entity_type == "data_usage_request":
+            return "QUERY_AUTHORIZATION_STATUS"
+    return action
 
 
 def _local_action(text: str) -> str:
@@ -102,8 +130,8 @@ def _local_action(text: str) -> str:
         return "LIST_AUTHORIZATIONS" if _has(text, ("哪些", "列表", "清单", "那些", "列出", "全部", "所有", "多少", "几条", "待审核", "待审批")) else "QUERY_AUTHORIZATION_STATUS"
     if _has(text, ("负荷", "发电量", "供气", "供热", "库存", "供应量", "产量", "风电", "光伏", "用电量")) and (_has(text, ("平均", "总和", "合计", "趋势", "最大", "最小", "统计", "求和")) or re.search(r"\d+月|\d{4}年", text)):
         return "NAVIGATE_QUERY"
-    if _has(text, ("任务", "作业", "ttc", "transaction capsule")):
-        return "LIST_TASKS" if _has(text, ("哪些", "列表", "清单", "列出", "全部", "所有", "多少", "几个", "未完成", "失败的")) else "CHECK_TTC_STATUS"
+    if _has(text, TASK_WORDS):
+        return "LIST_TASKS" if _has(text, ("哪些", "列表", "清单", "列出", "全部", "所有", "多少", "几个", "未完成", "失败的", "捋一遍", "梳理", "盘点")) else "CHECK_TTC_STATUS"
     if _has(text, ("数据", "资产", "资源", "dataset", "asset")):
         if _has(text, ("完整", "质量", "校验", "缺失", "缺字段", "护照", "integrity", "passport")):
             return "CHECK_ASSET_INTEGRITY"
@@ -127,7 +155,7 @@ def understand(content: str, *, available_actions: list[str], previous_action: s
     text = original.lower()
     effective = _positive_text(original)
     positive = effective.lower()
-    status_filter = next((status for words, status in [(("未读", "没看过"), "UNREAD"), (("已读",), "READ"), (("失败", "出错", "被拒", "未通过"), "FAILED"), (("已经批准", "已批准", "审批通过"), "APPROVED"), (("待审批", "待审核", "待处理", "排队", "未完成"), "PENDING"), (("运行中", "正在执行", "执行中"), "RUNNING"), (("已完成", "成功", "已结束"), "SUCCEEDED")] if _has(positive, words)), None)
+    status_filter = next((status for words, status in [(("未读", "没看过"), "UNREAD"), (("已读",), "READ"), (("失败", "出错", "被拒", "未通过"), "FAILED"), (("已经批准", "已批准", "审批通过"), "APPROVED"), (("未完成", "没跑完", "还没结束"), "NOT_FINISHED"), (("待审批", "待审核", "待处理", "排队"), "PENDING"), (("运行中", "正在执行", "执行中"), "RUNNING"), (("已完成", "成功", "已结束"), "SUCCEEDED")] if _has(positive, words)), None)
     base: dict[str, Any] = {"source": "LOCAL", "model_used": False, "search": None, "selection": _selection(positive), "effective_text": effective, "status_filter": status_filter}
     if not positive:
         return {**base, "action": "ASSISTANT_HELP", "clarify": True, "message": "好的，未执行该操作。你希望查询哪一项内容？"}
@@ -150,7 +178,9 @@ def understand(content: str, *, available_actions: list[str], previous_action: s
         base["search"] = quoted.group(1)
     if settings.deepseek_enabled and settings.deepseek_api_key:
         try:
-            result = translate_assistant_intent(question=content, context={"available_actions": available_actions, "action_catalog": DESCRIPTIONS, "previous_action": previous_action, "entity_type": entity_type, "recent_user_questions": [s[:1000] for s in (history or [])[-4:]]})
+            # Classification must not change with an actor's permissions. The
+            # caller's available_actions remain enforced by the local executor.
+            result = translate_assistant_intent(question=content, context={"action_catalog": DESCRIPTIONS, "previous_action": previous_action, "entity_type": entity_type, "recent_user_questions": [s[:1000] for s in (history or [])[-4:]]})
             payload = result["payload"]
             if not isinstance(payload, dict) or set(payload) - {"action", "target_text", "choice_index", "clarify"}:
                 raise ValueError("invalid fields")
@@ -167,6 +197,17 @@ def understand(content: str, *, available_actions: list[str], previous_action: s
                 raise ValueError("invented target")
             if action in WRITE_WORDS and not _write_requested(positive, action):
                 action = local if local not in WRITE_WORDS else "ASSISTANT_HELP"
+            if action in DATA_LIST_ACTIONS and _owned_inventory_question(positive):
+                base["scope_rule"] = "OWNED_REGISTRATION_INVENTORY"
+                base["model_action"] = action
+                action = "LIST_DATA_ASSETS"
+            specific = _specific_read(positive, local, action, entity_type)
+            if specific != action:
+                base["model_action"] = action
+                base["selection_rule"] = "DETAIL_TARGET_SELECTED_BY_SERVER"
+                action = specific
+            if action == "UNKNOWN_INTENT" and local != "UNKNOWN_INTENT":
+                return {**base, "action": local, "clarify": False, "source": "FALLBACK", "model_used": False, "fallback_reason": "MODEL_INTENT_UNRESOLVED", "model": result.get("model")}
             return {**base, "action": action, "search": target or base["search"], "selection": choice or base["selection"], "clarify": payload["clarify"], "source": "MODEL", "model_used": True, "model": result.get("model")}
         except (DeepSeekUnavailable, ValueError, TypeError, KeyError):
             base["source"] = "FALLBACK"

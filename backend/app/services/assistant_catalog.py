@@ -51,13 +51,14 @@ WRITE_ACTIONS = frozenset({
     "REVOKE_USAGE_AUTHORIZATION", "ADVANCE_TTC_STATE",
 })
 STATUS_GROUPS = {
-    "PENDING": frozenset({"PENDING", "SUBMITTED", "UNDER_REVIEW", "QUEUED", "READY", "DRAFT", "INIT", "IDENTITY_VERIFIED", "DATA_AUTHORIZED", "RULE_FROZEN", "HUMAN_REVIEW"}),
+    "PENDING": frozenset({"PENDING", "SUBMITTED", "UNDER_REVIEW", "QUEUED", "READY", "DRAFT", "INIT", "IDENTITY_VERIFIED", "DATA_AUTHORIZED", "RULE_FROZEN", "HUMAN_REVIEW", "REWORK", "ANCHOR_RETRY"}),
     "FAILED": frozenset({"FAILED", "BLOCKED", "REJECTED", "INTERRUPTED"}),
-    "RUNNING": frozenset({"RUNNING", "COMPUTING", "EXECUTING", "COMPUTE_EXEC", "RESULT_CONFIRM", "AUDIT_GATE"}),
+    "RUNNING": frozenset({"RUNNING", "COMPUTING", "EXECUTING", "COMPUTE_EXEC", "RESULT_CONFIRM", "AUDIT_GATE", "EVIDENCE_STAGE", "EVIDENCE_ANCHOR"}),
     "SUCCEEDED": frozenset({"SUCCEEDED", "COMPLETED", "SUCCESS", "PASSED", "ARCHIVED", "CONFIRMED"}),
     "UNREAD": frozenset({"UNREAD"}),
     "READ": frozenset({"READ"}),
 }
+STATUS_GROUPS["NOT_FINISHED"] = STATUS_GROUPS["PENDING"] | STATUS_GROUPS["RUNNING"]
 
 
 def _blocked(code: str, message: str) -> dict[str, Any]:
@@ -210,7 +211,7 @@ def _filtered(items: list[dict[str, Any]], search: str | None, status_filter: st
     accepted = STATUS_GROUPS.get(status, frozenset({status}))
     selected = [item for item in items
                 if (not needle or needle in f"{item['label']} {item['entity_id']}".casefold())
-                and (not status or status == "ALL" or accepted.intersection({item["status"], item.get("ttc_state")}))]
+                and (not status or status == "ALL" or (item.get("ttc_state") or item["status"]) in accepted)]
     return sorted(selected, key=lambda item: (item["label"].casefold(), item["entity_type"], item["entity_id"]))
 
 
@@ -300,7 +301,7 @@ def _authorized_asset_list(db: Session, user: User, *, search: str | None, statu
 
 
 def _task_items(db: Session, user: User) -> list[dict[str, Any]]:
-    items = [_item(task.task_id, "settlement_task", task.task_name, task.status, task_id=task.task_id, ttc_state=task.ttc_state)
+    items = [_item(task.task_id, "settlement_task", task.task_name, task.ttc_state or task.status, task_id=task.task_id, ttc_state=task.ttc_state, legacy_status=task.status)
              for task in db.scalars(trust_space._task_scope_query(db, user)).all()]
     task_exists = select(SettlementTask.task_id).where(SettlementTask.task_id == PrivacyComputeJob.task_id).exists()
     jobs = select(PrivacyComputeJob).where(or_(

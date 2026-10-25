@@ -479,3 +479,7 @@ PRODUCTION_STATUS = NOT_RELEASED（Render 仅为公开演示/评审环境）
 本轮修复覆盖语义规划、连续追问、受控范围列表、有效授权、管理员运维入口和查询预填。发布沿用 main 的 checksPass 自动部署。
 
 本记录写入时状态为 LOCAL_VERIFICATION；最终 SHA 和线上证据写入忽略的 runtime 发布账本，必须核对本地、GitHub main/agent 分支、8 个 Render 服务与 /api/version。历史 Vault、运行数据库和用户独立文档均不得上传。
+
+### 第二轮语义约束候选
+
+613b80ae29a98e28050f8029568750e931a40c15 已同步本地、GitHub双分支与8个Render服务；线上完整矩阵仍发现47项真实语义错误，故继续发布后验收，不能宣布全面通过。第二轮将用后续提交修复相同根因，保持原语料、原判定和完整分母；最终版本以忽略的 runtime/assistant-language-release.json 和线上版本/部署证据为准。

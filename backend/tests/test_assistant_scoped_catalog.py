@@ -84,6 +84,10 @@ def reset_test_database():
         db.add(UserNotification(notification_id="notification-wrong-org", user_id="exchange", org_id="coal", notification_type="TEST", title="异主体通知", body="private-body", dedupe_key="wrong-org"))
         db.commit()
     yield
+    # A later session-scoped HTTP client must start from an empty test schema,
+    # not this module's intentionally non-demo organization identifiers.
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
 
 
 @pytest.fixture
@@ -319,3 +323,15 @@ def test_status_groups_filter_all_scoped_rows_before_total_and_page_limit(db):
     assert [item["entity_id"] for item in candidates] == ["request-filter-z-pending"]
     assert read_action(db, actor, "LIST_AUTHORIZATIONS", search="筛选申请", status_filter="APPROVED")["total"] == 25
     assert read_action(db, actor, "LIST_NOTIFICATIONS", status_filter="READ")["total"] == 26
+
+
+@pytest.mark.parametrize(("ttc_state", "unfinished"), [("INIT", True), ("COMPUTE_EXEC", True), ("EVIDENCE_STAGE", True), ("ANCHOR_RETRY", True), ("HUMAN_REVIEW", True), ("CANCELLED", False), ("ARCHIVED", False), ("REJECTED", False), ("FAILED", False), ("EXPIRED", False)])
+def test_unfinished_tasks_follow_authoritative_ttc_state_instead_of_legacy_draft(db, ttc_state, unfinished):
+    task = db.get(SettlementTask, "task-owned")
+    task.status, task.ttc_state = "DRAFT", ttc_state
+    db.flush()
+    result = read_action(db, user(db), "LIST_TASKS", search="task-owned", status_filter="NOT_FINISHED")
+    assert result["total"] == int(unfinished)
+    exact = read_action(db, user(db), "LIST_TASKS", search="task-owned", status_filter=ttc_state)
+    assert exact["total"] == 1 and exact["items"][0]["status"] == ttc_state
+    assert exact["items"][0]["legacy_status"] == "DRAFT"

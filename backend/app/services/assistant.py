@@ -389,11 +389,14 @@ def _resolve_language(db: Session, session: AssistantSession, user: User, conten
         old_step = db.scalar(select(AssistantPlanStep).where(AssistantPlanStep.plan_id == previous.plan_id).order_by(AssistantPlanStep.sequence_no))
         old_candidates = (old_step.output_json or {}).get("items", []) if old_step else []
     history = db.scalars(select(AssistantMessage.content).where(AssistantMessage.session_id == session.session_id, AssistantMessage.role == "USER").order_by(AssistantMessage.sequence_no.desc()).limit(4)).all()
-    language = understand(content, available_actions=sorted(action for action, roles in ACTION_ROLES.items() if user.role_code in roles), previous_action=previous_action, entity_type=session.entity_type, history=list(reversed(history)))
     # Exact labels can only refer to the immediately preceding scoped result.
     exact_names = [item for item in old_candidates if item.get("label") == content.strip()]
-    if len(exact_names) == 1 and previous_action and language["action"] == "UNKNOWN_INTENT":
-        language.update(action=previous_action, search=content.strip(), clarify=False, reference=True)
+    if exact_names and previous_action:
+        language = {"action": previous_action, "source": "LOCAL", "model_used": False, "search": content.strip(), "effective_text": content.strip(), "reference": True, "clarify": len(exact_names) > 1,
+                    "selection": old_candidates.index(exact_names[0]) + 1 if len(exact_names) == 1 else None,
+                    "selection_rule": "PREVIOUS_SCOPED_CANDIDATE", "message": "同名对象不止一项，请回复序号选择。"}
+    else:
+        language = understand(content, available_actions=sorted(action for action, roles in ACTION_ROLES.items() if user.role_code in roles), previous_action=previous_action, entity_type=session.entity_type, history=list(reversed(history)))
     action = language["action"]
     result = {"action": action, "mode": "READ" if action in READ_ACTIONS else "WRITE" if action in WRITE_ACTIONS else "NEEDS_INPUT", "explanation": DESCRIPTIONS.get(action, "请选择要查询的内容。"), "target_type": None, "target_id": None, "error_code": None, "candidates": [], "understanding": {k: v for k, v in language.items() if k not in {"effective_text", "search"}}}
     if user.role_code not in ACTION_ROLES.get(action, frozenset()):
@@ -402,7 +405,7 @@ def _resolve_language(db: Session, session: AssistantSession, user: User, conten
             result.update(mode="BLOCKED" if language.get("blocked") else "NEEDS_INPUT", error_code="ASSISTANT_MODEL_UNAVAILABLE" if language.get("source") == "FALLBACK" else "ASSISTANT_INTENT_REQUIRED", explanation=language.get("message") or "还不确定你要查询什么。可以说明数据、授权、任务或系统状态，或选择下方指令。")
         return result
     if language.get("clarify"):
-        result.update(mode="BLOCKED" if language.get("blocked") else "NEEDS_INPUT", explanation=language.get("message") or "请确认要执行的查询或复核动作。", error_code="ASSISTANT_INTENT_REQUIRED")
+        result.update(mode="BLOCKED" if language.get("blocked") else "NEEDS_INPUT", explanation=language.get("message") or "请确认要执行的查询或复核动作。", error_code="ASSISTANT_INTENT_REQUIRED", candidates=assistant_catalog.target_candidates(db, user, action) if exact_names else [])
         return result
     if action in LIST_ACTIONS | LOCAL_ACTIONS:
         result.update(target_type="organization", target_id=user.org_id)

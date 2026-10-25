@@ -60,6 +60,14 @@ def test_other_organizations_is_not_misread_as_negation():
     assert result["action"] == "LIST_VISIBLE_DATA_ASSETS" and result["clarify"] is False
 
 
+def test_unfinished_includes_running_tasks_not_just_waiting_tasks():
+    from app.services.assistant_catalog import STATUS_GROUPS
+    result = language.understand("列出未完成任务", available_actions=list(language.DESCRIPTIONS))
+    assert result["action"] == "LIST_TASKS" and result["status_filter"] == "NOT_FINISHED"
+    assert {"QUEUED", "RUNNING"} <= STATUS_GROUPS[result["status_filter"]]
+    assert not {"SUCCEEDED", "CANCELLED"} & STATUS_GROUPS[result["status_filter"]]
+
+
 def test_ordinal_and_previous_object_use_server_conversation_state():
     result = language.understand("第二个", available_actions=list(language.DESCRIPTIONS), previous_action="CHECK_TTC_STATUS")
     assert result["selection"] == 2 and result["action"] == "CHECK_TTC_STATUS"
@@ -96,7 +104,7 @@ def test_unseen_paraphrase_uses_model_classification_without_business_records(mo
     result = language.understand("那批活儿如今转到哪道流程了", available_actions=["CHECK_TTC_STATUS"], entity_type="privacy_compute_job")
     assert result["action"] == "CHECK_TTC_STATUS" and result["source"] == "MODEL"
     assert result["model_used"] is True
-    assert set(observed[0]["context"]) == {"available_actions", "action_catalog", "previous_action", "entity_type", "recent_user_questions"}
+    assert set(observed[0]["context"]) == {"action_catalog", "previous_action", "entity_type", "recent_user_questions"}
 
 
 def test_model_failure_has_honest_local_fallback(monkeypatch):
@@ -107,3 +115,44 @@ def test_model_failure_has_honest_local_fallback(monkeypatch):
     monkeypatch.setattr(language, "translate_assistant_intent", unavailable)
     result = language.understand("看看我名下的数据", available_actions=["LIST_DATA_ASSETS"])
     assert result["action"] == "LIST_DATA_ASSETS" and result["source"] == "FALLBACK"
+
+
+@pytest.mark.parametrize(("question", "model_action", "expected"), [
+    ("我想查询一下我现在有哪些数据", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_DATA_ASSETS"),
+    ("我们名下登记的数据有哪几份？", "LIST_VISIBLE_DATA_ASSETS", "LIST_DATA_ASSETS"),
+    ("请把我手头资料的清单梳理一下", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_DATA_ASSETS"),
+    ("列出我目前已获准使用的数据", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS"),
+    ("浏览别家发布的资源目录", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("对方公司的数据有哪些", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("合作公司的资产清单有哪几项", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("我想看看供应商名下有哪些资源", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("甲公司名下的资源清单", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("我想查询甲公司的数据有哪些", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("本公司想浏览乙公司的资料清单", "LIST_VISIBLE_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS"),
+    ("帮我检查任务状态", "LIST_TASKS", "CHECK_TTC_STATUS"),
+    ("这批活儿卡在哪个环节了", "LIST_TASKS", "CHECK_TTC_STATUS"),
+    ("把跟我们有关的计算活儿给我捋一遍", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_TASKS"),
+    ("全部任务的状态列表", "LIST_TASKS", "LIST_TASKS"),
+    ("帮我查询授权申请状态", "LIST_AUTHORIZATIONS", "QUERY_AUTHORIZATION_STATUS"),
+    ("核对这份数据的版本和护照", "LIST_DATA_ASSETS", "CHECK_ASSET_INTEGRITY"),
+])
+def test_model_catalog_and_target_shape_cannot_replace_the_requested_scope(monkeypatch, question, model_action, expected):
+    monkeypatch.setattr(language.settings, "deepseek_enabled", True)
+    monkeypatch.setattr(language.settings, "deepseek_api_key", "unit-test-not-a-real-key")
+    monkeypatch.setattr(language, "translate_assistant_intent", lambda **kwargs: {"payload": {"action": model_action, "target_text": None, "choice_index": None, "clarify": False}, "model": "configured-model"})
+    result = language.understand(question, available_actions=list(language.DESCRIPTIONS), entity_type="settlement_task")
+    assert result["action"] == expected and result["model_used"] is True and result["source"] == "MODEL"
+
+
+def test_role_independent_intent_retains_a_known_question_when_model_abstains(monkeypatch):
+    monkeypatch.setattr(language.settings, "deepseek_enabled", True)
+    monkeypatch.setattr(language.settings, "deepseek_api_key", "unit-test-not-a-real-key")
+    observed = []
+    def classify(**kwargs):
+        observed.append(kwargs)
+        return {"payload": {"action": "UNKNOWN_INTENT", "target_text": None, "choice_index": None, "clarify": True}, "model": "configured-model"}
+    monkeypatch.setattr(language, "translate_assistant_intent", classify)
+    result = language.understand("平台健康和账户数量如何", available_actions=["LIST_DATA_ASSETS"])
+    assert result["action"] == "SYSTEM_OVERVIEW" and result["source"] == "FALLBACK"
+    assert result["model_used"] is False and result["fallback_reason"] == "MODEL_INTENT_UNRESOLVED"
+    assert "available_actions" not in observed[0]["context"]
