@@ -216,27 +216,55 @@ class Acceptance:
     def contracts(self) -> None:
         grant = self.request(approve=True)
         contract_id = grant["contract_id"]
+        fixture: dict[str, Any] = {}
+        def official(data: dict[str, Any]) -> dict[str, Any]:
+            return {"policy": data["contract"]["terms"], "policy_hash": data["contract"]["policy_hash"],
+                    "agreement": data["agreement"]}
         def detail():
             data = self.call(f"/trust-space/contracts/{contract_id}", "generator")
-            return {"contract_id": contract_id, "agreement_state": data["agreement"]["state"], "allowed_actions": data["allowed_actions"]}
+            require(data["agreement"]["state"] == "ACTIVE", "Normal provider approval did not create an ACTIVE agreement")
+            task = self.create_task("consumed contract lifecycle")
+            require(task["readiness"]["preflight_passed"], "Consumed contract prerequisite lacks normal settlement readiness")
+            done = self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key("contract-run"))
+            agreement = next(item for item in done["data_space"]["agreements"] if item["provider_org_id"] == self.sessions["generator"]["user"]["org_id"])
+            require(agreement["state"] == "CONSUMED" and agreement["use_count"] == agreement["max_uses"], "Normal settlement did not consume its real agreement")
+            fixture["consumed_contract_id"] = self.own(agreement["contract_id"])
+            self.own(agreement["agreement_id"])
+            consumed = self.call(f"/trust-space/contracts/{agreement['contract_id']}", "generator")
+            require(consumed["contract"]["task_id"] == task["task_id"] and consumed["agreement"]["state"] == "CONSUMED", "Consumed contract detail is not bound to this run's settlement")
+            return {"contract_id": contract_id, "agreement_state": data["agreement"]["state"], "allowed_actions": data["allowed_actions"],
+                    "consumed_contract_id": agreement["contract_id"], "consumed_task_id": task["task_id"], "consumed_state": "CONSUMED"}
         self.check("contract:normal-ui-generated-state", detail, account="generator")
         def comment():
-            data = self.call(f"/trust-space/contracts/{contract_id}", "generator")
-            version = data["events"][-1]["state_version"] if data["events"] else 0
-            key = self.key("contract-comment")
-            body = {"event_type": "COMMENT", "message": self.run_id + " controlled aggregate comment", "terms": {}, "attachments": []}
-            event = self.call(f"/trust-space/contracts/{contract_id}/events", "generator", body, match=version, key=key)
-            replay = self.call(f"/trust-space/contracts/{contract_id}/events", "generator", body, match=version, key=key)
-            require(replay["event_id"] == event["event_id"] and replay["idempotent_replay"], "Contract comment replay changed event")
-            return {"contract_id": contract_id, "event_id": event["event_id"], "idempotent_replay": True}
+            records = []
+            for target in (contract_id, fixture["consumed_contract_id"]):
+                data = self.call(f"/trust-space/contracts/{target}", "generator")
+                version = data["events"][-1]["state_version"] if data["events"] else 0
+                key = self.key("contract-comment")
+                body = {"event_type": "COMMENT", "message": self.run_id + " controlled aggregate comment", "terms": {"max_uses": 123}, "attachments": []}
+                event = self.call(f"/trust-space/contracts/{target}/events", "generator", body, match=version, key=key)
+                replay = self.call(f"/trust-space/contracts/{target}/events", "generator", body, match=version, key=key)
+                require(replay["event_id"] == event["event_id"] and replay["idempotent_replay"], "Contract comment replay changed event")
+                after = self.call(f"/trust-space/contracts/{target}", "generator")
+                require(official(after) == official(data), "A metadata comment changed formal policy, agreement state, decision, or use budget")
+                require(len(after["events"]) == len(data["events"]) + 1 and after["events"][-1]["terms"] == body["terms"], "Comment terms were not retained solely as one append-only event")
+                records.append({"contract_id": target, "state": data["agreement"]["state"], "event_id": event["event_id"]})
+            return {"contracts": records, "idempotent_replay": True, "formal_policy_and_budget_unchanged": True}
         self.check("contract:comment-and-replay", comment, account="generator")
         for action in ("counter", "accept", "reject"):
             def closed_action(action=action):
-                data = self.call(f"/trust-space/contracts/{contract_id}", "generator")
-                version = data["events"][-1]["state_version"] if data["events"] else 0
-                require(data["agreement"]["state"] == "ACTIVE" and action not in data["allowed_actions"], "Unexpected normal approval state; inspect a newly reachable negotiation flow")
-                response = self.call(f"/trust-space/contracts/{contract_id}/{action}", "generator", {"message": self.run_id + " closed-state probe", "terms": {}, "attachments": []}, match=version, key=self.key(action), expected=(409,))
-                return {"_status": "NOT_REACHABLE_FROM_CURRENT_UI", "contract_id": contract_id, "normal_created_state": "ACTIVE", "disabled_action": action, "closed_state_response": response, "reason": "Current approval creates ACTIVE agreement; no shipped UI/HTTP creation flow leaves a controllable pending negotiation. No database fixture fabricated."}
+                records = []
+                for target, state in ((contract_id, "ACTIVE"), (fixture["consumed_contract_id"], "CONSUMED")):
+                    data = self.call(f"/trust-space/contracts/{target}", "generator")
+                    version = data["events"][-1]["state_version"] if data["events"] else 0
+                    require(data["agreement"]["state"] == state and action not in data["allowed_actions"], "A closed real agreement incorrectly exposed a negotiation action")
+                    response = self.call(f"/trust-space/contracts/{target}/{action}", "generator", {"message": self.run_id + " closed-state probe", "terms": {"max_uses": 999}, "attachments": []}, match=version, key=self.key(action), expected=(409,))
+                    require(response["detail"]["code"] == "NEGOTIATION_STATE_CLOSED", "Closed negotiation returned an unrelated failure")
+                    after = self.call(f"/trust-space/contracts/{target}", "generator")
+                    require(official(after) == official(data) and after["events"] == data["events"], "Blocked negotiation modified policy, budget, state, or events")
+                    records.append({"contract_id": target, "state": state, "http_status": response["http_status"], "code": response["detail"]["code"]})
+                return {"_status": "EXPECTED_BLOCKED", "contracts": records, "disabled_action": action, "formal_policy_budget_and_events_unchanged": True,
+                        "reason": "Approved and fully consumed agreements are closed to renegotiation; both normal creation paths were actually exercised."}
             self.check(f"contract:{action}", closed_action, account="generator")
 
     def create_task(self, label: str) -> dict[str, Any]:
@@ -261,7 +289,22 @@ class Acceptance:
             detail = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
             require("transition:INTERRUPTED" not in detail["allowed_actions"], "Unexpected interrupt availability at INIT")
             response = self.call(f"/trust-space/ttc/{task['task_id']}/transitions", "exchange", {"to_state": "INTERRUPTED", "trigger": "TRUSTED_SPACE_UI", "reason": self.run_id + " own task interrupt probe"}, match=detail["task"]["state_version"], expected=(409,))
-            return {"_status": "NOT_REACHABLE_FROM_CURRENT_UI", "task_id": task["task_id"], "current_state": detail["task"]["ttc_state"], "response": response, "reason": "Interruption needs RULE_FROZEN/COMPUTE_EXEC/ANCHOR_RETRY; normal synchronous run exposes no stable controllable intermediate state. No forced timing/database state created."}
+            unchanged = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
+            require(unchanged["task"]["ttc_state"] == "INIT" and unchanged["task"]["state_version"] == detail["task"]["state_version"], "Rejected INIT interruption changed the task")
+            self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key("interrupt-run"))
+            completed = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
+            require(completed["task"]["ttc_state"] == "RESULT_CONFIRM" and "transition:REWORK" in completed["allowed_actions"], "Normal settlement did not reach a reviewable result")
+            self.call(f"/trust-space/ttc/{task['task_id']}/transitions", "exchange", {"to_state": "REWORK", "trigger": "TRUSTED_SPACE_UI", "reason": self.run_id + " rework own completed settlement"}, match=completed["task"]["state_version"])
+            rework = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
+            snapshot = rework["snapshots"][-1]
+            frozen = self.call(f"/trust-domain/tasks/{task['task_id']}/rule-freeze", "exchange", {"rule_id": snapshot["rule_id"], "contract_ids": [item["contract_id"] for item in snapshot["contract_refs"]], "data_upload_ids": [item["upload_id"] for item in snapshot["data_refs"]], "algorithm": {"code": snapshot["algorithm_code"]}, "trace_id": self.run_id + "-interrupt"}, match=rework["task"]["state_version"])
+            ready = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
+            require(frozen["ttc_state"] == ready["task"]["ttc_state"] == "RULE_FROZEN" and "transition:INTERRUPTED" in ready["allowed_actions"], "Normal rework freeze did not expose a real interruption")
+            interrupted = self.call(f"/trust-space/ttc/{task['task_id']}/transitions", "exchange", {"to_state": "INTERRUPTED", "trigger": "TRUSTED_SPACE_UI", "reason": self.run_id + " stop own frozen rework", "attempt_id": ready["attempts"][-1]["attempt_id"]}, match=ready["task"]["state_version"])
+            after = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
+            require(interrupted["ttc_state"] == after["task"]["ttc_state"] == "INTERRUPTED" and after["attempts"][-1]["status"] == "INTERRUPTED", "Manual interruption did not persist in the real new attempt")
+            require(len(after["snapshots"]) == len(completed["snapshots"]) + 1 and after["task"]["current_attempt"] > completed["task"]["current_attempt"], "Rework did not create its own immutable attempt and snapshot")
+            return {"task_id": task["task_id"], "initial_blocked_http_status": response["http_status"], "normal_state_path": ["INIT", "RESULT_CONFIRM", "REWORK", "RULE_FROZEN", "INTERRUPTED"], "snapshot_id": frozen["execution_snapshot"]["snapshot_id"], "attempt_id": after["attempts"][-1]["attempt_id"], "current_state": "INTERRUPTED", "forced_database_state": False}
         self.check("ttc:manual-interruption-availability", interrupt, account="exchange")
         def execute():
             task = self.create_task("result objection")
@@ -291,7 +334,10 @@ class Acceptance:
                 detail = self.call(f"/trust-space/computations/{job_id}", "exchange")
                 require(action not in detail["allowed_actions"], f"Unexpected {action} permission on completed job")
                 response = self.call(f"/trust-space/computations/{job_id}/{action}", "exchange", {"reason": self.run_id + " completed control probe"}, match=detail["job"]["state_version"], key=self.key(action), expected=(409,))
-                return {"_status": "EXPECTED_BLOCKED" if action == "retry" else "NOT_REACHABLE_FROM_CURRENT_UI", "job_id": job_id, "disabled_reason": detail.get("action_reasons", {}).get(action), "response": response, "reason": "Synchronous local executor has no requeue worker; a cancellable QUEUED/PENDING local job cannot be created by the normal shipped UI/HTTP flow."}
+                require(response["detail"]["code"] == "COMPUTE_" + action.upper() + "_BLOCKED", "Unavailable compute control returned an unrelated failure")
+                after = self.call(f"/trust-space/computations/{job_id}", "exchange")
+                require(after["job"] == detail["job"], "Blocked compute control changed the completed job")
+                return {"_status": "EXPECTED_BLOCKED", "job_id": job_id, "disabled_reason": detail.get("action_reasons", {}).get(action), "response": response, "job_unchanged": True, "reason": "The normal executor creates running or completed jobs and exposes no real queued-job creation or requeue capability; the disabled action was actually called and rejected."}
             self.check(f"mpc:{action}-capability", control, account="exchange")
         def rejection():
             reports = self.call("/audit/reports", "regulator")
@@ -532,7 +578,63 @@ class Acceptance:
             mismatches = {name: {"actual": actual[name], "expected_from_controlled_comparable_averages": expected[name]} for name in expected if not math.isclose(actual[name], expected[name], abs_tol=0.02)}
             return {"_status": "FAIL" if mismatches else "PASS", "comparison_periods": {"current": ["2026-06-01", "2026-06-03"], "year": ["2025-06-01", "2025-06-03"], "month": ["2026-05-01", "2026-05-03"]}, "mismatches": mismatches, "raw_records_used": False, "semantics": "Same-scope period averages for YoY/MoM; same-scope first/last-day averages for growth. Never compare different regions as period endpoints."}
         self.check("query:business-growth-yoy-mom-semantics", semantics, account="generator", ui="API_ONLY_NO_CURRENT_NATURAL_LANGUAGE_ENTRY")
-        self.check("query:psi-independent-formula-boundary", lambda: {"_status": "SEMANTICS_UNVERIFIED", "http_properties_verified": "psi" in self.query_results, "separate_formula_test": {"path": "connector/tests/test_period_comparisons.py", "name": "test_psi_matches_an_independently_derived_ten_bin_distribution_formula", "independent_expected_value": "ln(5)/8", "execution_evidence": "Must be supplied by the separate connector test run; this HTTP script does not execute or invent it"}, "reason": "HTTP verifies finite nonnegative dimensionless output; aggregate-only responses do not disclose the individual distribution required for an independent full-bin recalculation. No raw-record reconstruction or synthetic PASS."}, account="generator", ui="API_ONLY_NO_CURRENT_NATURAL_LANGUAGE_ENTRY")
+        def psi_semantics():
+            original = self.query_grant
+            require("psi" in self.query_results, "The original controlled PSI execution is missing")
+            actual = self.query_results["psi"]
+            # A separate provider-approved budget prevents this oracle from
+            # consuming the original function/invalid-parameter test grant.
+            oracle_grant = self.request(approve=True, scope={"max_uses": 40, "start_date": "2026-06-01", "end_date": "2026-06-03"})
+            require(actual["asset_version_id"] == oracle_grant["asset"]["version_id"], "PSI oracle changed the original immutable asset version")
+            self.query_grant = oracle_grant
+            try:
+                baseline_dates, observed_dates = ("2026-06-01", "2026-06-01"), ("2026-06-02", "2026-06-03")
+                minimum, maximum = self.query("min", dates=baseline_dates), self.query("max", dates=baseline_dates)
+                require(minimum["record_count"] == maximum["record_count"] == 4, "PSI baseline extrema do not cover four authorized records")
+                low, high = minimum["result"], maximum["result"]
+                require(all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in (low, high)) and high - low > 1.0,
+                        "PSI extrema are insufficient to prove stable equal-width bins at the permitted precision")
+                edges = [low + (high - low) * index / 10 for index in range(1, 10)]
+                # Connector precision can cap the requested two decimals at
+                # any integer from zero to two. +/-0.500001 conservatively
+                # encloses both extrema's true values even at zero decimals.
+                # Equal >= counts at both ends prove the true internal edge
+                # gives the same bin; no individual record is reconstructed.
+                error_bound = 0.500001
+                periods = []
+                oracle_task_ids = [minimum["task_id"], maximum["task_id"]]
+                for dates, count in ((baseline_dates, 4), (observed_dates, 8)):
+                    above = []
+                    for edge in edges:
+                        lower = self.query("threshold", dates=dates, extras={"threshold": edge - error_bound})
+                        upper = self.query("threshold", dates=dates, extras={"threshold": edge + error_bound})
+                        for result in (lower, upper):
+                            pair = result["result"]
+                            require(result["record_count"] == count and result.get("unit") == "条"
+                                    and set(pair) == {"满足", "不满足"}
+                                    and all(isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= count for value in pair.values())
+                                    and pair["满足"] + pair["不满足"] == count,
+                                    "PSI threshold oracle returned an invalid controlled count partition")
+                        require(lower["result"] == upper["result"], "Rounded extrema leave an uncertain PSI bin boundary; cannot claim an exact independent formula match")
+                        above.append(lower["result"]["满足"])
+                        oracle_task_ids.extend((lower["task_id"], upper["task_id"]))
+                    bins = [count - above[0], *(left - right for left, right in zip(above, above[1:])), above[-1]]
+                    require(len(bins) == 10 and sum(bins) == count and min(bins) >= 0, "Independent PSI histogram is not a complete ten-bin partition")
+                    periods.append({"period": list(dates), "record_count": count, "bins": bins,
+                                    "proportions": [(value + 0.5) / (count + 5) for value in bins]})
+                expected = round(sum((q - p) * math.log(q / p) for p, q in zip(periods[0]["proportions"], periods[1]["proportions"])), 2)
+                require(math.isclose(actual["result"], expected, rel_tol=0, abs_tol=1e-9), "Controlled PSI differs from independently derived aggregate-only ten-bin formula")
+                require(len(set(oracle_task_ids)) == 38, "PSI oracle did not execute all thirty-eight distinct controlled aggregates")
+                after = self.call("/data/access-requests/" + oracle_grant["request_id"], "generator")
+                require(after["usage_budget"]["remaining_uses"] == 2, "PSI oracle consumed an unexpected number of its own approved uses")
+                return {"task_id": actual["task_id"], "oracle_authorization_id": oracle_grant["request_id"], "oracle_task_ids": oracle_task_ids,
+                        "oracle_query_count": 38, "independent_expected": expected, "actual": actual["result"], "periods": periods,
+                        "boundary_counts_stable": True, "extrema_rounding_error_bound": error_bound,
+                        "pseudocount": 0.5, "formula": "sum((q-p)*ln(q/p))", "raw_records_used": False,
+                        "uses_original_authorization": False}
+            finally:
+                self.query_grant = original
+        self.check("query:psi-independent-formula-boundary", psi_semantics, account="generator", ui="API_ONLY_NO_CURRENT_NATURAL_LANGUAGE_ENTRY")
 
     def own_queries(self) -> None:
         specifications = (("generator", "electricity", "generation"), ("retailer", "electricity", "load"), ("coal", "coal", "production"), ("heat", "heat", "supply"), ("gas", "gas", "supply"), ("oil", "oil", "production"), ("exchange", "electricity", "price"))

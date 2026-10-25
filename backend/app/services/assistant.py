@@ -80,13 +80,13 @@ ACTION_TARGET_TYPES = {
     "CHECK_ASSET_INTEGRITY": ("data_asset",),
     "QUERY_AUTHORIZATION_STATUS": ("data_usage_request",),
     "CHECK_TTC_STATUS": ("settlement_task", "privacy_compute_job"),
-    "VERIFY_EVIDENCE_SUMMARY": ("settlement_task", "blockchain_evidence"),
-    "EXPLAIN_AUDIT": ("settlement_task", "audit_report"),
+    "VERIFY_EVIDENCE_SUMMARY": ("settlement_task", "blockchain_evidence", "privacy_compute_job"),
+    "EXPLAIN_AUDIT": ("settlement_task", "audit_report", "privacy_compute_job"),
     "SUBMIT_USAGE_REQUEST": ("data_asset",),
     "APPROVE_USAGE_REQUEST": ("data_usage_request",),
     "REJECT_USAGE_REQUEST": ("data_usage_request",),
     "REVOKE_USAGE_AUTHORIZATION": ("data_usage_request",),
-    "ADVANCE_TTC_STATE": ("settlement_task",),
+    "ADVANCE_TTC_STATE": ("settlement_task", "privacy_compute_job"),
 }
 for action in LIST_ACTIONS | LOCAL_ACTIONS:
     ACTION_TARGET_TYPES[action] = ("organization",)

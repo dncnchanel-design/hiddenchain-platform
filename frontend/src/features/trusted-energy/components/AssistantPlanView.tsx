@@ -9,8 +9,8 @@ const TARGET_LINKS: Record<string, { path: string; label: string }> = {
   CHECK_ASSET_INTEGRITY: { path: "/trusted-space/catalog", label: "选择数据资产" },
   QUERY_AUTHORIZATION_STATUS: { path: "/trusted-space/authorizations", label: "选择授权申请" },
   CHECK_TTC_STATUS: { path: "/trusted-space/mpc", label: "选择计算任务" },
-  VERIFY_EVIDENCE_SUMMARY: { path: "/trusted-space/ttc", label: "选择结算任务" },
-  EXPLAIN_AUDIT: { path: "/trusted-space/ttc", label: "选择结算任务" },
+  VERIFY_EVIDENCE_SUMMARY: { path: "/trusted-space/mpc", label: "选择任务" },
+  EXPLAIN_AUDIT: { path: "/trusted-space/mpc", label: "选择任务" },
 };
 
 const LIST_VIEWS: Record<string, { label: string; empty: string; path: string; link: string }> = {
@@ -43,7 +43,7 @@ function internalPath(value: unknown): string | undefined {
 }
 
 function statusLabel(value: unknown): string {
-  return ({ READ: "已读", UNREAD: "未读", CONFIG_REQUIRED: "待配置", CONFIGURED: "已配置", DISABLED: "已停用", EMPTY: "暂无登记", DEMO: "公开演示环境", DEVELOPMENT: "开发环境", TEST: "测试环境", PRODUCTION: "生产环境" } as Record<string, string>)[text(value)] || labelForCode(value, "未登记");
+  return ({ READ: "已读", UNREAD: "未读", MATCHED: "一致", MISMATCH: "不一致", UNVERIFIED: "待核验", CONFIG_REQUIRED: "待配置", CONFIGURED: "已配置", DISABLED: "已停用", EMPTY: "暂无登记", DEMO: "公开演示环境", DEVELOPMENT: "开发环境", TEST: "测试环境", PRODUCTION: "生产环境" } as Record<string, string>)[text(value)] || labelForCode(value, "未登记");
 }
 
 function SystemOverview({ output }: { output: Record<string, unknown> }) {
@@ -74,6 +74,7 @@ function needsAttention(step: AssistantPlanStep): boolean {
   const integrity = record(output.integrity);
   return ["version_present", "passport_present", "quality_present"].some((key) => integrity[key] === false)
     || ["FAIL", "FAILED", "REJECT", "REJECTED", "BLOCKED"].includes(text(record(output.quality).decision))
+    || ["MISMATCH", "UNVERIFIED"].includes(text(output.verification_status))
     || (Array.isArray(output.items) && output.items.some((item) => record(record(item).verify).matched === false));
 }
 
@@ -117,13 +118,13 @@ function ReadResult({ step, busy, onNavigate, onSuggest, onOpenElectricity }: { 
     }
     return <div className="energy-agent-read-result" role="status"><Link to={path} onClick={onNavigate}>{query ? "打开智能数据查询" : "打开相关页面"}</Link></div>;
   }
-  const fields = [["asset_name", "数据资产"], ["task_name", "任务名称"], ["status_value", "当前状态"], ["ttc_state", "任务阶段"], ["job_id", "计算编号"], ["task_id", "任务编号"], ["request_id", "申请编号"], ["contract_id", "合同编号"], ["audit_log_count", "审计日志数"], ["report_count", "审计报告数"], ["evidence_count", "证据数"]];
+  const fields = [["asset_name", "数据资产"], ["task_name", "任务名称"], ["status_value", "当前状态"], ["ttc_state", "任务阶段"], ["job_id", "计算编号"], ["task_id", "任务编号"], ["request_id", "申请编号"], ["contract_id", "合同编号"], ["audit_log_count", "审计日志数"], ["report_count", "审计报告数"], ["evidence_count", "证据数"], ["receipt_count", "执行回执数"], ["verification_status", "证据核验"]];
   return <div className="energy-agent-read-result" role="status">
     {typeof output.explanation === "string" && <p>{output.explanation}</p>}
-    <dl>{fields.filter(([key]) => text(output[key])).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{labelForCode(text(output[key]), text(output[key]))}</dd></div>)}</dl>
+    <dl>{fields.filter(([key]) => text(output[key])).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{key === "verification_status" ? statusLabel(output[key]) : labelForCode(text(output[key]), text(output[key]))}</dd></div>)}</dl>
     {step.action_code === "CHECK_ASSET_INTEGRITY" && <dl>{[["version_present", "数据版本"], ["passport_present", "资产护照"], ["quality_present", "质量记录"]].map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{record(output.integrity)[key] === true ? "已登记" : record(output.integrity)[key] === false ? "未登记" : "待核验"}</dd></div>)}{record(output.quality).decision ? <div><dt>质量判定</dt><dd>{labelForCode(text(record(output.quality).decision), text(record(output.quality).decision))}</dd></div> : null}</dl>}
     {step.action_code === "CHECK_ASSET_INTEGRITY" && <Link to={`/trusted-space/assets/${encodeURIComponent(text(output.asset_id))}`} onClick={onNavigate}>查看资产护照与完整性详情</Link>}
-    {step.action_code === "VERIFY_EVIDENCE_SUMMARY" && Array.isArray(output.items) && <><p>证据摘要 {output.items.length} 条：{output.items.filter((item) => record(record(item).verify).matched === true).length} 条一致、{output.items.filter((item) => record(record(item).verify).matched === false).length} 条不一致、{output.items.filter((item) => typeof record(record(item).verify).matched !== "boolean").length} 条待核验。</p><Link to={`/trusted-space/ttc/${encodeURIComponent(text(output.task_id))}`} onClick={onNavigate}>查看关联结算任务</Link></>}
+    {step.action_code === "VERIFY_EVIDENCE_SUMMARY" && Array.isArray(output.items) && <><p>{output.evidence_kind === "EXECUTION_RECEIPT" ? "执行回执" : "证据摘要"} {output.items.length} 条：{output.items.filter((item) => record(record(item).verify).matched === true).length} 条一致、{output.items.filter((item) => record(record(item).verify).matched === false).length} 条不一致、{output.items.filter((item) => typeof record(record(item).verify).matched !== "boolean").length} 条待核验。</p>{output.evidence_kind === "EXECUTION_RECEIPT" ? text(output.job_id) && <Link to={`/trusted-space/mpc/${encodeURIComponent(text(output.job_id))}`} onClick={onNavigate}>查看关联计算任务</Link> : text(output.task_id) && <Link to={`/trusted-space/ttc/${encodeURIComponent(text(output.task_id))}`} onClick={onNavigate}>查看关联结算任务</Link>}</>}
   </div>;
 }
 

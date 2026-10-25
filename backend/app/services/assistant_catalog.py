@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (
     AuditReport, BlockchainEvidence, DataContract, DataUsageRequest, Organization,
-    PrivacyComputeJob, SettlementTask, TrustedQueryTask, User, UserNotification, utc_now,
+    ExecutionReceipt, PrivacyComputeJob, SettlementTask, TrustedQueryTask, User, UserNotification, utc_now,
 )
 from ..trust_models import DataAsset, DataAssetVersion, DataSource, TtcAttempt, TtcStateTransition
 from . import trust_space
@@ -34,13 +34,13 @@ DETAIL_TYPES = {
     "CHECK_ASSET_INTEGRITY": ("data_asset",),
     "QUERY_AUTHORIZATION_STATUS": ("data_usage_request",),
     "CHECK_TTC_STATUS": ("settlement_task", "privacy_compute_job"),
-    "VERIFY_EVIDENCE_SUMMARY": ("settlement_task", "blockchain_evidence"),
-    "EXPLAIN_AUDIT": ("settlement_task", "audit_report"),
+    "VERIFY_EVIDENCE_SUMMARY": ("settlement_task", "blockchain_evidence", "privacy_compute_job"),
+    "EXPLAIN_AUDIT": ("settlement_task", "audit_report", "privacy_compute_job"),
     "SUBMIT_USAGE_REQUEST": ("data_asset",),
     "APPROVE_USAGE_REQUEST": ("data_usage_request",),
     "REJECT_USAGE_REQUEST": ("data_usage_request",),
     "REVOKE_USAGE_AUTHORIZATION": ("data_usage_request",),
-    "ADVANCE_TTC_STATE": ("settlement_task",),
+    "ADVANCE_TTC_STATE": ("settlement_task", "privacy_compute_job"),
 }
 LIST_ACTIONS = frozenset({
     "LIST_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_AUTHORIZATIONS",
@@ -164,6 +164,12 @@ def validate_target(
         job = db.get(PrivacyComputeJob, target_id)
         if job is None or not _job_visible(db, user, job):
             return "COMPUTE_SCOPE_DENIED", "计算任务不存在或不在当前主体参与的任务范围内。"
+        if action_code == "ADVANCE_TTC_STATE":
+            return "COMPUTE_TRANSITION_DENIED", "计算任务不支持推进交易状态；请查看计算结果，或选择可操作的交易任务。"
+        if action_code in {"VERIFY_EVIDENCE_SUMMARY", "EXPLAIN_AUDIT"} and db.scalar(
+            audit_trusted_query_task_scope_query(user).where(TrustedQueryTask.task_id == job.task_id)
+        ) is None:
+            return "AUDIT_SCOPE_DENIED", "该计算任务未关联当前账号已获授的可信查询审计范围。"
         return None
     audit_id = target_id
     if target_type == "blockchain_evidence":
@@ -322,6 +328,91 @@ def _report_rows(db: Session, user: User) -> list[AuditReport]:
     )).order_by(AuditReport.report_id.asc())).all())
 
 
+def _query_receipts(db: Session, job: PrivacyComputeJob, task: TrustedQueryTask) -> dict[str, Any]:
+    """Compare persisted verification metadata; never reopen a signed result or payload."""
+    attestation = job.execution_attestation_json if isinstance(job.execution_attestation_json, dict) else {}
+    privacy = attestation.get("privacy_verification")
+    privacy = privacy if isinstance(privacy, dict) else {}
+    pointer = attestation.get("connector_audit")
+    pointer = pointer if isinstance(pointer, dict) else {}
+
+    def same(*values: Any) -> bool | None:
+        return None if any(value is None or value == "" for value in values) else all(value == values[0] for value in values)
+
+    def saved_true(*values: Any) -> bool | None:
+        if any(value is not None and value is not True for value in values):
+            return False
+        return None if any(value is None for value in values) else True
+
+    columns = (
+        ExecutionReceipt.receipt_id, ExecutionReceipt.request_item_id, ExecutionReceipt.provider_org_id,
+        ExecutionReceipt.request_hash, ExecutionReceipt.result_hash, ExecutionReceipt.node_code,
+        ExecutionReceipt.status, ExecutionReceipt.audit_sequence, ExecutionReceipt.previous_audit_hash,
+        ExecutionReceipt.connector_audit_hash, ExecutionReceipt.audit_event_verified,
+    )
+    rows = db.execute(select(*columns).where(ExecutionReceipt.task_id == task.task_id).order_by(
+        ExecutionReceipt.executed_at.asc(), ExecutionReceipt.receipt_id.asc(),
+    )).mappings().all()
+    items = []
+    for receipt in rows:
+        checks = {
+            "QUERY_IDENTITY": same(attestation.get("authorization_id"), task.authorization_id)
+                and same(attestation.get("applicant_org_id"), task.applicant_org_id)
+                and same(attestation.get("applicant_user_id"), task.applicant_user_id),
+            "RECEIPT_IDENTITY": same(receipt["request_item_id"], attestation.get("request_item_id"), task.request_item_id)
+                and same(receipt["provider_org_id"], attestation.get("provider_org_id"), task.provider_org_id)
+                and same(receipt["node_code"], attestation.get("node_code"), pointer.get("connector_id"))
+                and same(pointer.get("organization_id"), task.provider_org_id),
+            "REQUEST_HASH": same(receipt["request_hash"], privacy.get("request_hash")),
+            "RESULT_HASH": same(receipt["result_hash"], job.output_hash, task.result_hash, privacy.get("result_hash")),
+            "CONNECTOR_SIGNATURE": saved_true(attestation.get("connector_signature_verified"), privacy.get("signature_claim_verified")),
+            "CONNECTOR_AUDIT_EVENT": saved_true(receipt["audit_event_verified"], attestation.get("connector_audit_event_verified"),
+                                                pointer.get("pointer_verified"), pointer.get("event_hash_verified")),
+            "CONNECTOR_AUDIT_POINTER": same(receipt["audit_sequence"], pointer.get("sequence"))
+                and same(receipt["previous_audit_hash"], pointer.get("previous_hash"))
+                and same(receipt["connector_audit_hash"], pointer.get("audit_hash")),
+            "VERIFICATION_SCHEMA": same(attestation.get("receipt_verification_schema"), "TRUSTED_QUERY_RECEIPT_V2")
+                and same(pointer.get("verification_scope"), "SINGLE_SIGNED_EVENT_POINTER")
+                and same(pointer.get("action"), "LOCAL_CONTROLLED_RESULT_ISSUED"),
+            "NON_EXPORT_PROOF": saved_true(attestation.get("cross_domain_non_export_verified"))
+                and same(privacy.get("status"), "VERIFIED") and same(pointer.get("status"), "VERIFIED"),
+            "AGGREGATE_ONLY_BOUNDARY": same(privacy.get("result_scope"), "AGGREGATE_ONLY")
+                and saved_true(*(value is False if value is not None else None for value in (
+                    attestation.get("raw_records_returned"), attestation.get("raw_data_exported"),
+                    privacy.get("raw_records_returned"), privacy.get("raw_data_exported"),
+                ))),
+            "RECEIPT_STATUS": same(receipt["status"], "CONFIRMED"),
+        }
+        missing = [code + "_MISSING" for code, matched in checks.items() if matched is None]
+        mismatched = [code + "_MISMATCH" for code, matched in checks.items() if matched is False]
+        incomplete = job.status != "SUCCEEDED" or task.status != "SUCCEEDED"
+        verification = "MISMATCH" if mismatched else "UNVERIFIED" if missing or incomplete else "MATCHED"
+        reasons = mismatched + missing + (["QUERY_NOT_SUCCEEDED"] if incomplete else [])
+        items.append({
+            "receipt_id": receipt["receipt_id"], "evidence_kind": "EXECUTION_RECEIPT",
+            "request_hash": receipt["request_hash"], "result_hash": receipt["result_hash"],
+            "status": receipt["status"], "audit_event_verified": receipt["audit_event_verified"] is True,
+            "verification_status": verification, "reason_codes": reasons,
+            "verify": {"matched": verification == "MATCHED", "verification_status": verification,
+                       "verification_scope": "PERSISTED_CONNECTOR_EVENT_AND_RECEIPT_METADATA"},
+        })
+    state = "MISMATCH" if any(item["verification_status"] == "MISMATCH" for item in items) else (
+        "MATCHED" if items and all(item["verification_status"] == "MATCHED" for item in items) else "UNVERIFIED"
+    )
+    explanation = {
+        "MATCHED": "执行回执与查询身份、请求及结果哈希、已保存的连接器签名和审计事件验证记录相符；此结论不证明连接器本地审计链的连续性。",
+        "MISMATCH": "执行回执或已保存的连接器验证记录存在不匹配，不能认定核验通过。",
+        "UNVERIFIED": "执行回执或验证记录尚不完整，不能认定核验通过。",
+    }[state]
+    if not items:
+        explanation = "查询尚无执行回执，不能认定核验通过。"
+    if job.status != "SUCCEEDED" or task.status != "SUCCEEDED":
+        explanation = f"查询尚未成功完成（查询 {task.status}，计算 {job.status}）；{explanation}"
+    return {"job_id": job.job_id, "task_id": task.task_id, "task_kind": "TRUSTED_QUERY",
+            "evidence_kind": "EXECUTION_RECEIPT", "verification_status": state,
+            "receipt_count": len(items), "items": items, "explanation": explanation}
+
+
 def _request_items(db: Session, user: User) -> list[dict[str, Any]]:
     return [_item(request.request_id, "data_usage_request", f"{request.purpose} · {request.request_id}", _request_status(request),
                   request_id=request.request_id, asset_id=request.asset_id,
@@ -391,6 +482,23 @@ def read_action(
                 "ttc_state": task.ttc_state, "status_value": task.status, "current_attempt": task.current_attempt,
                 "attempt_id": attempt.attempt_id if attempt else None, "snapshot_id": task.execution_snapshot_id,
                 "transition_count": int(transitions), "raw_data_accessed": False}
+    if target_type == "privacy_compute_job" and action_code in {"VERIFY_EVIDENCE_SUMMARY", "EXPLAIN_AUDIT"}:
+        job = db.get(PrivacyComputeJob, target_id)
+        task = db.scalar(audit_trusted_query_task_scope_query(user).where(TrustedQueryTask.task_id == job.task_id))
+        detail = trust_space.audit_task(db, job.task_id, user)
+        if task is None or detail is None:
+            return _blocked("AUDIT_SCOPE_DENIED", "该计算任务超出当前账号已获授的可信查询审计范围。")
+        receipt_summary = _query_receipts(db, job, task)
+        counts = {"audit_log_count": len(detail["audit_chain"]), "report_count": len(detail["reports"]),
+                  "evidence_count": len(detail["evidence"])}
+        if action_code == "EXPLAIN_AUDIT":
+            reports = f"{counts['report_count']} 份正式报告" if counts["report_count"] else "暂无正式审计报告"
+            receipt_summary["explanation"] = (
+                f"可信查询当前为 {task.status}，真实审计链已记录 {counts['audit_log_count']} 条日志、"
+                f"{receipt_summary['receipt_count']} 份执行回执；{reports}。"
+                f"{receipt_summary['explanation']}助手未读取原始业务数据。"
+            )
+        return {"status": "SUCCEEDED", **receipt_summary, **counts, "ttc_state": None, "raw_data_accessed": False}
     if action_code == "VERIFY_EVIDENCE_SUMMARY":
         evidence = db.get(BlockchainEvidence, target_id) if target_type == "blockchain_evidence" else None
         task_id = evidence.task_id if evidence else target_id
@@ -430,6 +538,10 @@ def target_candidates(
     else:
         rows = [_item(task.task_id, "settlement_task", task.task_name, task.status)
                 for task in db.scalars(audit_task_scope_query(user)).all()]
+        rows.extend(_item(job.job_id, "privacy_compute_job", f"计算任务 · {job.job_id}", job.status)
+                    for job in db.scalars(select(PrivacyComputeJob).where(
+                        PrivacyComputeJob.task_id.in_(audit_trusted_query_task_ids_query(user)),
+                    )).all())
         if action_code == "EXPLAIN_AUDIT":
             rows.extend(_item(report.report_id, "audit_report", report.report_title, report.status) for report in _report_rows(db, user))
         else:

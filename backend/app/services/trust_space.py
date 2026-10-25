@@ -1656,7 +1656,7 @@ def _contract_actions(user: User, contract: DataContract, agreement: DataSpaceAg
     }:
         if agreement.state in {"REJECTED", "REVOKED", "EXPIRED"}:
             return []
-        if agreement.state == "ACTIVE":
+        if agreement.state in {"ACTIVE", "CONSUMED"}:
             return ["comment"]
         return ["comment", "counter", "accept", "reject"]
     return []
@@ -1882,7 +1882,7 @@ def append_contract_event(
         action_name = "accept"
     elif normalized_type == "REJECT":
         action_name = "reject"
-    if agreement.state == "ACTIVE" and normalized_type in {
+    if agreement.state in {"ACTIVE", "CONSUMED"} and normalized_type in {
         "ACCEPT",
         "REJECT",
         "COUNTER",
@@ -1958,7 +1958,7 @@ def append_contract_event(
     )
     db.add(event)
     agreement.state = target_state
-    if terms:
+    if terms and normalized_type not in {"COMMENT", "ATTACHMENT"}:
         agreement.decision_json = {**(agreement.decision_json or {}), "latest_terms": terms}
         contract.policy_json = {**(contract.policy_json or {}), **terms}
         contract.policy_hash = sha256_json(contract.policy_json)

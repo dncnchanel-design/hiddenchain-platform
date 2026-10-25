@@ -78,6 +78,33 @@ it("preserves missing integrity records and a failed quality decision", () => {
   expect(markup).toContain("存在待处理项");
 });
 
+it("renders verified query receipts with the actual computation destination", () => {
+  const markup = render({ intent_code: "VERIFY_EVIDENCE_SUMMARY" }, { action_code: "VERIFY_EVIDENCE_SUMMARY", output: { task_id: "query-1", job_id: "job-1", evidence_kind: "EXECUTION_RECEIPT", verification_status: "MATCHED", items: [{ receipt_id: "receipt-1", verify: { matched: true } }] } });
+  expect(markup).toContain("执行回执 1 条");
+  expect(markup).toContain("1 条一致");
+  expect(markup).toContain("查看关联计算任务");
+  expect(markup).toContain("/trusted-space/mpc/job-1");
+  expect(markup).not.toContain("/trusted-space/ttc/query-1");
+  expect(markup).not.toContain("EXECUTION_RECEIPT");
+});
+
+it("keeps missing query receipts unverified after a successful metadata read", () => {
+  const markup = render({ intent_code: "VERIFY_EVIDENCE_SUMMARY" }, { action_code: "VERIFY_EVIDENCE_SUMMARY", output: { task_id: "query-1", job_id: "job-1", evidence_kind: "EXECUTION_RECEIPT", verification_status: "UNVERIFIED", items: [] } });
+  expect(markup).toContain("存在待处理项");
+  expect(markup).toContain("待核验");
+  expect(markup).not.toContain("核验一致");
+});
+
+it("shows the real receipt count and zero formal reports in query audit explanations", () => {
+  const markup = render({ intent_code: "EXPLAIN_AUDIT" }, { action_code: "EXPLAIN_AUDIT", output: { job_id: "job-1", task_id: "query-1", report_count: 0, receipt_count: 2, explanation: "当前依据审计链与执行回执说明，无正式报告。" } });
+  expect(markup).toContain("执行回执数");
+  expect(markup).toContain("<dd>2</dd>");
+  expect(markup).toContain("审计报告数");
+  expect(markup).toContain("<dd>0</dd>");
+  expect(markup).toContain("无正式报告");
+  expect(markup).not.toContain("receipt_count");
+});
+
 it("shows the durable manual-review receipt and prevents repeated submission", () => {
   const markup = render({ intent_code: "APPROVE_USAGE_REQUEST", status: "PENDING_REVIEW", allowed_actions: ["execute", "cancel"] }, { action_code: "APPROVE_USAGE_REQUEST", mode: "WRITE", status: "PENDING_REVIEW", request_id: "assistant-review-real", output: { review_requested: true, request_id: "assistant-review-real", business_mutation: false } });
   expect(markup).toContain("复核请求已记录");

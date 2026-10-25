@@ -6,7 +6,9 @@ shorter 13-account matrix, or --group holdout to inspect independent paraphrases
 By default, POSTs after login only address this run's assistant sessions/plans.
 --create-owned-requests explicitly enables unique run-owned authorization
 fixtures and approval of those fixtures. Review envelopes must not change them.
-No backend imports, database/Vault access, browser control, or calculation calls.
+--create-owned-workflows additionally prepares two real controlled queries per
+business account and an INIT settlement through guarded normal APIs. Assistant
+questions remain read-only or review-only. No backend/DB/Vault/browser access.
 """
 from __future__ import annotations
 
@@ -114,6 +116,16 @@ class LanguageAcceptance(deep.Acceptance):
         self.model_calls = 0
         self.owned_sessions: set[str] = set()
         self.owned_requests: set[str] = set()
+        self.owned_request_bindings: dict[str, dict[str, Any]] = {}
+        self.owned_confirmations: dict[str, dict[str, Any]] = {}
+        self.owned_query_tasks: set[str] = set()
+        self.owned_compute_jobs: set[str] = set()
+        self.owned_settlement_tasks: set[str] = set()
+        self.initial_request_ids: set[str] = set()
+        self.initial_query_task_ids: set[str] = set()
+        self.initial_settlement_task_ids: set[str] = set()
+        self.workflow_manifest: dict[str, Any] = {}
+        self._preparing_workflows = False
         self.business_posts = 0
         self.last_observation: dict[str, Any] = {}
         self.last_references: dict[str, Any] = {}
@@ -124,15 +136,29 @@ class LanguageAcceptance(deep.Acceptance):
 
     def call(self, path: str, account: str | None = None, body: Any = None, **kwargs: Any) -> Any:
         method = kwargs.get("method") or ("POST" if body is not None else "GET")
+        workflow_post = False
         if method != "GET":
             require(method == "POST", "Harness only supports controlled assistant POSTs")
-            assistant_post = path == PREFIX + "/sessions" or any(path.startswith(f"{PREFIX}/sessions/{sid}/") for sid in self.owned_sessions)
-            fixture_create = path == "/data/access-requests" and isinstance(body, dict) and body.get("terms", {}).get("acceptance_run") == self.run_id and str(kwargs.get("key", "")).startswith(self.run_id)
-            fixture_approve = any(path == f"/data/access-requests/{request_id}/approve" for request_id in self.owned_requests) and isinstance(body, dict) and str(body.get("reason", "")).startswith(self.run_id)
-            require(assistant_post or self.args.create_owned_requests and (fixture_create or fixture_approve), "Harness attempted a mutation outside its own authorized records")
+            assistant_post = path == PREFIX + "/sessions" and self._run_key(kwargs.get("key")) or any(path.startswith(f"{PREFIX}/sessions/{sid}/") for sid in self.owned_sessions)
+            workflow_post = bool(getattr(self.args, "create_owned_workflows", False) and getattr(self, "_preparing_workflows", False))
+            fixture_enabled = self.args.create_owned_requests or workflow_post
+            fixture_create = path == "/data/access-requests" and isinstance(body, dict) and body.get("terms", {}).get("acceptance_run") == self.run_id and self._run_key(kwargs.get("key")) and account in getattr(self, "sessions", {}) and self._visible_asset(account, body.get("asset_id")) is not None
+            request_id = next((request_id for request_id in self.owned_requests if path == f"/data/access-requests/{request_id}/approve"), None)
+            binding = getattr(self, "owned_request_bindings", {}).get(request_id or "", {})
+            fixture_approve = bool(request_id and isinstance(body, dict) and str(body.get("reason", "")).startswith(self.run_id) and self._run_key(kwargs.get("key")) and kwargs.get("match") is not None and account in self.sessions and binding.get("provider_org_id") == self.sessions[account]["user"]["org_id"])
+            allowed_workflow = workflow_post and self._workflow_post_allowed(path, account, body, kwargs)
+            require(assistant_post or self.demo_guard_passed and fixture_enabled and (fixture_create or fixture_approve) or allowed_workflow, "Harness attempted a mutation outside its own authorized records")
             if not assistant_post:
                 self.business_posts += 1
         payload = super().call(path, account, body, **kwargs)
+        if method == "POST" and isinstance(payload, dict) and payload.get("http_status", 200) < 400:
+            self._register_owned_response(path, account, body, payload, workflow_post)
+        if method == "GET" and workflow_post is False and getattr(self, "_preparing_workflows", False) and isinstance(payload, dict):
+            query_id = next((query_id for query_id in self.owned_query_tasks if path == f"/trust-space/query/tasks/{query_id}/result"), None)
+            if query_id and payload.get("http_status", 200) < 400:
+                require(payload.get("task_id") == query_id and isinstance(payload.get("job_id"), str), "Owned query result changed its task/job binding")
+                self.owned_compute_jobs.add(payload["job_id"])
+                self.own(payload["job_id"])
         if isinstance(payload, dict) and isinstance(payload.get("plan"), dict) and "steps" in payload["plan"]:
             plan = payload["plan"]
             self.last_observation = {key: plan.get(key) for key in ("plan_id", "intent_code", "status", "allowed_actions")}
@@ -151,6 +177,70 @@ class LanguageAcceptance(deep.Acceptance):
             self.last_references[path] = {"ids": sorted(identifiers(payload)), "total": payload.get("total", len(rows(payload))) if isinstance(payload, dict) else len(payload)}
         return payload
 
+    def _run_key(self, key: Any) -> bool:
+        return isinstance(key, str) and key.startswith(self.run_id + "-")
+
+    def _visible_asset(self, account: str, asset_id: str | None) -> dict[str, Any] | None:
+        return next((asset for asset in rows(getattr(self, "fixtures", {}).get(account, {}).get("catalog", {})) if asset.get("asset_id") == asset_id), None)
+
+    def _workflow_post_allowed(self, path: str, account: str | None, body: Any, options: dict[str, Any]) -> bool:
+        if not self.demo_guard_passed or account not in self.sessions or not isinstance(body, dict) or not self._run_key(options.get("key")):
+            return False
+        if self.sessions[account]["user"]["role_code"] == "ADMIN":
+            return False
+        if path == "/trust-space/query/confirm":
+            asset = self._visible_asset(account, body.get("asset_id"))
+            if not asset or asset.get("provider", {}).get("org_id") != body.get("provider_org_id"):
+                return False
+            authorization_id = body.get("authorization_id")
+            if authorization_id:
+                binding = self.owned_request_bindings.get(authorization_id, {})
+                return authorization_id in self.owned_requests and binding.get("account") == account and binding.get("asset_id") == body.get("asset_id") and binding.get("provider_org_id") == body.get("provider_org_id")
+            return body.get("provider_org_id") == self.sessions[account]["user"]["org_id"] and asset.get("actions", {}).get("can_compute_own") is True
+        if path == "/trust-space/query/execute":
+            binding = self.owned_confirmations.get(body.get("authorization_id"), {})
+            token = body.get("confirmation_token")
+            condition = {key: value for key, value in body.items() if key != "confirmation_token"}
+            return bool(binding.get("account") == account and isinstance(token, str) and hashlib.sha256(token.encode()).hexdigest() == binding.get("confirmation_token_hash") and digest(condition) == binding.get("condition_hash"))
+        if path == "/settlement/tasks":
+            session = self.sessions[account]
+            return session["user"]["role_code"] == "EXCHANGE" and (session.get("org") or {}).get("energy_domain") == "electricity" and str(body.get("task_name", "")).startswith(self.run_id) and str(body.get("business_description", "")).startswith(self.run_id)
+        return False
+
+    def _register_owned_response(self, path: str, account: str | None, body: dict[str, Any], payload: dict[str, Any], workflow_post: bool) -> None:
+        if path == "/data/access-requests":
+            request_id = payload.get("request_id")
+            require(isinstance(request_id, str) and request_id not in self.initial_request_ids, "Fixture creation returned a pre-existing request")
+            asset = self._visible_asset(account, body.get("asset_id"))
+            require(asset is not None and payload.get("applicant", {}).get("org_id") == self.sessions[account]["user"]["org_id"] and payload.get("provider", {}).get("org_id") == asset.get("provider", {}).get("org_id"), "Fixture request response changed its actual parties")
+            require(payload.get("terms", {}).get("acceptance_run") == self.run_id, "Fixture request response is not owned by this run")
+            self.owned_requests.add(request_id)
+            self.own(request_id)
+            self.owned_request_bindings[request_id] = {"account": account, "asset_id": body["asset_id"], "provider_org_id": asset["provider"]["org_id"]}
+        elif workflow_post and path == "/trust-space/query/confirm":
+            authorization_id, token = payload.get("authorization_id"), payload.get("confirmation_token")
+            require(isinstance(authorization_id, str) and authorization_id not in self.initial_request_ids and isinstance(token, str) and bool(token), "Query confirmation did not issue a new run-owned binding")
+            require(not body.get("authorization_id") or authorization_id == body["authorization_id"], "Query confirmation changed its owned authorization")
+            condition = dict(body)
+            for field in ("authorization_id", "provider_org_id", "asset_id"):
+                if payload.get(field) is not None:
+                    condition[field] = payload[field]
+            require(condition.get("asset_id") == body.get("asset_id") and condition.get("provider_org_id") == body.get("provider_org_id"), "Query confirmation changed its actual target")
+            self.owned_requests.add(authorization_id)
+            self.own(authorization_id)
+            self.owned_request_bindings.setdefault(authorization_id, {"account": account, "asset_id": condition["asset_id"], "provider_org_id": condition["provider_org_id"]})
+            self.owned_confirmations[authorization_id] = {"account": account, "asset_id": condition["asset_id"], "provider_org_id": condition["provider_org_id"], "confirmation_token_hash": hashlib.sha256(token.encode()).hexdigest(), "condition_hash": digest(condition)}
+        elif workflow_post and path == "/trust-space/query/execute":
+            task_id = payload.get("task_id")
+            require(isinstance(task_id, str) and task_id not in self.initial_query_task_ids, "Query execution returned a pre-existing task")
+            self.owned_query_tasks.add(task_id)
+            self.own(task_id)
+        elif workflow_post and path == "/settlement/tasks":
+            task_id = payload.get("task_id")
+            require(isinstance(task_id, str) and task_id not in self.initial_settlement_task_ids, "Settlement creation returned a pre-existing task")
+            self.owned_settlement_tasks.add(task_id)
+            self.own(task_id)
+
     def save(self) -> None:
         self.output.parent.mkdir(parents=True, exist_ok=True)
         statuses = dict(Counter(row["status"] for row in self.results))
@@ -163,9 +253,10 @@ class LanguageAcceptance(deep.Acceptance):
             "full_corpus_selected": self.args.matrix == "full" and self.args.group == "all" and not self.args.case,
             "planner_mode_declared": self.args.planner_mode, "planner_observations": dict(self.planners), "understanding_sources": dict(self.model_sources), "model_used_message_count": self.model_calls,
             "corpus_sha256": digest(self.corpus), "status_counts": statuses, "group_status_counts": grouped, "accounts": accounts,
+            "workflow_preconditions": self.workflow_manifest,
             "all_expectations_met": bool(self.results) and not statuses.get("FAIL") and not any(statuses.get(status) for status in INCOMPLETE),
             "results": self.results,
-            "boundary": {"own_run_records_only": True, "owned_assistant_records_only": not self.args.create_owned_requests, "owned_session_count": len(self.owned_sessions), "owned_request_count": len(self.owned_requests), "owned_requests_enabled": self.args.create_owned_requests, "business_posts": self.business_posts, "calculations_executed": 0, "database_accessed": False, "vault_accessed": False, "browser_used": False, "credentials_persisted": False, "tokens_persisted": False},
+            "boundary": {"own_run_records_only": True, "owned_assistant_records_only": not (self.args.create_owned_requests or getattr(self.args, "create_owned_workflows", False)), "owned_session_count": len(self.owned_sessions), "owned_request_count": len(self.owned_requests), "owned_requests_enabled": self.args.create_owned_requests, "owned_workflows_enabled": getattr(self.args, "create_owned_workflows", False), "owned_confirmation_count": len(self.owned_confirmations), "owned_query_task_count": len(self.owned_query_tasks), "owned_compute_job_count": len(self.owned_compute_jobs), "settlement_tasks_created": len(self.owned_settlement_tasks), "business_posts": self.business_posts, "calculations_executed": len(self.owned_query_tasks), "assistant_calculations_executed": 0, "database_accessed": False, "vault_accessed": False, "browser_used": False, "credentials_persisted": False, "tokens_persisted": False},
         }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def check(self, name: str, action: Any, **kwargs: Any) -> Any:
@@ -204,6 +295,8 @@ class LanguageAcceptance(deep.Acceptance):
         return {**payload, "items": collected, "total": total} if isinstance(payload, dict) else collected
 
     def setup(self) -> None:
+        if getattr(self.args, "create_owned_workflows", False):
+            require(not self.args.accounts, "Workflow preparation requires the complete coordinator account matrix")
         health = self.call("/health")
         self.actual_environment = str(health.get("environment", ""))[:30]
         require(health.get("environment") == "demo", "Evaluation requires explicit APP_ENV=demo before any authenticated operation")
@@ -233,6 +326,11 @@ class LanguageAcceptance(deep.Acceptance):
             catalog = self.reference_list(account, "/trust-space/catalog?page_size=100")
             requests = self.reference_list(account, "/data/access-requests?page_size=100")
             tasks = self.reference_list(account, "/trust-space/ttc?page_size=100")
+            self.initial_request_ids.update(row["request_id"] for row in rows(requests))
+            self.initial_settlement_task_ids.update(row["task_id"] for row in rows(tasks))
+            if getattr(self.args, "create_owned_workflows", False):
+                computations = self.reference_list(account, "/trust-space/computations?page_size=100")
+                self.initial_query_task_ids.update(row["task_id"] for row in rows(computations) if row.get("task_id"))
             own_assets = [asset for asset in rows(catalog) if asset.get("provider", {}).get("org_id") == org_id]
             task_rows = rows(tasks)
             task = next((row for row in task_rows if row.get("ttc_state") == "INIT"), task_rows[0] if task_rows else None)
@@ -247,6 +345,8 @@ class LanguageAcceptance(deep.Acceptance):
             self.fixtures[account] = fixture
         if self.args.create_owned_requests:
             self.create_owned_requests()
+        if getattr(self.args, "create_owned_workflows", False):
+            self.prepare_owned_workflows()
         # The existing notification HTTP list delivers this user's outbox. Warm
         # that official read before comparing the assistant's deliberately pure
         # notification projection; no notification is marked read.
@@ -258,6 +358,60 @@ class LanguageAcceptance(deep.Acceptance):
                 continue
             org_id = self.sessions[account]["user"]["org_id"]
             fixture["foreign_asset"] = next((other["asset"] for other in self.fixtures.values() if other.get("asset") and other["asset"].get("provider", {}).get("org_id") != org_id), None)
+
+    def prepare_owned_workflows(self) -> None:
+        require(self.demo_guard_passed and len(self.sessions) == 13 and not self.args.accounts, "Owned workflow preparation requires a guarded full coordinator")
+        fixture_spec = importlib.util.spec_from_file_location("assistant_language_fixtures", ROOT / "tools/assistant-language-fixtures.py")
+        require(fixture_spec is not None and fixture_spec.loader is not None, "Workflow fixture helper is unavailable")
+        helper = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(helper)
+        self._preparing_workflows = True
+        try:
+            manifest = helper.prepare_owned_workflows(self)
+        finally:
+            self._preparing_workflows = False
+        self.validate_workflow_manifest(manifest)
+        self.workflow_manifest = {**manifest, "required": True, "complete": True, "manifest_hash": digest(manifest)}
+        for account, session in self.sessions.items():
+            if session["user"]["role_code"] != "ADMIN":
+                self.fixtures[account]["workflow_required"] = True
+
+    def validate_workflow_manifest(self, manifest: dict[str, Any]) -> None:
+        assert_safe_output(manifest)
+        def safe_fields(value: Any) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    normalized = str(key).lower()
+                    require(not any(part in normalized for part in ("token", "password", "private_key", "raw_receipt")), "Workflow manifest contains a sensitive field")
+                    require("signature" not in normalized or normalized.endswith(("_hash", "_status", "_verified")), "Workflow manifest contains signature content")
+                    safe_fields(child)
+            elif isinstance(value, list):
+                for child in value:
+                    safe_fields(child)
+        safe_fields(manifest)
+        business = {account for account, session in self.sessions.items() if session["user"]["role_code"] != "ADMIN"}
+        require(not manifest.get("failures") and set(manifest.get("accounts", {})) == business, "Workflow preparation is incomplete")
+        for account in business:
+            fixture = self.fixtures[account]
+            workflows = fixture.get("owned_workflows", [])
+            require(digest(manifest["accounts"][account].get("queries")) == digest(workflows), "Manifest queries differ from the actual account fixtures")
+            require(len(workflows) == 2 and len({row.get("job_id") for row in workflows}) == 2, "Workflow fixture needs two distinct real jobs per business account")
+            for row in workflows:
+                require(row.get("status") == "SUCCEEDED" and row.get("entity_type") == "privacy_compute_job" and row.get("entity_id") == row.get("job_id"), "Workflow fixture must bind a succeeded typed privacy job")
+                require(row.get("task_id") in self.owned_query_tasks and row.get("job_id") in self.owned_compute_jobs and row.get("authorization_id") in self.owned_confirmations, "Workflow fixture does not belong to this run")
+                require(self.owned_confirmations[row["authorization_id"]].get("account") == account, "Workflow confirmation belongs to another account")
+            require(fixture.get("task", {}).get("entity_id") in {row["job_id"] for row in workflows}, "Task context is not bound to an owned job")
+            if self.sessions[account]["user"]["role_code"] in {"EXCHANGE", "REGULATOR"} and "VIEW_AUDIT" in self.sessions[account]["user"].get("permissions", []):
+                require(fixture.get("audit_detail", {}).get("http_status", 200) == 200 and bool(fixture.get("audit_detail")), "Own query receipt audit scope was not verified")
+            negative = fixture.get("requestable_asset") or {}
+            require(bool(negative), "Workflow preparation omitted the submission target")
+            if negative.get("fixture_basis") == "VISIBLE_NON_REQUESTABLE_DENIAL_TARGET":
+                actual = self._visible_asset(account, negative.get("asset_id"))
+                require(actual is not None and actual.get("actions", {}).get("can_request_usage") is False and negative.get("actions", {}).get("can_request_usage") is False, "Negative submission fixture changed actual request capability")
+        require(manifest.get("query_execution_count") == len(self.owned_query_tasks) == 24 and manifest.get("query_job_count") == len(self.owned_compute_jobs) == 24, "Owned workflow execution/job counts are incomplete")
+        require(manifest.get("advance_settlement_count") == len(self.owned_settlement_tasks) == 1, "Owned INIT settlement fixture is incomplete")
+        exchange = self.fixtures.get("exchange", {})
+        require(exchange.get("advance_task", {}).get("entity_id") in self.owned_settlement_tasks and exchange.get("advance_task_detail", {}).get("task", {}).get("ttc_state") == "INIT", "Electricity operator needs its actual INIT settlement context")
 
     def create_owned_requests(self) -> None:
         created_orgs: set[str] = set()
@@ -310,6 +464,8 @@ class LanguageAcceptance(deep.Acceptance):
             return "data_asset", fixture.get("asset_id") or fixture.get("entity_id")
         if kind in {"request", "revoke_request"}:
             return "data_usage_request", fixture.get("request_id") or fixture.get("entity_id")
+        if fixture.get("entity_type") and fixture.get("entity_id"):
+            return fixture["entity_type"], fixture["entity_id"]
         return "settlement_task", fixture.get("task_id") or fixture.get("entity_id") or fixture.get("task", {}).get("task_id")
 
     def expected(self, account: str, case: dict[str, Any]) -> str:
@@ -329,7 +485,7 @@ class LanguageAcceptance(deep.Acceptance):
         if action == "REVOKE_USAGE_AUTHORIZATION":
             return "REVIEW" if user["org_id"] in parties else "DENIAL"
         if action == "ADVANCE_TTC_STATE":
-            actions = self.fixtures[account].get("task_detail", {}).get("allowed_actions", [])
+            actions = self.fixtures[account].get(case.get("context", "task") + "_detail", {}).get("allowed_actions", [])
             return "REVIEW" if any(str(value).startswith("transition:") for value in actions) else "DENIAL"
         return "REVIEW"
 
@@ -354,10 +510,41 @@ class LanguageAcceptance(deep.Acceptance):
         return self.call(f"{PREFIX}/sessions/{session['session_id']}/plans/{plan['plan_id']}/execute", account, {}, match=plan["state_version"])["plan"]
 
     def reference(self, account: str, kind: str) -> Any:
-        _, target_id = self.target(account, kind)
+        target_type, target_id = self.target(account, kind)
         require(target_id, "Scoped target fixture is missing")
-        path = {"asset": "/trust-space/assets/", "requestable_asset": "/trust-space/assets/", "request": "/data/access-requests/", "revoke_request": "/data/access-requests/", "task": "/trust-space/ttc/"}[kind]
+        path = {"data_asset": "/trust-space/assets/", "data_usage_request": "/data/access-requests/", "settlement_task": "/trust-space/ttc/", "privacy_compute_job": "/trust-space/computations/"}[target_type]
         return self.call(path + quote(target_id, safe=""), account)
+
+    def validate_job_read(self, account: str, action: str, output: dict[str, Any]) -> dict[str, Any]:
+        job_id = output["job_id"]
+        detail = self.call("/trust-space/computations/" + quote(job_id, safe=""), account)
+        job = detail["job"]
+        require(job["job_id"] == job_id and job["task_id"] == output.get("task_id"), "Assistant job/query binding differs from its scoped native detail")
+        if action == "CHECK_TTC_STATUS":
+            require(output.get("status_value") == job["status"] and output.get("task_kind") == job.get("task_kind"), "Assistant task status/kind differs from the actual job")
+            return {"native_job_reference_matched": True, "job_id": job_id, "task_id": job["task_id"], "job_status": job["status"]}
+        require(job.get("task_kind") == "TRUSTED_QUERY" and output.get("task_kind") == "TRUSTED_QUERY", "Query receipt proof was applied to a different task kind")
+        native = self.call("/trust-space/audit/tasks/" + quote(job["task_id"], safe=""), account)
+        require(native["task"]["task_id"] == job["task_id"], "Native audit returned another query")
+        native_receipts = {row["receipt_id"]: row for row in native.get("execution_receipts", [])}
+        items = output.get("items", [])
+        require(output.get("evidence_kind") == "EXECUTION_RECEIPT" and output.get("verification_status") == "MATCHED", "Completed query lacks matched execution receipt proof")
+        require(native_receipts and isinstance(items, list) and {row.get("receipt_id") for row in items} == set(native_receipts), "Assistant receipt set differs from the actual scoped audit receipts")
+        require(len(items) == len(native_receipts) == output.get("receipt_count"), "Assistant receipt count differs from the actual audit")
+        for item in items:
+            actual = native_receipts[item["receipt_id"]]
+            require(not item.get("evidence_id") and item.get("evidence_kind") == "EXECUTION_RECEIPT", "Query receipt was mislabeled as blockchain evidence")
+            require(item.get("verification_status") == "MATCHED" and item.get("verify", {}).get("matched") is True, "Assistant receipt did not actually verify")
+            require(item.get("audit_event_verified") is True and actual.get("audit_event_verified") is True, "Query receipt audit event was not verified")
+            require(all(item.get(field) == actual.get(field) and bool(actual.get(field)) for field in ("request_hash", "result_hash")), "Assistant receipt hashes differ from the actual native audit receipt")
+            require(item["result_hash"] == job.get("output_hash") and actual.get("status") == item.get("status") == "CONFIRMED", "Receipt result/status does not bind to the successful computation")
+        for field, native_field in (("audit_log_count", "audit_chain"), ("report_count", "reports"), ("evidence_count", "evidence")):
+            require(output.get(field) == len(native.get(native_field, [])), "Assistant " + field + " differs from the scoped native audit")
+        if action == "EXPLAIN_AUDIT":
+            require(isinstance(output.get("explanation"), str) and bool(output["explanation"]), "Audit read omitted its explanation")
+            if not native.get("reports"):
+                require(output["report_count"] == 0 and "暂无正式审计报告" in output["explanation"], "Query receipt was represented as a formal audit report")
+        return {"native_job_reference_matched": True, "native_query_audit_matched": True, "job_id": job_id, "task_id": job["task_id"], "receipt_count": len(items), "report_count": len(native.get("reports", [])), "verification_status": "MATCHED"}
 
     def validate_read(self, account: str, case: dict[str, Any], planned: dict[str, Any], expected_target: str | None = None) -> dict[str, Any]:
         plan = planned["plan"]
@@ -376,6 +563,8 @@ class LanguageAcceptance(deep.Acceptance):
             actual_targets = {str(output.get(key)) for key in ("asset_id", "request_id", "task_id", "job_id", "report_id", "evidence_id")}
             require(expected_target in actual_targets, "Read output target differs from selected or contextual target")
             evidence["target_id"] = expected_target
+        if output.get("job_id") and action in {"CHECK_TTC_STATUS", "VERIFY_EVIDENCE_SUMMARY", "EXPLAIN_AUDIT"}:
+            evidence.update(self.validate_job_read(account, action, output))
         if action in LIST_ACTIONS:
             require(isinstance(output.get("items"), list) and isinstance(output.get("total"), int), "List read must return items and total")
             evidence.update({"returned": len(output["items"]), "total": output["total"]})
@@ -425,6 +614,8 @@ class LanguageAcceptance(deep.Acceptance):
         return evidence
 
     def evaluate(self, account: str, case: dict[str, Any]) -> dict[str, Any]:
+        if case.get("action") == "ADVANCE_TTC_STATE" and self.fixtures[account].get("advance_task"):
+            case = {**case, "context": "advance_task"}
         if case.get("action") == "REVOKE_USAGE_AUTHORIZATION" and self.fixtures[account].get("revoke_request"):
             case = {**case, "context": "revoke_request"}
         expected = self.expected(account, case)
@@ -433,6 +624,7 @@ class LanguageAcceptance(deep.Acceptance):
         role = self.sessions[account]["user"]["role_code"]
         intrinsic_denial = role == "ADMIN" and case.get("action") not in ADMIN_ACTIONS or bool(case.get("allowed_roles") and role not in case["allowed_roles"])
         if needed and not self.target(account, needed)[1] and not intrinsic_denial:
+            require(not self.fixtures[account].get("workflow_required") and not getattr(self.args, "create_owned_workflows", False), "Required owned workflow target is missing: " + needed)
             return {**evidence, "_status": "FIXTURE_UNAVAILABLE", "missing_scoped_fixture": needed}
         values = {"asset_id": self.target(account, "asset")[1] or "asset-language-missing", "foreign_asset_id": self.target(account, "foreign_asset")[1] or "asset-language-missing"}
         question = case["question"].format(**values)
@@ -467,9 +659,11 @@ class LanguageAcceptance(deep.Acceptance):
                 return {**evidence, "_status": "NEEDS_SELECTION"}
             index = 1 if case["followup"] == "second" else 0
             if len(candidates) <= index:
+                require(not self.fixtures[account].get("workflow_required") and not getattr(self.args, "create_owned_workflows", False), "Required owned selection candidate is missing")
                 return {**evidence, "_status": "FIXTURE_UNAVAILABLE", "missing_scoped_fixture": "selection_candidate_" + str(index + 1)}
             selected = candidates[index]
             if case["followup"] == "label" and sum(row["label"] == selected["label"] for row in candidates) != 1:
+                require(not self.fixtures[account].get("workflow_required") and not getattr(self.args, "create_owned_workflows", False), "Required owned selection label is ambiguous")
                 return {**evidence, "_status": "FIXTURE_UNAVAILABLE", "missing_scoped_fixture": "unique_candidate_label"}
             followup = selected["label"] if case["followup"] == "label" else "第二个" if index else "第一个"
             continued = self.message(account, planned["session"], followup)
@@ -483,6 +677,12 @@ class LanguageAcceptance(deep.Acceptance):
             error_codes = [str(step.get("error_code") or step.get("output", {}).get("error_code") or "") for step in plan.get("steps", [])]
             require(any(code == "PROVIDER_REVIEW_REQUIRED" or any(tag in code for tag in ("DENIED", "FORBIDDEN", "PERMISSION", "ROLE_REQUIRED")) for code in error_codes), "Blocked result did not establish a permission denial")
             require(not any(step.get("request_id") for step in plan.get("steps", [])), "Unauthorized question created a review envelope")
+            if case.get("action") == "SUBMIT_USAGE_REQUEST" and self.fixtures[account].get(case.get("context"), {}).get("fixture_basis") == "VISIBLE_NON_REQUESTABLE_DENIAL_TARGET":
+                require("REQUEST_SCOPE_DENIED" in error_codes, "Real non-requestable asset must produce the precise request-scope denial")
+                evidence["fixture_basis"] = "VISIBLE_NON_REQUESTABLE_DENIAL_TARGET"
+            if case.get("action") == "ADVANCE_TTC_STATE" and self.target(account, case.get("context", "task"))[0] == "privacy_compute_job" and role != "ADMIN":
+                code = "COMPUTE_TRANSITION_DENIED" if role in {"EXCHANGE", "REGULATOR"} else "ASSISTANT_ROLE_DENIED"
+                require(code in error_codes, "Query job must produce the precise role/unsupported-transition denial")
             return {**evidence, "plan_status": plan["status"], "error_codes": error_codes, "_status": "EXPECTED_PERMISSION_DENIAL"}
         if expected == "REVIEW":
             require(plan["status"] == "PENDING_REVIEW", "Authorized write must produce a review envelope")
@@ -531,6 +731,7 @@ def self_check(corpus: dict[str, Any]) -> None:
         raise deep.CheckFailure("Sensitive output check did not reject a token field")
     probe = object.__new__(LanguageAcceptance)
     probe.args = argparse.Namespace(create_owned_requests=False)
+    probe.demo_guard_passed = False
     probe.owned_sessions, probe.owned_requests = set(), set()
     probe.run_id, probe.business_posts = "synthetic-self-check", 0
     try:
@@ -569,6 +770,7 @@ def main() -> int:
     parser.add_argument("--planner-mode", choices=("auto", "offline", "model-configured"), default="auto", help="Expected environment mode; this flag never changes server configuration")
     parser.add_argument("--accounts", help="Optional comma-separated subset; evidence marks the matrix incomplete")
     parser.add_argument("--create-owned-requests", action="store_true", help="Explicitly create matching-domain run-owned pending/approved authorization fixtures; default performs no business POSTs")
+    parser.add_argument("--create-owned-workflows", action="store_true", help="Explicit full-coordinator demo preparation: execute two normal controlled queries per business account and create one INIT settlement")
     parser.add_argument("--case", action="append", help="Run a case ID; repeat to select several cases")
     parser.add_argument("--self-check", action="store_true", help="Check corpus/harness without network calls or evidence writes")
     args = parser.parse_args()
