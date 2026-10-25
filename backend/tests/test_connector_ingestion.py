@@ -4,6 +4,7 @@ import base64
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from hashlib import sha256
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -48,10 +49,10 @@ def _configure_generator_node(connector_key: Ed25519PrivateKey) -> None:
         db.commit()
 
 
-def _issue_ticket(client, auth_headers, monkeypatch):
+def _issue_ticket(client, auth_headers, monkeypatch, platform_key=None):
     from app.routers import connector_ingestion
 
-    platform_key = Ed25519PrivateKey.generate()
+    platform_key = platform_key or Ed25519PrivateKey.generate()
     monkeypatch.setattr(
         connector_ingestion,
         "settings",
@@ -76,7 +77,14 @@ def _issue_ticket(client, auth_headers, monkeypatch):
     assert body["ticket"]["claims"]["resource_name"] == "发电量"
     assert body["ticket"]["claims"]["connector_id"] == "local-node-org-generator-t01"
     assert body["ticket"]["claims"]["max_bytes"] == 5 * 1024 * 1024
-    assert "raw" not in canonical_json(body).lower()
+    assert set(body) == {"ticket", "upload_url", "receipt_lookup_url", "connector"}
+    assert set(body["connector"]) == {"connector_id", "organization_id", "energy_domain"}
+    assert set(body["ticket"]) == {"claims", "signature", "public_key", "algorithm"}
+    assert set(body["ticket"]["claims"]) == {
+        "iss", "jti", "subject_user_id", "organization_id", "connector_id", "energy_domain",
+        "resource_id", "resource_name", "classification", "schema_version", "file_format",
+        "max_bytes", "purpose", "issued_at", "expires_at",
+    }
 
     envelope = body["ticket"]
     platform_key.public_key().verify(
@@ -121,6 +129,14 @@ def _signed_receipt(
         "signature_algorithm": "Ed25519",
         "signature_valid": True,
     }
+
+
+def test_ticket_metadata_guard_accepts_valid_crypto_material_containing_raw(client, auth_headers, monkeypatch):
+    platform_key = Ed25519PrivateKey.from_private_bytes(sha256(b"metadata-key-regression-387").digest())
+    assert "raw" in _public_text(platform_key).lower()
+    _configure_generator_node(Ed25519PrivateKey.generate())
+    body, _key = _issue_ticket(client, auth_headers, monkeypatch, platform_key=platform_key)
+    assert body["ticket"]["public_key"] == _public_text(platform_key)
 
 
 def test_connector_ticket_is_subject_scoped_signed_and_never_accepts_a_file(
@@ -198,7 +214,12 @@ def test_signed_connector_receipt_registers_metadata_only_and_is_idempotent(
         assert ticket is not None and ticket.status == "REGISTERED"
         assert stored is not None
         assert stored.signed_payload_json["content_hash"] == "a" * 64
-        assert "records" not in canonical_json(stored.signed_payload_json).lower()
+        assert set(stored.signed_payload_json) == {
+            "receipt_id", "ticket_id", "connector_id", "organization_id", "energy_domain",
+            "resource_id", "resource_name", "version", "schema_version", "schema_hash",
+            "content_hash", "record_count", "byte_size", "local_ref", "audit_sequence",
+            "audit_hash", "issued_at",
+        }
         asset = db.get(DataAsset, stored.asset_id)
         version = db.get(DataAssetVersion, stored.asset_version_id)
         assert asset is not None and asset.owner_org_id == "org-generator-t01"
@@ -257,7 +278,10 @@ def test_connector_catalog_is_server_sourced_and_owner_scoped(
         "price",
     }
     assert all(item["resource_name"] for item in body["resources"])
-    assert all("raw" not in canonical_json(item).lower() for item in body["resources"])
+    assert all(set(item) == {
+        "resource_id", "resource_name", "unit", "schema_version", "required_columns",
+        "optional_columns", "current_version", "record_count", "status",
+    } for item in body["resources"])
     assert client.get(
         "/api/trust-space/connectors/catalog",
         headers=auth_headers["regulator"],
