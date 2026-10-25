@@ -90,13 +90,14 @@ export function ElectricityChat({ onFinish, initialQuestion = "" }: { onFinish: 
       setError("");
       try {
         const [definition, saved] = await Promise.all([loadElectricityCatalog(), loadElectricityCases()]);
+        if (active) { setCatalog(definition); setCases(saved.items); }
         if (!sessionId.current) {
           sessionPromise.current ||= createAssistantSession({ page_path: "/trusted-space/assistant/electricity", entity_type: "electricity_calculation" }, { idempotencyKey: sessionKey.current }).then((created) => created.session_id).finally(() => { sessionPromise.current = null; });
           sessionId.current = await sessionPromise.current;
           sessionStorage.setItem(storageKey, sessionId.current);
         }
         const history = await loadElectricityHistory(sessionId.current);
-        if (active) { setCatalog(definition); setCases(saved.items); setRecords(history.items); }
+        if (active) setRecords(history.items);
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : "计算窗口加载失败，请重试。");
         if (reason instanceof ApiError && reason.status === 404) { sessionId.current = ""; sessionStorage.removeItem(storageKey); }
