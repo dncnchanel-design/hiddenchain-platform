@@ -522,3 +522,4 @@
 - 候选完整原721实例实际通过：414读取成功、138精确权限拒绝、12待选择、40人工复核、52澄清、65安全拒绝；零缺前置、零失败、617次真实模型理解，原46项逐键全部有实际执行结果。报告 runtime/owned46-candidate-full-01.json。
 - 扩展原121业务检查已实跑104 PASS、17 EXPECTED_BLOCKED，零FAIL/NOT_REACHABLE/SEMANTICS_UNVERIFIED。正常中断完成真实新Attempt和快照；合同ACTIVE/CONSUMED均验证准确409且策略/额度/事件不变，评论只留痕；PSI通过独立40次额度授权中的38个受控聚合得到稳定十箱计数并重算公式，不读取原始数据。报告 runtime/deep-workflows-owned46-final-candidate.json。
 - 合同修复新增15回归与原7工作流均通过；最终后端全量随机顺序/覆盖率检查仍运行。发布后以 runtime/owned46-final-acceptance.json 记录新提交全量、本地/线上和8服务证据；未通过全部门槛不标完成。
+- 28e9a09固定版本按扩展121业务→129查询→250读面→721语言顺序复验，真实REWORK产生的旧报告使监管audit-list/holdout-audit-list两项失败。保留 runtime/owned46-local-28e9a09-full.json，未将其标通过；根因是助手缺少原生审计列表的current_attempt关联。后续改为两处共享同一授权/当前轮次查询，保留历史报告，仅补测试夹具的合法attempt绑定，不放松原语料或断言；最终以新提交重新运行全链路。

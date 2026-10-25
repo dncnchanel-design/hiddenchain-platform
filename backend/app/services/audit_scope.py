@@ -3,7 +3,8 @@ from __future__ import annotations
 from sqlalchemy import and_, false, or_, select, true
 from sqlalchemy.orm import Session
 
-from ..models import SettlementTask, TaskParticipant, TrustedQueryTask, User
+from ..models import AuditReport, SettlementTask, TaskParticipant, TrustedQueryTask, User
+from ..trust_models import TtcAttempt
 
 
 AUDIT_PERMISSION = "VIEW_AUDIT"
@@ -62,6 +63,20 @@ def audit_task_scope_query(user: User):
 
 def audit_task_ids_query(user: User):
     return audit_task_scope_query(user).with_only_columns(SettlementTask.task_id)
+
+
+def audit_report_scope_query(user: User):
+    """List formal reports only for the authorized task's current attempt."""
+    return (
+        select(AuditReport)
+        .join(SettlementTask, SettlementTask.task_id == AuditReport.task_id)
+        .join(TtcAttempt, and_(
+            TtcAttempt.task_id == SettlementTask.task_id,
+            TtcAttempt.attempt_no == SettlementTask.current_attempt,
+            TtcAttempt.attempt_id == AuditReport.attempt_id,
+        ))
+        .where(SettlementTask.task_id.in_(audit_task_ids_query(user)))
+    )
 
 
 def audit_trusted_query_task_scope_query(user: User):

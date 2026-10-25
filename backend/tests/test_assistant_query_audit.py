@@ -18,7 +18,7 @@ from app.models import (
 from app.security import create_access_token, sha256_json
 from app.services.assistant_catalog import read_action, target_candidates, validate_target
 from app.services.rate_limit import limiter
-from app.trust_models import AgentTool, DataAsset, DataAssetVersion, DataSource
+from app.trust_models import AgentTool, DataAsset, DataAssetVersion, DataSource, TtcAttempt
 
 
 PREFIX = "/api/trust-space/assistant"
@@ -136,13 +136,16 @@ def reset_test_database():
         db.flush()
         db.add(SettlementTask(task_id="settlement-owned", capsule_id="settlement-owned", task_name="原交易任务",
                               trade_batch_no="settlement-owned", period_start=date(2026, 1, 1), period_end=date(2026, 1, 31),
-                              creator_org_id="exchange_electric", rule_id="rule", ttc_state="INIT", status="DRAFT"))
+                              creator_org_id="exchange_electric", rule_id="rule", ttc_state="INIT", status="DRAFT", current_attempt=1))
+        db.flush()
+        db.add(TtcAttempt(attempt_id="settlement-attempt", task_id="settlement-owned", capsule_id="settlement-owned",
+                          attempt_no=1, current_state="INIT", trace_id="settlement-attempt"))
         db.flush()
         payload = {"controlled_metadata": "settlement"}
         db.add(BlockchainEvidence(evidence_id="settlement-evidence", task_id="settlement-owned", stage="AUDIT",
                                   biz_type="AUDIT_REPORT", biz_id="settlement-report", evidence_hash=sha256_json(payload),
                                   payload_json=payload, tx_hash="local-tx", block_height=1))
-        db.add(AuditReport(report_id="settlement-report", task_id="settlement-owned", template_code="AUDIT",
+        db.add(AuditReport(report_id="settlement-report", task_id="settlement-owned", attempt_id="settlement-attempt", template_code="AUDIT",
                            report_title="原审计报告", report_content="private-report-body", report_hash="c" * 64, risk_level="LOW"))
         for code in ("WorkflowEngine", "EvidenceGraph+LocalEvidenceLedger+RiskRuleEngine", "TemplateAuditFallback"):
             db.add(AgentTool(tool_code=code, tool_name=code, service_code="ASSISTANT_TEST"))

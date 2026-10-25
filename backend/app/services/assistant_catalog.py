@@ -20,7 +20,7 @@ from ..trust_models import DataAsset, DataAssetVersion, DataSource, TtcAttempt, 
 from . import trust_space
 from .adapters import LocalEvidenceLedgerAdapter
 from .audit_scope import (
-    audit_task_ids_query, audit_task_scope_query,
+    audit_report_scope_query, audit_task_ids_query, audit_task_scope_query,
     audit_trusted_query_task_ids_query, audit_trusted_query_task_scope_query,
     has_audit_permission, scoped_audit_task,
 )
@@ -322,10 +322,7 @@ def _task_items(db: Session, user: User) -> list[dict[str, Any]]:
 
 
 def _report_rows(db: Session, user: User) -> list[AuditReport]:
-    return list(db.scalars(select(AuditReport).where(or_(
-        AuditReport.task_id.in_(audit_task_ids_query(user)),
-        AuditReport.task_id.in_(audit_trusted_query_task_ids_query(user)),
-    )).order_by(AuditReport.report_id.asc())).all())
+    return list(db.scalars(audit_report_scope_query(user).order_by(AuditReport.report_id.asc())).all())
 
 
 def _query_receipts(db: Session, job: PrivacyComputeJob, task: TrustedQueryTask) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from sqlalchemy import and_, func, literal, select, union_all, update
+from sqlalchemy import func, literal, select, union_all, update
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -28,7 +28,7 @@ from ..schemas import (
 from ..security import sha256_json, sign_value
 from ..services.adapters import LocalEvidenceLedgerAdapter
 from ..services.anomaly_scope import anomaly_events_scope_query
-from ..services.audit_scope import audit_task_ids_query, has_audit_permission, scoped_audit_task
+from ..services.audit_scope import audit_report_scope_query, audit_task_ids_query, has_audit_permission, scoped_audit_task
 from ..services.common import add_audit_log
 from ..services.lineage import read_run_events
 from ..services.notifications import process_notification_outbox, process_notification_outbox_best_effort, publish_audit_report
@@ -281,17 +281,7 @@ def list_reports(
 ) -> list[dict]:
     _require_audit_permission(user)
     reports = db.scalars(
-        select(AuditReport)
-        .join(SettlementTask, SettlementTask.task_id == AuditReport.task_id)
-        .join(
-            TtcAttempt,
-            and_(
-                TtcAttempt.task_id == SettlementTask.task_id,
-                TtcAttempt.attempt_no == SettlementTask.current_attempt,
-                TtcAttempt.attempt_id == AuditReport.attempt_id,
-            ),
-        )
-        .where(SettlementTask.task_id.in_(audit_task_ids_query(user)))
+        audit_report_scope_query(user)
         .order_by(AuditReport.created_at.desc(), AuditReport.report_id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)

@@ -13,7 +13,7 @@ from app.models import (
 )
 from app.security import sha256_json
 from app.services.assistant_catalog import read_action, target_candidates, validate_target
-from app.trust_models import DataAsset, DataAssetVersion, DataSource
+from app.trust_models import DataAsset, DataAssetVersion, DataSource, TtcAttempt
 
 
 ACCOUNTS = {
@@ -63,15 +63,18 @@ def reset_test_database():
         db.add(SettlementRule(rule_id="rule", rule_name="规则", rule_version="1", formula_dsl="{}", rule_hash="a" * 64))
         db.flush()
         for task_id, creator in (("task-owned", "exchange"), ("task-foreign", "retailer"), ("task-coal", "coal")):
-            db.add(SettlementTask(task_id=task_id, capsule_id=task_id, task_name=task_id, trade_batch_no=task_id, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), creator_org_id=creator, rule_id="rule", ttc_state="RULE_FROZEN", status="READY"))
+            db.add(SettlementTask(task_id=task_id, capsule_id=task_id, task_name=task_id, trade_batch_no=task_id, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31), creator_org_id=creator, rule_id="rule", ttc_state="RULE_FROZEN", status="READY", current_attempt=1))
         db.flush()
         db.add(TaskParticipant(task_id="task-owned", org_id="generator", role_in_task="DATA_PROVIDER"))
         request(db)
         request(db, "request-foreign", provider="coal", applicant="retailer")
         for suffix in ("owned", "foreign"):
             payload = {"private_payload": "never-export-evidence-body"}
+            db.add(TtcAttempt(attempt_id="attempt-" + suffix, task_id="task-" + suffix, capsule_id="task-" + suffix,
+                              attempt_no=1, current_state="RULE_FROZEN", trace_id="trace-" + suffix))
+            db.flush()
             db.add(BlockchainEvidence(evidence_id="evidence-" + suffix, task_id="task-" + suffix, stage="AUDIT", biz_type="AUDIT_REPORT", biz_id="report-" + suffix, evidence_hash=sha256_json(payload), payload_json=payload, tx_hash="tx-" + suffix, block_height=1))
-            db.add(AuditReport(report_id="report-" + suffix, task_id="task-" + suffix, template_code="AUDIT", report_title=suffix + "审计报告", report_content="private-report-body", report_hash="c" * 64, risk_level="LOW"))
+            db.add(AuditReport(report_id="report-" + suffix, task_id="task-" + suffix, attempt_id="attempt-" + suffix, template_code="AUDIT", report_title=suffix + "审计报告", report_content="private-report-body", report_hash="c" * 64, risk_level="LOW"))
         db.add(PrivacyComputeJob(job_id="job-owned", task_id="task-owned", algorithm_code="CONTROLLED", status="SUCCEEDED", result_json={"secret-result": 123}))
         db.add(PrivacyComputeJob(job_id="job-foreign", task_id="task-foreign", algorithm_code="CONTROLLED", status="SUCCEEDED"))
         db.add(PrivacyComputeJob(job_id="job-coal-settlement", task_id="task-coal", algorithm_code="CONTROLLED"))
