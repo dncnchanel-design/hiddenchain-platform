@@ -438,9 +438,10 @@ def task_summary(
             AnomalyEvent.status == "OPEN",
         )
     ) or 0
+    ttc_state_value = str(getattr(task, "ttc_state", "INIT") or "INIT")
     confirmation_remaining = max(len(scoped_results) - len(confirmed_results), 0)
     blocking_conditions = list(preflight_blockers)
-    if task.status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and confirmation_remaining:
+    if task.status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and confirmation_remaining and ttc_state_value != TTCState.REWORK.value:
         blocking_conditions.append(f"仍有 {confirmation_remaining} 个参与主体未确认结算结果")
     if open_anomaly_count:
         blocking_conditions.append(f"仍有 {open_anomaly_count} 个风险事件待处置")
@@ -450,7 +451,6 @@ def task_summary(
         )
     ) or 0
     task_payload = model_dict(task)
-    ttc_state_value = str(getattr(task, "ttc_state", "INIT") or "INIT")
     if (
         task.status == "DRAFT"
         and ttc_state_value == TTCState.INIT.value
@@ -468,7 +468,7 @@ def task_summary(
     hard_blockers = list(preflight_blockers)
     if open_anomaly_count:
         hard_blockers.append(f"仍有 {open_anomaly_count} 个风险事件待处置")
-    if effective_status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and not hard_blockers:
+    if effective_status in {"PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and not hard_blockers and ttc_state_value != TTCState.REWORK.value:
         if (
             viewer_role in {"GENERATOR", "RETAILER"}
             and own_result is not None
@@ -830,7 +830,7 @@ def run_settlement_workflow(
         raise PermissionError("Current user cannot run settlement tasks")
     if actor and not _scoped_task_allowed(db, task, actor):
         raise PermissionError("Task is outside the current user's scope")
-    if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"}:
+    if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and task.ttc_state != TTCState.REWORK.value:
         return workflow_bundle(db, task, actor)
     if task.status == "RUNNING":
         raise ValueError("Settlement task is already running")

@@ -571,3 +571,40 @@ def test_rework_same_hash_ignores_prior_attempt_decisions(client, auth_headers):
     )
     assert final.status_code == 200, final.text
     assert final.json()["task"]["ttc"]["state"] == "ARCHIVED"
+
+
+def test_manual_review_rework_runs_a_new_attempt_instead_of_replaying_old_results(client, auth_headers):
+    before = client.get(f"/api/settlement/tasks/{TASK_ID}", headers=auth_headers["exchange"]).json()
+    old_results = client.get(f"/api/settlement/results?task_id={TASK_ID}", headers=auth_headers["exchange"]).json()
+    old_report = _latest_report(client, auth_headers)
+    for target in ("HUMAN_REVIEW", "REWORK"):
+        transition = client.post(
+            f"/api/trust-space/ttc/{TASK_ID}/transitions",
+            headers=_etag_headers(client, auth_headers["exchange"]),
+            json={"to_state": target, "trigger": "TRUSTED_SPACE_UI", "reason": "人工复核后要求重新执行"},
+        )
+        assert transition.status_code == 200, transition.text
+        assert transition.json()["ttc_state"] == target
+
+    rework = client.get(f"/api/settlement/tasks/{TASK_ID}", headers=auth_headers["exchange"]).json()
+    assert "RUN_SETTLEMENT" in rework["allowed_actions"]
+    assert rework["next_action"]["code"] == "RETRY_SETTLEMENT"
+    assert not any("未确认结算结果" in item for item in rework["blocking_conditions"])
+
+    rerun = client.post(
+        f"/api/settlement/tasks/{TASK_ID}/run",
+        headers={**_etag_headers(client, auth_headers["exchange"]), "Idempotency-Key": "manual-review-rework-exchange"},
+        json={"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"},
+    )
+    assert rerun.status_code == 200, rerun.text
+    payload = rerun.json()
+    assert payload["task"]["ttc"]["current_attempt"] == before["ttc"]["current_attempt"] + 1
+    assert {row["attempt_id"] for row in payload["results"]}.isdisjoint(row["attempt_id"] for row in old_results)
+    assert {row["result_id"] for row in payload["results"]}.isdisjoint(row["result_id"] for row in old_results)
+    assert payload["report"]["report_id"] != old_report["report_id"]
+    assert payload["task"]["ttc"]["state"] == "RESULT_CONFIRM"
+    current = [row for row in client.get("/api/audit/reports", headers=auth_headers["regulator"]).json() if row["task_id"] == TASK_ID]
+    assert current and all(row["attempt_id"] == payload["report"]["attempt_id"] for row in current)
+    with SessionLocal() as db:
+        assert db.get(AuditReport, old_report["report_id"]) is not None
+        assert all(db.get(SettlementResult, row["result_id"]) is not None for row in old_results)
