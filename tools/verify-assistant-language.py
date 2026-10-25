@@ -658,6 +658,9 @@ class LanguageAcceptance(deep.Acceptance):
             if not case.get("followup"):
                 return {**evidence, "_status": "NEEDS_SELECTION"}
             index = 1 if case["followup"] == "second" else 0
+            if case["followup"] == "label":
+                label_counts = Counter(row["label"] for row in candidates)
+                index = next((position for position, row in enumerate(candidates) if label_counts[row["label"]] == 1), index)
             if len(candidates) <= index:
                 require(not self.fixtures[account].get("workflow_required") and not getattr(self.args, "create_owned_workflows", False), "Required owned selection candidate is missing")
                 return {**evidence, "_status": "FIXTURE_UNAVAILABLE", "missing_scoped_fixture": "selection_candidate_" + str(index + 1)}

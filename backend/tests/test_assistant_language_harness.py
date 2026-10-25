@@ -94,6 +94,56 @@ def test_required_fixture_missing_is_failure_instead_of_a_skipped_case(owner):
         owner.evaluate("exchange", case)
 
 
+def selection_exchange(owner, case_id, labels):
+    """Exercise evaluate's actual follow-up and read-output target checks offline."""
+    corpus = json.loads(harness.CORPUS.read_text(encoding="utf-8"))
+    case = next(row for row in corpus["cases"] if row["id"] == case_id)
+    entity_type = "data_asset" if case["action"] == "CHECK_ASSET_INTEGRITY" else "settlement_task"
+    candidates = [{"entity_id": "candidate-" + str(index), "entity_type": entity_type, "label": label, "status": "ACTIVE"} for index, label in enumerate(labels)]
+    messages, selected = [], []
+    owner.session = lambda *_args: {"session_id": "owned-session"}
+
+    def message(_account, session, content):
+        messages.append(content)
+        if len(messages) == 1:
+            return {"session": session, "plan": {"status": "NEEDS_INPUT", "intent_code": case["action"], "allowed_actions": [], "steps": [], "plan": {"candidates": candidates}}}
+        if content == "第二个":
+            choice = candidates[1]
+        else:
+            matching = [row for row in candidates if row["label"] == content]
+            assert len(matching) == 1, "Harness sent an ambiguous full name"
+            choice = matching[0]
+        selected.append(choice["entity_id"])
+        return {"session": session, "plan": {"status": "READY", "intent_code": case["action"], "steps": [{"mode": "READ", "action_code": case["action"]}]}}
+
+    owner.message = message
+    owner.execute = lambda *_args: {"status": "SUCCEEDED", "steps": [{"output": {"asset_id" if entity_type == "data_asset" else "task_id": selected[-1], "raw_data_accessed": False}}]}
+    return case, messages, selected
+
+
+def test_label_followup_uses_first_unique_real_candidate_after_duplicate_labels(owner):
+    case, messages, selected = selection_exchange(owner, "holdout-selection-label", ["同名资产", "同名资产", "唯一资产", "另一个唯一资产"])
+    result = owner.evaluate("exchange", case)
+    assert messages == [case["question"], "唯一资产"]
+    assert selected == ["candidate-2"] and result["target_id"] == "candidate-2"
+    assert result["_status"] == "ACTUAL_SUCCESS" and result["raw_data_accessed"] is False
+
+
+def test_label_followup_still_fails_if_every_real_candidate_name_is_ambiguous(owner):
+    case, messages, selected = selection_exchange(owner, "holdout-selection-label", ["同名资产", "同名资产"])
+    with pytest.raises(harness.deep.CheckFailure, match="Required owned selection label is ambiguous"):
+        owner.evaluate("exchange", case)
+    assert messages == [case["question"]] and selected == []
+
+
+def test_second_followup_keeps_exact_second_candidate_even_with_duplicate_labels(owner):
+    case, messages, selected = selection_exchange(owner, "task-select-second", ["同名任务", "同名任务", "唯一任务"])
+    result = owner.evaluate("exchange", case)
+    assert messages == [case["question"], "第二个"]
+    assert selected == ["candidate-1"] and result["target_id"] == "candidate-1"
+    assert result["_status"] == "ACTUAL_SUCCESS"
+
+
 def receipt_fixture(owner):
     item = {"receipt_id": "receipt-unit", "evidence_kind": "EXECUTION_RECEIPT", "request_hash": "request-unit-hash", "result_hash": "result-unit-hash", "status": "CONFIRMED", "audit_event_verified": True,
             "verification_status": "MATCHED", "verify": {"matched": True}}
