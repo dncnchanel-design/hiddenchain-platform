@@ -132,6 +132,7 @@ def test_model_failure_has_honest_local_fallback(monkeypatch):
     ("帮我检查任务状态", "LIST_TASKS", "CHECK_TTC_STATUS"),
     ("这批活儿卡在哪个环节了", "LIST_TASKS", "CHECK_TTC_STATUS"),
     ("把跟我们有关的计算活儿给我捋一遍", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_TASKS"),
+    ("梳理计算工作要用的数据资源清单", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS"),
     ("全部任务的状态列表", "LIST_TASKS", "LIST_TASKS"),
     ("帮我查询授权申请状态", "LIST_AUTHORIZATIONS", "QUERY_AUTHORIZATION_STATUS"),
     ("核对这份数据的版本和护照", "LIST_DATA_ASSETS", "CHECK_ASSET_INTEGRITY"),

@@ -83,7 +83,7 @@ def _owned_inventory_question(text: str) -> bool:
 
 
 def _specific_read(text: str, local: str, action: str, entity_type: str | None) -> str:
-    if local in {"LIST_TASKS", "CHECK_TTC_STATUS"} and action in DATA_LIST_ACTIONS and _has(text, TASK_WORDS):
+    if local in {"LIST_TASKS", "CHECK_TTC_STATUS"} and action in DATA_LIST_ACTIONS and _has(text, TASK_WORDS) and not _has(text, ("数据", "资产", "资源", "资料", "dataset", "asset")):
         return local
     pairs = {"CHECK_ASSET_INTEGRITY": {"LIST_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS"},
              "QUERY_AUTHORIZATION_STATUS": {"LIST_AUTHORIZATIONS"}, "CHECK_TTC_STATUS": {"LIST_TASKS"},
