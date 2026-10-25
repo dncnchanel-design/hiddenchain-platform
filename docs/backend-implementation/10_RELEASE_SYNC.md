@@ -473,3 +473,9 @@ PRODUCTION_STATUS = NOT_RELEASED（Render 仅为公开演示/评审环境）
 ```
 
 发布完成证据必须由本记录之外的外部状态给出：GitHub 两分支 SHA、目标提交全部 Actions、8 条 Render Deployment、平台 `/api/version` 与健康端点、7 个连接器 `/health`。在这些证据全部一致前不得声明三方同步完成。
+
+## 2026-10-25 自然语言助手发布候选
+
+本轮修复覆盖语义规划、连续追问、受控范围列表、有效授权、管理员运维入口和查询预填。发布沿用 main 的 checksPass 自动部署。
+
+本记录写入时状态为 LOCAL_VERIFICATION；最终 SHA 和线上证据写入忽略的 runtime 发布账本，必须核对本地、GitHub main/agent 分支、8 个 Render 服务与 /api/version。历史 Vault、运行数据库和用户独立文档均不得上传。

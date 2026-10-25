@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Calculator } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ApiError, createIdempotencyKey } from "../../../api";
 import { commandPollingRetryDelay, MAX_CONSECUTIVE_POLLING_FAILURES, shouldRetryCommandPolling, shouldStopCommandPolling } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
@@ -218,8 +218,12 @@ export function QueryOutput({
 }
 
 export function QueryPage() {
+  const location = useLocation();
   const { context } = useTrustedSpaceContext();
-  const [question, setQuestion] = useState("");
+  const incomingQuestion = (new URLSearchParams(location.search).get("question") || "").slice(0, 4000);
+  const [questionDraft, setQuestionDraft] = useState({ source: incomingQuestion, text: incomingQuestion });
+  const question = questionDraft.source === incomingQuestion ? questionDraft.text : incomingQuestion;
+  const setQuestion = (text: string) => setQuestionDraft({ source: incomingQuestion, text });
   const [intent, setIntent] = useState<QueryIntent | null>(null);
   const [providers, setProviders] = useState<CatalogAsset[]>([]);
   const [approvedAuthorizations, setApprovedAuthorizations] = useState<UsageRequest[]>([]);

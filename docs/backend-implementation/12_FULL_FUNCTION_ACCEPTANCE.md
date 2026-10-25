@@ -187,3 +187,14 @@ backend/.venv/Scripts/python.exe -B tools/verify-deep-workflows.py --output runt
 | 表格/焦点/输入法/性能恢复 | `frontend/src/layout-accessibility.test.tsx`、`features/trusted-energy/performance-boundaries.test.ts`、`components/RetryableLazy.test.ts`；通用DataTable排序/列设置/每页数仍需真实交互验收。 |
 
 验收关闭条件：最终JSON无未解释FAIL；所有正确阻断/不可达能力明确陈述；浏览器待测项附实际步骤与结果；旧测试、页面访问和HTTP传输成功不混写成“13账号全部功能交互通过”。
+
+## 2026-10-25 助手语义与全账号验收补充
+
+- 新增 tools/assistant-language-cases.json 与 tools/verify-assistant-language.py，区分真实读取成功、需要选择、预期权限拒绝、人工复核、模型不可用、夹具不足与失败；不将 HTTP 200 或计划创建冒充实际执行。
+- 语料覆盖本方/可见/可用数据、授权/任务/报告/通知列表、对象详情、序号/名称追问、否定、多个操作、越权、管理员、统计与电力导航。保留问法不得从解析关键词表生成或删除失败项。
+- 写复核前后比较真实业务 DTO，审批夹具只允许匹配能源的本轮唯一申请；复核不执行真实审批。
+- 继续运行 verify-deep-workflows.py 的既有授权、合同、结算、计算、查询函数、电力案例和通知闭环。已知未配置外部能力、当前 UI 不可达路径与隐私分布参考限制仍独立披露，不计入功能成功数。
+
+本地阶段结果：13账号 common 482项无FAIL；旧功能闭环121项（102真实通过、13正确权限/参数阻断、5当前界面不可达、1隐私PSI参考限制）。前端238 tests、ESLint与production build，连接器85 tests通过。39项解析回归与135项路由/范围集成通过；额外反例和全量随机顺序覆盖继续按最后冻结源码复验。
+
+本机模型启用探针收到HTTP401，已如实记为FALLBACK/MODEL_UNAVAILABLE；不把本地降级结果当作真实模型成功。发布后必须在已配置的Render环境实际验证模型解析及全部保留问法，失败则继续修复，不提前报完工。

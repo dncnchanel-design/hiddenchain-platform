@@ -285,7 +285,8 @@ def test_assistant_real_read_shortcuts_are_scoped_and_truthful(client, auth_head
     )
     assert outsider_plan.status_code == 201
     outsider_body = outsider_plan.json()
-    assert outsider_body["plan"]["status"] == "READY"
+    assert outsider_body["plan"]["status"] == "BLOCKED"
+    assert "execute" not in outsider_body["plan"]["allowed_actions"]
     outsider_execute = _execute(
         client,
         auth_headers["retailer"],
@@ -297,11 +298,9 @@ def test_assistant_real_read_shortcuts_are_scoped_and_truthful(client, auth_head
     outsider_result = outsider_execute.json()["plan"]
     assert outsider_result["status"] == "BLOCKED"
     assert outsider_result["steps"][0]["error_code"] == "ASSET_SCOPE_DENIED"
-    assert outsider_result["steps"][0]["output"] == {
-        "status": "BLOCKED",
-        "error_code": "ASSET_SCOPE_DENIED",
-        "raw_data_accessed": False,
-    }
+    assert outsider_result["steps"][0]["output"] == {}
+    assert outsider_result["steps"][0]["invocation_id"] is None
+    assert outsider_result["plan"]["raw_data_accessed"] is False
 
 
 def test_assistant_unknown_write_review_and_plan_controls(client, auth_headers):
@@ -323,8 +322,9 @@ def test_assistant_unknown_write_review_and_plan_controls(client, auth_headers):
     assert unknown.status_code == 201
     unknown_plan = unknown.json()["plan"]
     assert unknown_plan["intent_code"] == "UNKNOWN_INTENT"
-    assert unknown_plan["status"] == "BLOCKED"
-    assert "我有哪些数据" in unknown_plan["plan"]["explanation"]
+    assert unknown_plan["status"] == "NEEDS_INPUT"
+    assert "数据" in unknown_plan["plan"]["explanation"]
+    assert "execute" not in unknown_plan["allowed_actions"]
     unknown_id = unknown_plan["plan_id"]
 
     ready = client.post(
@@ -332,9 +332,11 @@ def test_assistant_unknown_write_review_and_plan_controls(client, auth_headers):
         headers={**auth_headers["exchange"], "If-Match": '"1"'},
     )
     assert ready.status_code == 200, ready.text
-    assert ready.json()["plan"]["status"] == "BLOCKED"
-    assert ready.json()["plan"]["state_version"] == 1
-    assert "retry" not in ready.json()["plan"]["allowed_actions"]
+    assert ready.json()["plan"]["idempotent_replay"] is True
+    assert ready.json()["plan"]["status"] == "NEEDS_INPUT"
+    unchanged = client.get(f"{ASSISTANT_PREFIX}/sessions/{unknown_session['session_id']}/plans/{unknown_id}", headers=auth_headers["exchange"]).json()["plan"]
+    assert unchanged["status"] == "NEEDS_INPUT" and unchanged["state_version"] == 1
+    assert "retry" not in unchanged["allowed_actions"]
     stale_cancel = client.post(
         f"{ASSISTANT_PREFIX}/sessions/{unknown_session['session_id']}/plans/{unknown_id}/cancel",
         headers={**auth_headers["exchange"], "If-Match": '"0"'},
@@ -444,6 +446,9 @@ def test_assistant_tool_catalog_is_role_filtered_and_real(client, auth_headers):
     assert "EDCAdapter+OPAAdapter" in generator_tools
     assert all(item["source_of_truth"] == "agent_tools" for item in exchange_tools.values())
     assert all(item["capability_state"] in {"LOCAL_REAL", "ADAPTER", "DEMO"} for item in exchange_tools.values())
+    admin = client.get(f"{ASSISTANT_PREFIX}/tools", headers=auth_headers["admin"])
+    assert admin.status_code == 200
+    assert {action for item in admin.json()["items"] for action in item["assistant_actions"]} == {"SYSTEM_OVERVIEW", "ASSISTANT_HELP"}
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count(AssistantPlanStep.step_id))) == 0

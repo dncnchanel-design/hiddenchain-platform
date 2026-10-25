@@ -300,3 +300,15 @@ Render 仍是公开演示/评审环境，不代表生产部署；企业交付后
 | Render 评审环境 | 8 个服务声明 `main` + `checksPass`；待 GitHub 全绿后核对 Deployment SHA、平台版本与 7 个连接器健康 | READY_FOR_SYNC |
 
 原始 Vault 与运行数据库继续留在本机并排除，不属于本次 GitHub、Render 或 Windows 交付范围。
+
+## 2026-10-25 自然语言助手修复分工
+
+| 范围 | 所有权 | 验证方式 |
+| --- | --- | --- |
+| 意图解析、既有模型调用与权限收敛 | 主协调 agent | 严格输出、否定、多意图、缺参、模型异常回退回归 |
+| 范围只读目录与有效授权 | assistant_catalog_review | 独立数据库，主体/审计/版本/额度边界与无副作用测试 |
+| 问法验收语料和 HTTP 全账号矩阵 | language_acceptance | 56 个问法含 20 个独立保留问法，13 个原有账号，不读取数据库或 Vault |
+| 助手列表、候选、导航和管理员入口 | impeccable_finish_reviewer | 原视觉层，实际桌面/窄屏与单元回归 |
+| 最终测试、白名单提交、GitHub/Render | 主协调 agent | 精确提交 SHA、Actions 与 8 服务健康 |
+
+所有运行夹具、数据库、日志、凭证与截图留在忽略目录；不纳入发布提交。

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.database import SessionLocal, engine
 from app.main import app
-from app.models import Base, DataContract, DataUsageRequest, Organization, SettlementRule, SettlementTask, TaskParticipant, User, utc_now
+from app.models import Base, DataContract, DataUsageRequest, Organization, PrivacyComputeJob, SettlementRule, SettlementTask, TaskParticipant, User, utc_now
 from app.security import create_access_token
 from app.services.assistant import ACTION_TOOL_CODES
 from app.trust_models import AgentTool, DataAsset, DataAssetVersion, DataSource
@@ -44,6 +44,8 @@ def reset_test_database():
         db.flush()
         for account, role in ENERGY_ROLES.items():
             db.add(TaskParticipant(task_id="task-participating", org_id=account, role_in_task=role))
+        for account in (*ENERGY_ROLES, "outsider"):
+            db.add(PrivacyComputeJob(job_id="job-" + account, task_id="query-" + account, algorithm_code="CONTROLLED_AGGREGATE", execution_attestation_json={"request_item_id": "item-" + account, "applicant_org_id": account, "provider_org_id": account}))
         for tool_code in set(ACTION_TOOL_CODES.values()):
             db.add(AgentTool(tool_code=tool_code, tool_name=tool_code, service_code="metadata-only", enabled=True))
         db.commit()
@@ -86,41 +88,80 @@ def _execute(client, account, session_id, plan):
 def test_energy_enterprise_asset_reads_obey_the_same_owner_boundary(client, account, own_asset):
     asset_id = f"asset-{account}" if own_asset else "asset-outsider"
     session_id, plan = _plan(client, account, "data_asset", asset_id, "检查资产完整性")
-    assert plan["status"] == "READY"
+    assert plan["status"] == ("READY" if own_asset else "BLOCKED")
     result = _execute(client, account, session_id, plan)
     output = result["steps"][0]["output"]
-    assert output["raw_data_accessed"] is False
     if own_asset:
         assert result["status"] == "SUCCEEDED"
+        assert output["raw_data_accessed"] is False
         assert output["asset_id"] == asset_id
         assert output["integrity"]["version_present"] is True
         assert "data_ref" not in str(output) and "password_hash" not in str(output)
     else:
         assert result["status"] == "BLOCKED"
-        assert output == {"status": "BLOCKED", "error_code": "ASSET_SCOPE_DENIED", "raw_data_accessed": False}
+        assert result["steps"][0]["error_code"] == "ASSET_SCOPE_DENIED"
+        assert result["steps"][0]["invocation_id"] is None
+        assert result["plan"]["raw_data_accessed"] is False
+        assert output == {}
 
 
 @pytest.mark.parametrize("account", ENERGY_ROLES)
 def test_new_energy_roles_keep_authorization_and_task_tenant_boundaries(client, account):
-    targets = [("data_usage_request", f"request-{account}", "查询授权申请状态", "SUCCEEDED", None), ("data_usage_request", "request-outsider", "查询授权申请状态", "BLOCKED", "REQUEST_SCOPE_DENIED"), ("settlement_task", "task-participating", "检查可信任务状态", "SUCCEEDED", None), ("settlement_task", "task-foreign", "检查可信任务状态", "BLOCKED", "TTC_SCOPE_DENIED")]
+    targets = [("data_usage_request", f"request-{account}", "查询授权申请状态", "SUCCEEDED", None), ("data_usage_request", "request-outsider", "查询授权申请状态", "BLOCKED", "REQUEST_SCOPE_DENIED"), ("settlement_task", "task-participating", "检查可信任务状态", "SUCCEEDED", None), ("settlement_task", "task-foreign", "检查可信任务状态", "BLOCKED", "TTC_SCOPE_DENIED"), ("privacy_compute_job", "job-" + account, "检查可信任务状态", "SUCCEEDED", None), ("privacy_compute_job", "job-outsider", "检查可信任务状态", "BLOCKED", "COMPUTE_SCOPE_DENIED")]
     for entity_type, entity_id, content, status, error_code in targets:
         session_id, plan = _plan(client, account, entity_type, entity_id, content)
-        assert plan["status"] == "READY"
+        assert plan["status"] == ("BLOCKED" if error_code else "READY")
         result = _execute(client, account, session_id, plan)
         assert result["status"] == status
-        assert result["steps"][0]["output"]["raw_data_accessed"] is False
+        assert result["plan"]["raw_data_accessed"] is False
         if error_code:
             assert result["steps"][0]["error_code"] == error_code
+            assert result["steps"][0]["invocation_id"] is None
+        else:
+            assert result["steps"][0]["output"]["raw_data_accessed"] is False
+            assert not any(key in str(result["steps"][0]["output"]) for key in ("data_ref", "payload_json", "password_hash"))
 
 
 @pytest.mark.parametrize("account", ENERGY_ROLES)
-def test_new_energy_read_access_does_not_allow_assistant_approval_writes(client, account):
+def test_new_energy_providers_can_only_record_manual_approval_review(client, account):
     session_id, plan = _plan(client, account, "data_usage_request", f"request-{account}", "批准授权")
-    assert plan["status"] == "BLOCKED"
-    assert _execute(client, account, session_id, plan)["status"] == "BLOCKED"
+    assert plan["status"] == "PENDING_REVIEW" and plan["steps"][0]["mode"] == "WRITE"
+    result = _execute(client, account, session_id, plan)
+    assert result["status"] == "PENDING_REVIEW"
+    assert result["steps"][0]["output"]["review_requested"] is True
+    assert result["steps"][0]["output"]["business_mutation"] is False
     with SessionLocal() as db:
         assert db.get(DataUsageRequest, f"request-{account}").status == "SUBMITTED"
         assert db.scalar(select(func.count(DataContract.contract_id))) == 0
+
+
+@pytest.mark.parametrize("account", ENERGY_ROLES)
+def test_provider_role_without_individual_approval_permission_cannot_record_review(client, account):
+    with SessionLocal() as db:
+        current = db.get(User, account)
+        current.permissions_json = ["VIEW_DATA", "VIEW_COMPUTE_RESULT"]
+        db.commit()
+    session_id, plan = _plan(client, account, "data_usage_request", f"request-{account}", "批准授权")
+    assert plan["status"] == "BLOCKED"
+    assert plan["steps"][0]["error_code"] == "PROVIDER_REVIEW_REQUIRED"
+    result = _execute(client, account, session_id, plan)
+    assert not result["steps"][0]["output"].get("review_requested")
+    with SessionLocal() as db:
+        assert db.get(DataUsageRequest, f"request-{account}").status == "SUBMITTED"
+        assert db.scalar(select(func.count(DataContract.contract_id))) == 0
+
+
+@pytest.mark.parametrize("account", ENERGY_ROLES)
+def test_provider_cannot_review_an_already_approved_request_again(client, account):
+    with SessionLocal() as db:
+        db.get(DataUsageRequest, f"request-{account}").status = "APPROVED"
+        db.commit()
+    session_id, plan = _plan(client, account, "data_usage_request", f"request-{account}", "批准授权")
+    assert plan["status"] == "BLOCKED"
+    assert plan["steps"][0]["error_code"] == "INVALID_REQUEST_TRANSITION"
+    assert not _execute(client, account, session_id, plan)["steps"][0]["output"].get("review_requested")
+    with SessionLocal() as db:
+        assert db.get(DataUsageRequest, f"request-{account}").status == "APPROVED"
 
 
 def test_existing_provider_write_plan_remains_a_review_request_without_business_mutation(client):

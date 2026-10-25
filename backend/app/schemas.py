@@ -155,7 +155,7 @@ class AssistantSessionCreate(StrictModel):
 
 
 class AssistantMessageCreate(StrictModel):
-    """A user message interpreted only by the deterministic allowlist planner."""
+    """A user message classified into server-validated, role-scoped assistant actions."""
 
     content: str = Field(min_length=1, max_length=4000)
 

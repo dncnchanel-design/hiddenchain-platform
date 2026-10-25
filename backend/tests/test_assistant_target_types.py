@@ -5,7 +5,7 @@ import pytest
 
 from app.database import SessionLocal, engine
 from app.main import app
-from app.models import AssistantPlanStep, AuditReport, Base, DataUsageRequest, Organization, PrivacyComputeJob, SettlementRule, SettlementTask, User, utc_now
+from app.models import AssistantPlanStep, AuditReport, Base, DataUsageRequest, DidIdentity, Organization, PrivacyComputeJob, SettlementRule, SettlementTask, User, utc_now
 from app.security import create_access_token
 from app.services.assistant import ACTION_TOOL_CODES
 from app.trust_models import AgentTool, DataAsset, DataAssetVersion, DataSource
@@ -22,10 +22,14 @@ def reset_test_database():
         for account, role in (("owner", "GENERATOR"), ("exchange", "EXCHANGE"), ("foreign", "EXCHANGE")):
             db.add(Organization(org_id=account, org_name=account, org_type=role, energy_domain="electricity"))
             db.flush()
-            db.add(User(user_id=account, org_id=account, username=account, password_hash="unused", display_name=account, role_code=role, permissions_json=["VIEW_DATA", "VIEW_COMPUTE_RESULT", "APPROVE_AUTHORIZATION"]))
+            permissions = ["VIEW_DATA", "VIEW_COMPUTE_RESULT", "APPROVE_AUTHORIZATION"]
+            if role == "EXCHANGE":
+                permissions.append("VIEW_AUDIT")
+            db.add(User(user_id=account, org_id=account, username=account, password_hash="unused", display_name=account, role_code=role, permissions_json=permissions))
+            db.add(DidIdentity(did_id="did:test:" + account, owner_type="ORG", owner_id=account, org_id=account, public_key_fingerprint="a" * 64))
         db.add(DataSource(source_id="source", source_code="source", source_name="metadata", source_type="ENTERPRISE_CONNECTOR", owner_org_id="owner", security_domain="electricity"))
         db.flush()
-        db.add(DataAsset(asset_id="asset-owner", source_id="source", owner_org_id="owner", asset_code="asset-owner", asset_name="本方资产", asset_type="ENERGY_METRIC", classification="ENTERPRISE_DATA_PRODUCT", sensitivity_level="L2", current_version_id="version"))
+        db.add(DataAsset(asset_id="asset-owner", source_id="source", owner_org_id="owner", asset_code="asset-owner", asset_name="本方资产", asset_type="ENERGY_METRIC", classification="ENTERPRISE_DATA_PRODUCT", sensitivity_level="L2", current_version_id="version", status="ACTIVE"))
         db.flush()
         db.add(DataAssetVersion(version_id="version", asset_id="asset-owner", version_no=1, schema_version="metadata", data_ref="connector://owner/value/1", data_hash="a" * 64, immutable_hash="b" * 64))
         db.add(SettlementRule(rule_id="rule", rule_name="metadata", rule_version="metadata", formula_dsl="metadata", rule_hash="c" * 64))
@@ -77,12 +81,17 @@ def execute(client, session, value, account="exchange"):
     ("privacy_compute_job", "job-own", "提交申请"),
     ("audit_report", "report-own", "推进任务"),
 ])
-def test_incompatible_context_is_blocked_before_offering_execution(client, entity_type, entity_id, text):
+def test_incompatible_context_requests_a_scoped_selection_before_execution(client, entity_type, entity_id, text):
     session, value = plan(client, entity_type, entity_id, text)
-    assert value["status"] == "BLOCKED"
+    assert value["status"] == "NEEDS_INPUT"
     assert "execute" not in value["allowed_actions"]
     assert value["steps"][0]["target_id"] is None
-    assert execute(client, session, value)["status"] == "BLOCKED"
+    assert value["plan"]["candidates"]
+    assert value["plan"]["raw_data_accessed"] is False
+    result = execute(client, session, value)
+    assert result["status"] == "NEEDS_INPUT"
+    assert result["steps"][0]["invocation_id"] is None
+    assert not result["steps"][0]["output"].get("review_requested")
 
 
 def test_explicit_asset_target_overrides_a_different_page_without_changing_type(client):
@@ -95,8 +104,9 @@ def test_explicit_asset_target_overrides_a_different_page_without_changing_type(
 
 def test_english_command_words_are_not_misread_as_business_identifiers(client):
     _session, value = plan(client, None, None, "asset integrity")
-    assert value["status"] == "BLOCKED"
+    assert value["status"] == "NEEDS_INPUT"
     assert value["steps"][0]["target_id"] is None
+    assert {item["entity_id"] for item in value["plan"]["candidates"]} == {"asset-owner"}
 
 
 @pytest.mark.parametrize(("entity_type", "entity_id", "text"), [("privacy_compute_job", "job-own", "检查可信任务状态"), ("audit_report", "report-own", "解释审计报告"), ("data_usage_request", "request-own", "查询授权申请状态")])
@@ -111,7 +121,11 @@ def test_matching_job_report_and_request_contexts_read_their_actual_types(client
 @pytest.mark.parametrize(("entity_type", "entity_id", "text"), [("privacy_compute_job", "job-foreign", "检查可信任务状态"), ("audit_report", "report-foreign", "解释审计报告")])
 def test_typed_relations_do_not_allow_cross_organization_job_or_report_reads(client, entity_type, entity_id, text):
     session, value = plan(client, entity_type, entity_id, text)
-    assert execute(client, session, value)["status"] == "BLOCKED"
+    assert value["status"] == "BLOCKED"
+    assert value["steps"][0]["error_code"] == ("COMPUTE_SCOPE_DENIED" if entity_type == "privacy_compute_job" else "AUDIT_SCOPE_DENIED")
+    result = execute(client, session, value)
+    assert result["status"] == "BLOCKED" and result["steps"][0]["invocation_id"] is None
+    assert result["plan"]["raw_data_accessed"] is False
 
 
 def test_execution_rejects_a_preexisting_wrong_type_even_when_its_id_names_a_real_asset(client):
@@ -141,10 +155,14 @@ def test_old_wrong_type_write_plan_does_not_create_a_review_request(client):
 
 def test_retry_does_not_offer_execution_for_an_incompatible_page(client):
     session, value = plan(client, "privacy_compute_job", "job-own", "检查资产完整性")
+    assert value["status"] == "NEEDS_INPUT"
     response = client.post(f"{PREFIX}/sessions/{session['session_id']}/plans/{value['plan_id']}/retry", headers={**headers(), "If-Match": f'"{value["state_version"]}"'})
     assert response.status_code == 200
-    assert response.json()["plan"]["status"] == "BLOCKED"
-    assert "execute" not in response.json()["plan"]["allowed_actions"]
+    assert response.json()["plan"]["idempotent_replay"] is True
+    assert response.json()["plan"]["status"] == "NEEDS_INPUT"
+    current = client.get(f"{PREFIX}/sessions/{session['session_id']}/plans/{value['plan_id']}", headers=headers()).json()["plan"]
+    assert current["status"] == "NEEDS_INPUT" and current["plan"]["candidates"]
+    assert "execute" not in current["allowed_actions"]
 
 
 def test_retry_cannot_revive_a_role_denied_evidence_command(client):

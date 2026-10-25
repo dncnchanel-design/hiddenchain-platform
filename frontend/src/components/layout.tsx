@@ -1,4 +1,5 @@
 import {
+  lazy,
   Suspense,
   useEffect,
   useMemo,
@@ -9,6 +10,7 @@ import {
 import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   Bell,
+  Bot,
   Building2,
   ChevronDown,
   ChevronRight,
@@ -35,6 +37,7 @@ import { LoadingState } from "./ui";
 
 const NAV_OPEN_DELAY = 120;
 const NAV_CLOSE_DELAY = 220;
+const AgentSheet = lazy(() => import("../features/trusted-energy/components/AgentSheet").then((module) => ({ default: module.AgentSheet })));
 
 export function BusinessLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
@@ -288,6 +291,8 @@ export function AppShell() {
   const location = useLocation();
   const routeKey = `${location.pathname}${location.search}${location.hash}`;
   const [mobileState, setMobileState] = useState<{ open: boolean; routeKey: string }>({ open: false, routeKey });
+  const [agentMounted, setAgentMounted] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const mobileOpen = mobileState.open && mobileState.routeKey === routeKey;
   const productConfig = useProductConfig();
 
@@ -331,6 +336,7 @@ export function AppShell() {
               {canAccessRoute(session, "/anomalies") && (
                 <Link className="system-alert-entry" to="/anomalies" title="查看风险与告警" aria-label="查看风险与告警"><Bell size={17} /></Link>
               )}
+              {session.user.role_code === "ADMIN" && <button className="system-alert-entry" style={{ border: 0, background: "transparent" }} type="button" title="打开运维助手" aria-label="打开AI助手" aria-expanded={agentOpen} onClick={() => { setAgentMounted(true); setAgentOpen(true); }}><Bot size={17} /></button>}
               <details className="user-menu system-user-menu">
                 <summary aria-label="打开用户菜单">
                   <UserRound size={17} />
@@ -361,6 +367,7 @@ export function AppShell() {
           {currentWorkspace === "admin" ? <AdminLayout><Outlet /></AdminLayout> : <BusinessLayout><Outlet /></BusinessLayout>}
         </Suspense>
       </main>
+      {session.user.role_code === "ADMIN" && agentMounted && <Suspense fallback={null}><AgentSheet open={agentOpen} onOpenChange={setAgentOpen} mode="business" onModeChange={() => {}} operationsOnly /></Suspense>}
     </div>
   );
 }

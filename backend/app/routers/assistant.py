@@ -59,7 +59,7 @@ def create_session(
     payload: AssistantSessionCreate,
     response: Response,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(
@@ -82,7 +82,7 @@ def resume_session(
     session_id: str,
     response: Response,
     if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(assistant_service.resume_session, db, session_id, user, if_match=if_match)
@@ -93,7 +93,7 @@ def resume_session(
 @router.get("/sessions/{session_id}/messages")
 def list_messages(
     session_id: str,
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return _call(assistant_service.list_messages, db, session_id, user)
@@ -102,7 +102,7 @@ def list_messages(
 @router.get("/sessions/{session_id}/plans")
 def list_plans(
     session_id: str,
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return _call(assistant_service.list_plans, db, session_id, user)
@@ -115,7 +115,7 @@ def post_message(
     response: Response,
     if_match: str | None = Header(default=None, alias="If-Match"),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(
@@ -135,7 +135,7 @@ def post_message(
 
 @router.get("/tools")
 def tool_catalog(
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return _call(assistant_service.tool_catalog, db, user)
@@ -145,7 +145,7 @@ def tool_catalog(
 def plan_status(
     session_id: str,
     plan_id: str,
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return _call(assistant_service.plan_status, db, session_id, plan_id, user)
@@ -158,7 +158,7 @@ def execute_plan(
     payload: AssistantExecuteRequest,
     response: Response,
     if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(
@@ -179,7 +179,7 @@ def cancel_plan(
     plan_id: str,
     response: Response,
     if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(
@@ -199,7 +199,7 @@ def retry_plan(
     plan_id: str,
     response: Response,
     if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = Depends(require_roles(*BUSINESS_ROLES)),
+    user: User = Depends(require_roles(*BUSINESS_ROLES, "ADMIN")),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     result = _call(

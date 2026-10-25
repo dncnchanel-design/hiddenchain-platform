@@ -70,7 +70,13 @@ def execute(client, session, plan, account="exchange"):
 @pytest.mark.parametrize("account", ACCOUNTS)
 def test_exact_user_question_lists_only_the_accounts_own_catalog_metadata(client, account):
     if account == "admin":
-        assert client.post(PREFIX + "/sessions", headers=headers(account), json={}).status_code == 403
+        session, plan = ask(client, account)
+        assert plan["status"] == "BLOCKED" and plan["steps"][0]["error_code"] == "ASSISTANT_ROLE_DENIED"
+        assert "execute" not in plan["allowed_actions"]
+        assert execute(client, session, plan, account)["steps"][0]["invocation_id"] is None
+        tools = client.get(PREFIX + "/tools", headers=headers(account))
+        assert tools.status_code == 200
+        assert {action for item in tools.json()["items"] for action in item["assistant_actions"]} <= {"SYSTEM_OVERVIEW", "ASSISTANT_HELP"}
         return
     session, plan = ask(client, account)
     assert plan["intent_code"] == "LIST_DATA_ASSETS"
@@ -119,13 +125,15 @@ def test_catalog_is_bounded_and_reports_more_instead_of_silently_truncating(clie
 
 def test_unknown_intent_cannot_be_revived_by_retrying_the_same_unsupported_plan(client):
     session, plan = ask(client, content="请帮我安排一场会议")
-    assert plan["status"] == "BLOCKED"
+    assert plan["status"] == "NEEDS_INPUT"
     assert "retry" not in plan["allowed_actions"]
-    assert "我有哪些数据" in plan["plan"]["explanation"]
+    assert "数据" in plan["plan"]["explanation"] and "execute" not in plan["allowed_actions"]
     response = client.post(f"{PREFIX}/sessions/{session['session_id']}/plans/{plan['plan_id']}/retry", headers={**headers(), "If-Match": '"1"'})
     assert response.status_code == 200
-    assert response.json()["plan"]["status"] == "BLOCKED"
-    assert "execute" not in response.json()["plan"]["allowed_actions"]
+    assert response.json()["plan"]["idempotent_replay"] is True
+    assert response.json()["plan"]["status"] == "NEEDS_INPUT"
+    current = client.get(f"{PREFIX}/sessions/{session['session_id']}/plans/{plan['plan_id']}", headers=headers()).json()["plan"]
+    assert current["status"] == "NEEDS_INPUT" and "execute" not in current["allowed_actions"]
 
 
 def test_disabled_data_tool_remains_unavailable(client):

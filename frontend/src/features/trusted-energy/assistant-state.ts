@@ -1,10 +1,11 @@
 export type MutableRef<T> = { current: T };
 
-/** Only the user's explicit, read-only personal catalog request runs immediately. */
-export function shouldAutoExecuteCatalog(plan?: { intent_code: string; status: string; allowed_actions?: string[]; steps: { action_code: string; mode: string }[] } | null): boolean {
-  return Boolean(plan?.intent_code === "LIST_DATA_ASSETS" && plan.status === "READY"
+/** Execute one server-authorized metadata read; writes and ambiguous plans wait. */
+export function shouldAutoExecuteRead(plan?: { intent_code: string; status: string; allowed_actions?: string[]; steps: { action_code: string; mode: string }[] } | null): boolean {
+  const actions = new Set(["LIST_DATA_ASSETS", "LIST_VISIBLE_DATA_ASSETS", "LIST_AUTHORIZED_DATA_ASSETS", "LIST_AUTHORIZATIONS", "LIST_TASKS", "LIST_AUDIT_REPORTS", "LIST_NOTIFICATIONS", "SYSTEM_OVERVIEW", "ASSISTANT_HELP", "NAVIGATE_QUERY", "NAVIGATE_ELECTRICITY", "CHECK_ASSET_INTEGRITY", "QUERY_AUTHORIZATION_STATUS", "CHECK_TTC_STATUS", "EXPLAIN_AUDIT", "VERIFY_EVIDENCE_SUMMARY"]);
+  return Boolean(plan && actions.has(plan.intent_code) && plan.status === "READY"
     && plan.allowed_actions?.includes("execute") && plan.steps.length === 1
-    && plan.steps[0].action_code === "LIST_DATA_ASSETS" && plan.steps[0].mode === "READ");
+    && plan.steps[0].action_code === plan.intent_code && plan.steps[0].mode === "READ");
 }
 
 /**

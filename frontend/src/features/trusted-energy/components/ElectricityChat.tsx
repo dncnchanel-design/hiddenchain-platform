@@ -63,7 +63,7 @@ function CalculationCard({ record, scenario, busy, onCalculate, onSave, onContin
   </article>;
 }
 
-export function ElectricityChat({ onFinish }: { onFinish: () => void }) {
+export function ElectricityChat({ onFinish, initialQuestion = "" }: { onFinish: () => void; initialQuestion?: string }) {
   const { session: auth } = useAuth();
   const storageKey = `electricity-chat:${auth?.user.user_id || "anonymous"}`;
   const sessionId = useRef(sessionStorage.getItem(storageKey) || "");
@@ -75,7 +75,7 @@ export function ElectricityChat({ onFinish }: { onFinish: () => void }) {
   const [records, setRecords] = useState<ElectricityRecord[]>([]);
   const [cases, setCases] = useState<ElectricityRecord[]>([]);
   const [showCases, setShowCases] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialQuestion);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

@@ -353,9 +353,9 @@ class Acceptance:
         def controls():
             session = self.assistant_session("exchange", "data_asset", "asset-electricity-load")
             message = self.assistant_message("exchange", session, "请安排一场会议")
-            require(message["plan"]["status"] == "BLOCKED", "Unknown intent was not blocked")
+            require(message["plan"]["status"] == "NEEDS_INPUT" and "execute" not in message["plan"]["allowed_actions"], "Unknown intent must ask for clarification without execution")
             retried = self.assistant_action("exchange", message["session"], message["plan"], "retry")
-            require(retried["plan"]["status"] == "BLOCKED" and "execute" not in retried["plan"]["allowed_actions"], "Retry must not reopen an unsupported command")
+            require(retried["plan"]["status"] == "NEEDS_INPUT" and "execute" not in retried["plan"]["allowed_actions"], "Retry must not reopen an unsupported command")
             cancelled = self.assistant_action("exchange", retried["session"], retried["plan"], "cancel")
             require(cancelled["plan"]["status"] == "CANCELLED", "Cancel did not persist")
             fresh = self.assistant_session("exchange", "data_asset", "asset-electricity-load")
