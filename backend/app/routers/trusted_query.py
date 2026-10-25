@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 from calendar import monthrange
@@ -65,6 +66,7 @@ from ..trust_models import DataAsset, DataAssetVersion
 
 
 router = APIRouter(prefix="/trust-space/query", tags=["trusted-query"])
+logger = logging.getLogger(__name__)
 
 QUERY_OPERATION_NAMESPACE = "TRUSTED_QUERY_EXECUTE_V1"
 QUERY_TASK_RUNNABLE_STATUSES = frozenset({"QUEUED", "PENDING_RETRY"})
@@ -1969,6 +1971,15 @@ def _execute_claimed_query_task(
             retryable=True,
         ) from exc
     if response.status_code >= 400:
+        media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+        content_category = "json" if media_type == "application/json" or media_type.endswith("+json") else (
+            "html" if media_type in {"text/html", "application/xhtml+xml"} else "other"
+        )
+        logger.warning(
+            "trusted_query_connector_http_error task_id=%s provider_org_id=%s endpoint_host=%s http_status=%s content_category=%s",
+            task.task_id, authorization.provider_org_id, urlparse(str(endpoint)).hostname,
+            response.status_code, content_category,
+        )
         raise _connector_response_error(response)
     try:
         result = response.json()

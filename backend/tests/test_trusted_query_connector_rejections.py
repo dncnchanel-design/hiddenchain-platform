@@ -1,5 +1,6 @@
 """Permanent connector privacy denials must not enter the automatic retry loop."""
 from datetime import timedelta
+import logging
 
 import httpx
 import pytest
@@ -82,6 +83,49 @@ def test_unknown_429_keeps_the_existing_retry_flow(client, auth_headers, monkeyp
         assert db.scalar(select(func.count(AuditLog.log_id)).where(
             AuditLog.target_id == task_id, AuditLog.action_code == "TRUSTED_QUERY_RETRY_SCHEDULED",
         )) == 2
+
+
+@pytest.mark.parametrize("http_status,content_type,category,code,state", [
+    (503, "text/html; charset=utf-8", "html", "CONNECTOR_TEMPORARY_FAILURE", "PENDING_RETRY"),
+    (429, "application/problem+json; private=content-type-secret", "json", "CONNECTOR_TEMPORARY_FAILURE", "PENDING_RETRY"),
+    (403, "text/plain", "other", "CONNECTOR_REQUEST_REJECTED", "FAILED"),
+])
+def test_compute_http_warning_is_metadata_only_and_does_not_change_failure_behavior(
+    client, auth_headers, monkeypatch, caplog, http_status, content_type, category, code, state,
+):
+    authorization_id, _private_key = _prepare_authorization()
+    body = _query_body(client, auth_headers["exchange"], authorization_id)
+    with SessionLocal() as db:
+        node = db.scalar(select(LocalSubjectNode).where(LocalSubjectNode.org_id == "org-generator-t01"))
+        node.endpoint_ref = "https://url-user:url-password@connector.example/private-route?secret=url-query#url-fragment"
+        db.commit()
+    captured = {}
+
+    def reject(_url, **kwargs):
+        captured.update(kwargs)
+        return httpx.Response(http_status, content=b"response-body-secret", headers={
+            "Content-Type": content_type, "X-Private-Header": "response-header-secret",
+        })
+
+    monkeypatch.setattr(trusted_query.httpx, "post", reject)
+    caplog.set_level(logging.WARNING, logger=trusted_query.__name__)
+    accepted = _execute(client, auth_headers["exchange"], body, "safe-http-diagnostics")
+    assert accepted.status_code == 202, accepted.text
+    task_id = accepted.json()["task_id"]
+    warnings = [record.getMessage() for record in caplog.records if record.name == trusted_query.__name__]
+    assert warnings == [
+        f"trusted_query_connector_http_error task_id={task_id} provider_org_id=org-generator-t01 "
+        f"endpoint_host=connector.example http_status={http_status} content_category={category}"
+    ]
+    logged = "\n".join(warnings)
+    assert all(value not in logged for value in (
+        "url-user", "url-password", "private-route", "url-query", "url-fragment", authorization_id,
+        "response-body-secret", "response-header-secret", "content-type-secret", "2026-08-01",
+        *captured["headers"].values(),
+    ))
+    with SessionLocal() as db:
+        task = db.get(TrustedQueryTask, task_id)
+        assert task.failure_code == code and task.status == state and task.attempt == 1
 
 
 @pytest.mark.parametrize("response,code,retryable", [

@@ -38,6 +38,37 @@ def require(condition: Any, message: str) -> None:
         raise CheckFailure(message)
 
 
+def validate_negative_query_rejection(name: str, result: dict[str, Any]) -> None:
+    """An infrastructure outage is never proof of a parameter/privacy guard."""
+    require(name in {"threshold-required", "group-field-invalid", "privacy-small-region"}, "Unknown negative query probe")
+    require(isinstance(result.get("task_id"), str) and bool(result["task_id"]) and result.get("task_status") == "FAILED" and not result.get("rejected_stage"), name + ": expected the real terminal query rejection, not a missing authorization or setup failure")
+    # The public API deliberately maps node 403/422 to one permanent code; it
+    # does not expose the node's status/body. Do not invent an upstream status.
+    require(result.get("failure_code") == "CONNECTOR_REQUEST_REJECTED", name + ": expected permanent CONNECTOR_REQUEST_REJECTED, got " + str(result.get("failure_code")))
+    require(result.get("attempt") == 1, name + ": permanent parameter/privacy denial must terminate on its first attempt")
+    require(result.get("result_http_status") == 409 and result.get("result_error_code") == "TRUSTED_QUERY_NOT_SUCCEEDED" and result.get("result_task_status") == "FAILED", name + ": failed-result endpoint did not return its exact 409/FAILED contract")
+
+
+def negative_query_guards_self_check() -> None:
+    """Pure evidence-validation checks; no network, database, or file writes."""
+    valid = {"task_id": "unit-negative-query", "task_status": "FAILED", "failure_code": "CONNECTOR_REQUEST_REJECTED", "attempt": 1,
+             "result_http_status": 409, "result_error_code": "TRUSTED_QUERY_NOT_SUCCEEDED", "result_task_status": "FAILED"}
+    mutations = [*( {"failure_code": code} for code in ("CONNECTOR_TEMPORARY_FAILURE", "CONNECTOR_TEMPORARILY_UNAVAILABLE", "CONNECTOR_DISCOVERY_UNAVAILABLE", "CONNECTOR_BUDGET_EXHAUSTED", "REPEATED_QUERY_LIMIT", "AUTHORIZATION_REVOKED") ),
+                 {"attempt": 3}, {"task_id": None}, {"task_status": "SUCCEEDED"}, {"result_http_status": 403},
+                 {"result_error_code": "OTHER_CONFLICT"}, {"result_task_status": "PENDING_RETRY"}, {"rejected_stage": "confirm", "response": {"http_status": 403}}]
+    rejected = 0
+    for name in ("threshold-required", "group-field-invalid", "privacy-small-region"):
+        validate_negative_query_rejection(name, valid)
+        for mutation in mutations:
+            try:
+                validate_negative_query_rejection(name, {**valid, **mutation})
+            except CheckFailure:
+                rejected += 1
+            else:
+                raise CheckFailure(name + ": incorrect failure evidence was accepted")
+    print(json.dumps({"self_check": "PASS", "legitimate_negative_cases": 3, "incorrect_failure_evidence_rejected": rejected, "network_used": False, "connector_budget_consumed": False}), flush=True)
+
+
 def seed_accounts() -> dict[str, tuple[str, str]]:
     """Read existing local fixture credentials; never copy them to evidence."""
     tree = ast.parse((ROOT / "backend/app/seed.py").read_text(encoding="utf-8"))
@@ -484,7 +515,8 @@ class Acceptance:
         if failure:
             require(task["status"] == "FAILED", "Invalid parameters were not blocked")
             denied = self.call(f"/trust-space/query/tasks/{task['task_id']}/result", "generator", expected=(409,))
-            return {"task_id": task["task_id"], "failure_code": task.get("failure_code"), "failure_summary": task.get("failure_summary"), "result_http_status": denied["http_status"]}
+            detail = denied.get("detail") if isinstance(denied.get("detail"), dict) else {}
+            return {"task_id": task["task_id"], "task_status": task["status"], "attempt": task.get("attempt"), "failure_code": task.get("failure_code"), "failure_summary": task.get("failure_summary"), "result_http_status": denied["http_status"], "result_error_code": detail.get("code"), "result_task_status": detail.get("status")}
         require(task["status"] == "SUCCEEDED", f"Query failed: {task.get('failure_code')} {task.get('failure_summary')}")
         result = self.call(f"/trust-space/query/tasks/{task['task_id']}/result", "generator")
         require(result.get("raw_records_returned") is False, "Raw rows escaped controlled query")
@@ -538,6 +570,7 @@ class Acceptance:
         for name, extras in (("threshold-required", {}), ("group-field-invalid", {"group_by": "not_allowed"}), ("privacy-small-region", {"region": "北部片区"})):
             def invalid(name=name, extras=extras):
                 result = self.query("threshold" if name == "threshold-required" else "group_by" if name == "group-field-invalid" else "count", extras=extras, dates=("2026-06-01", "2026-06-01") if name == "privacy-small-region" else ("2026-06-01", "2026-06-03"), failure=True)
+                validate_negative_query_rejection(name, result)
                 return {"_status": "EXPECTED_BLOCKED", **result}
             self.check("query:boundary:" + name, invalid, account="generator", ui="API_ONLY_INVALID_PARAMETER_PROBE")
         def date_limit():
@@ -757,7 +790,11 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--output", help="Project-relative JSON evidence path; default runtime/deep-workflows-<timestamp>.json")
     parser.add_argument("--areas", default=",".join(sorted(AREAS)), help="Comma-separated subset for focused rechecks")
+    parser.add_argument("--self-check", action="store_true", help="Validate negative-query evidence guards without HTTP calls or evidence writes")
     arguments = parser.parse_args()
+    if arguments.self_check:
+        negative_query_guards_self_check()
+        return 0
     areas = set(filter(None, arguments.areas.split(",")))
     require(areas <= AREAS and areas, "Unknown or empty --areas selection")
     output = (ROOT / arguments.output).resolve() if arguments.output else ROOT / "runtime" / ("deep-workflows-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + ".json")
