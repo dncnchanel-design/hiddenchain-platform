@@ -1,0 +1,25 @@
+name: Render competition keep-alive
+
+on:
+  schedule:
+    - cron: '3-58/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-competition-keepalive
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    if: ${{ vars.RENDER_KEEPALIVE_WINDOW != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_KEEPALIVE_WINDOW: ${{ vars.RENDER_KEEPALIVE_WINDOW }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Wake the platform and its demo connectors
+        run: python3 tools/render_keepalive.py
