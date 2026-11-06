@@ -7,6 +7,7 @@ import { useRemote } from "../hooks";
 import type { JsonRecord } from "../types";
 import { useAuth } from "../auth";
 import { routeForView } from "../features/trusted-energy/types";
+import { findReadySettlementTemplate, findSettlementData, settlementDateCount } from "../settlement-catalog";
 
 type CreateData = { organizations: JsonRecord[]; rules: JsonRecord[]; catalog: JsonRecord };
 
@@ -34,14 +35,14 @@ function SettlementCreationForm() {
   const isReadyTemplate = searchParams.get("template") === "ready";
   const [step, setStep] = useState(0);
   const readyTemplateSuffix = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  const [taskName, setTaskName] = useState(() => isReadyTemplate ? `2026年7月月度结算流程（重新开始 ${readyTemplateSuffix}）` : "");
+  const [taskName, setTaskName] = useState(() => isReadyTemplate ? `新批次结算流程（重新开始 ${readyTemplateSuffix}）` : "");
   const [description, setDescription] = useState(() => isReadyTemplate ? "使用已登记的数据引用跑通一笔完整的结算、确认与审计流程。" : "");
-  const [batch, setBatch] = useState("");
-  const [periodStart, setPeriodStart] = useState(() => isReadyTemplate ? "2026-07-01" : "");
-  const [periodEnd, setPeriodEnd] = useState(() => isReadyTemplate ? "2026-07-31" : "");
-  const [generatorId, setGeneratorId] = useState("");
-  const [retailerId, setRetailerId] = useState("");
-  const [ruleId, setRuleId] = useState("");
+  const [batch, setBatch] = useState<string | null>(null);
+  const [periodStartInput, setPeriodStart] = useState<string | null>(null);
+  const [periodEndInput, setPeriodEnd] = useState<string | null>(null);
+  const [generatorId, setGeneratorId] = useState<string | null>(null);
+  const [retailerId, setRetailerId] = useState<string | null>(null);
+  const [ruleId, setRuleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const createRequestRef = useRef<IdempotencyKeyRecord | null>(null);
@@ -56,39 +57,38 @@ function SettlementCreationForm() {
   }, []);
 
   const activeRules = data?.rules.filter((item) => item.status === "ACTIVE") || [];
-  const generators = data?.organizations.filter((item) => item.org_type === "GENERATOR") || [];
-  const retailers = data?.organizations.filter((item) => item.org_type === "RETAILER") || [];
+  const generators = data?.organizations.filter((item) => item.org_type === "GENERATOR" && (!item.status || item.status === "ACTIVE") && (!item.energy_domain || item.energy_domain === "electricity")) || [];
+  const retailers = data?.organizations.filter((item) => item.org_type === "RETAILER" && (!item.status || item.status === "ACTIVE") && (!item.energy_domain || item.energy_domain === "electricity")) || [];
   const rawEntries = data?.catalog.entries;
   const entries: JsonRecord[] = Array.isArray(rawEntries) ? rawEntries : EMPTY_ENTRIES;
-  const selectedGeneratorId = generatorId || (isReadyTemplate ? generators[0]?.org_id || "" : "");
-  const selectedRetailerId = retailerId || (isReadyTemplate ? retailers[0]?.org_id || "" : "");
-  const selectedRuleId = ruleId || (isReadyTemplate ? activeRules[0]?.rule_id || "" : "");
+  const readyTemplate = useMemo(() => {
+    if (!isReadyTemplate) return null;
+    const organizations = data?.organizations || [];
+    const eligible = organizations.filter((item) => (!item.status || item.status === "ACTIVE") && (!item.energy_domain || item.energy_domain === "electricity"));
+    return findReadySettlementTemplate(entries, eligible.filter((item) => item.org_type === "GENERATOR").map((item) => item.org_id), eligible.filter((item) => item.org_type === "RETAILER").map((item) => item.org_id));
+  }, [data?.organizations, entries, isReadyTemplate]);
+  const selectedGeneratorId = generatorId ?? readyTemplate?.generatorId ?? "";
+  const selectedRetailerId = retailerId ?? readyTemplate?.retailerId ?? "";
+  const selectedRuleId = ruleId ?? (isReadyTemplate ? activeRules[0]?.rule_id || "" : "");
+  const periodStart = periodStartInput ?? readyTemplate?.periodStart ?? "";
+  const periodEnd = periodEndInput ?? readyTemplate?.periodEnd ?? "";
   const selectedRule = activeRules.find((item) => item.rule_id === selectedRuleId);
   const generator = generators.find((item) => item.org_id === selectedGeneratorId);
   const retailer = retailers.find((item) => item.org_id === selectedRetailerId);
-  const readyBatch = useMemo(() => {
-    if (!isReadyTemplate) return "";
-    const candidateBatches: string[] = Array.from(new Set(entries.map((item: JsonRecord) => String(item.trade_batch_no || "")).filter(Boolean)));
-    return candidateBatches.find((candidate) => {
-      const candidateEntries = entries.filter((item: JsonRecord) => item.trade_batch_no === candidate);
-      return candidateEntries.some((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.commitment_confirmed)
-        && candidateEntries.some((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.commitment_confirmed);
-    }) || "";
-  }, [entries, isReadyTemplate]);
-  const effectiveBatch = batch || readyBatch;
-  const generationData = entries.find((item: JsonRecord) => item.asset_type === "GENERATION_DATA" && item.owner_org_id === selectedGeneratorId && item.trade_batch_no === effectiveBatch);
-  const retailData = entries.find((item: JsonRecord) => item.asset_type === "RETAIL_DATA" && item.owner_org_id === selectedRetailerId && item.trade_batch_no === effectiveBatch);
+  const effectiveBatch = batch ?? readyTemplate?.batch ?? "";
+  const generationData = findSettlementData(entries, "GENERATION_DATA", selectedGeneratorId, effectiveBatch, periodStart, periodEnd);
+  const retailData = findSettlementData(entries, "RETAIL_DATA", selectedRetailerId, effectiveBatch, periodStart, periodEnd);
   const preflightBlockers: string[] = [];
-  if (!generationData) preflightBlockers.push("发电企业尚未登记当前批次的已校验计量数据");
+  if (!generationData) preflightBlockers.push("发电企业尚未登记当前批次及期间的已校验计量数据");
   else if (!generationData.commitment_confirmed) preflightBlockers.push("发电企业尚未确认数据承诺");
-  if (!retailData) preflightBlockers.push("售电企业尚未登记当前批次的已校验履约数据");
+  if (!retailData) preflightBlockers.push("售电企业尚未登记当前批次及期间的已校验履约数据");
   else if (!retailData.commitment_confirmed) preflightBlockers.push("售电企业尚未确认数据承诺");
   if (!selectedRule) preflightBlockers.push("尚未选择可用的结算规则版本");
 
   if (loading) return <LoadingState label="正在准备结算任务" variant="page" />;
   if (loadError || !data) return <ErrorState message={loadError || "创建页加载失败"} retry={reload} />;
 
-  const basicReady = taskName.trim().length >= 2 && effectiveBatch.trim().length >= 3 && Boolean(periodStart && periodEnd) && periodStart <= periodEnd;
+  const basicReady = taskName.trim().length >= 2 && effectiveBatch.trim().length >= 3 && settlementDateCount(periodStart, periodEnd) > 0;
   const partiesReady = Boolean(selectedGeneratorId && selectedRetailerId && selectedGeneratorId !== selectedRetailerId);
   const ruleReady = Boolean(selectedRule);
   const canAdvance = [basicReady, partiesReady, true, ruleReady, true][step];
@@ -141,7 +141,7 @@ function SettlementCreationForm() {
     <>
       <PageHeader title="发起结算任务" actions={<Link className="button button-secondary" to="/settlements"><ArrowLeft size={16} />返回任务中心</Link>} />
 
-      {isReadyTemplate && <Notice tone="success"><RotateCcw size={15} />已带入一笔可运行的验收起点。系统只复用数据引用和规则，不复用历史结果；提交后仍需按角色完成确认和审计。</Notice>}
+      {isReadyTemplate && <Notice tone={readyTemplate ? "info" : "warning"}><RotateCcw size={15} />{readyTemplate ? "已带入目录中双方一致的批次与期间。启动时仍会核验授权与重复结算限制，之后须按角色完成确认和审计。" : "当前目录尚未找到双方同批次、同期间的已确认数据。请先登记新批次数据，或填写信息创建待准备任务。"}</Notice>}
 
       <div className="wizard-layout">
         <nav className="wizard-steps" aria-label="创建步骤">
@@ -202,7 +202,7 @@ function SettlementCreationForm() {
               <div><dt>售电企业</dt><dd>{retailer?.org_name || "—"}</dd></div>
               <div><dt>规则版本</dt><dd>{selectedRule ? `${selectedRule.rule_version} · ${selectedRule.rule_name}` : "—"}</dd></div>
             </dl>
-            {preflightBlockers.length ? <div className="preflight-blockers"><strong>算前待办</strong><ul>{preflightBlockers.map((item) => <li key={item}>{item}</li>)}</ul><p>可以先创建待准备任务，补齐后再启动结算。</p></div> : <Notice tone="success">算前数据、主体和规则检查已通过。</Notice>}
+            {preflightBlockers.length ? <div className="preflight-blockers"><strong>算前待办</strong><ul>{preflightBlockers.map((item) => <li key={item}>{item}</li>)}</ul><p>可以先创建待准备任务，补齐后再启动结算。</p></div> : <Notice tone="success">已初步检查数据和规则，启动时将核验数据期间及授权。</Notice>}
           </div>}
 
           {error && <Notice tone="warning">{error}</Notice>}

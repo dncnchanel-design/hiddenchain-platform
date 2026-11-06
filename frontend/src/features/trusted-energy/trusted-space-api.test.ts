@@ -15,6 +15,13 @@ afterEach(() => {
 });
 
 describe("Trusted Space API client", () => {
+  it("expires the current session when audit export is unauthorized", async () => {
+    stubRuntime();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{}', { status: 401 })));
+    await expect(downloadAudit("csv")).rejects.toMatchObject({ status: 401 });
+    expect(window.dispatchEvent).toHaveBeenCalledOnce();
+  });
+
   const connectorTicket = {
     claims: {
       iss: "hiddenchain-platform" as const,
@@ -204,6 +211,17 @@ describe("Trusted Space API client", () => {
     expect(headers.has("Content-Type")).toBe(false);
     expect(form.get("ticket")).toBe(JSON.stringify(connectorTicket));
     expect(form.get("file")).toBe(file);
+  });
+
+  it("binds demo settlement metadata to the ticket request without leaking it into fetch options", async () => {
+    stubRuntime();
+    const settlementBinding = { schema_version: "connector-settlement-binding-v1" as const, trade_batch_no: "BATCH-NEW", period_start: "2026-11-01", period_end: "2026-11-03" };
+    const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('{}', { status: 201 }));
+    vi.stubGlobal("fetch", fetcher);
+    await issueConnectorUploadTicket("generation", "L3", { settlementBinding });
+    const init = fetcher.mock.calls[0][1];
+    expect(JSON.parse(String(init?.body))).toEqual({ resource_id: "generation", classification: "L3", settlement_binding: settlementBinding });
+    expect(init).not.toHaveProperty("settlementBinding");
   });
 
   it("looks up a connector receipt directly with only the signed ticket JSON", async () => {

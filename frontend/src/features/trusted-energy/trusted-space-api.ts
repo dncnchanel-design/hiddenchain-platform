@@ -1,5 +1,5 @@
-import { ApiError, api, post, type ApiCommandOptions } from "../../api";
-import { prepareConnector, prepareQueryConnector, type ConnectorReadiness } from "./connector-readiness";
+import { ApiError, api, downloadBlob, post, type ApiCommandOptions } from "../../api";
+import { prepareQueryConnector, type ConnectorReadiness } from "./connector-readiness";
 
 export type CapabilityEnvelope = {
   capability_state?: string;
@@ -517,6 +517,30 @@ export type PrototypeQueryPayload = {
 
 export type ConnectorEnergyDomain = "electricity" | "coal" | "heat" | "gas" | "oil";
 export type ConnectorClassification = "L1" | "L2" | "L3";
+export type ConnectorSettlementAssetType = "GENERATION_DATA" | "RETAIL_DATA";
+export type ConnectorSettlementBinding = {
+  schema_version: "connector-settlement-binding-v1";
+  trade_batch_no: string;
+  period_start: string;
+  period_end: string;
+};
+export type ConnectorSettlementBindingInput = Omit<ConnectorSettlementBinding, "schema_version"> & {
+  schema_version?: ConnectorSettlementBinding["schema_version"];
+};
+export type ConnectorSettlementSummary = {
+  schema_version: "connector-settlement-summary-v1";
+  trade_batch_no: string;
+  period_start: string;
+  period_end: string;
+  asset_type: ConnectorSettlementAssetType;
+  aggregation: "SUM";
+  unit: "MWh";
+  energy_mwh: string;
+  record_count: number;
+  content_hash: string;
+  claims_hash: string;
+  raw_records_returned: false;
+};
 
 export type ConnectorCatalogResource = {
   resource_id: string;
@@ -528,6 +552,7 @@ export type ConnectorCatalogResource = {
   current_version: number | null;
   record_count: number | null;
   status: string;
+  settlement_asset_type?: ConnectorSettlementAssetType;
 };
 
 export type ConnectorCatalogPayload = {
@@ -567,6 +592,7 @@ export type ConnectorTicket = {
     purpose: "LOCAL_DATASET_INGEST";
     issued_at: number;
     expires_at: number;
+    settlement_binding?: ConnectorSettlementBinding;
   };
   signature: string;
   public_key: string;
@@ -606,6 +632,7 @@ export type ConnectorSignedReceipt = {
   public_key: string;
   signature_algorithm: "Ed25519";
   signature_valid: true;
+  settlement_summary?: ConnectorSettlementSummary;
 };
 
 export type ConnectorReceiptPayload = {
@@ -620,6 +647,14 @@ export type ConnectorReceiptPayload = {
   registered_at?: string;
   asset?: { asset_id: string; asset_version_id: string; version: number };
   raw_data_centrally_stored: false;
+  settlement?: {
+    status: "REGISTERED";
+    upload_id: string;
+    trade_batch_no: string;
+    period_start: string;
+    period_end: string;
+    asset_type: ConnectorSettlementAssetType;
+  };
   idempotent_replay?: boolean;
 };
 
@@ -1374,22 +1409,17 @@ export function revokeAccessRule(ruleId: string, options: ApiCommandOptions) {
   return post<AccessRule>(`/data/access-rules/${encodeURIComponent(ruleId)}/revoke`, {}, options);
 }
 
-export function parseTrustedQuery(question: string) {
-  return post<QueryIntent>("/trust-space/query/parse", { question });
+export function parseTrustedQuery(question: string, signal?: AbortSignal) {
+  return post<QueryIntent>("/trust-space/query/parse", { question }, { signal });
 }
 
 export function loadPrototypeHeader(signal?: AbortSignal) {
   return api<PrototypeHeaderPayload>("/prototype/header", { signal, cacheTtlMs: 2_000 });
 }
 
-export async function loadPrototypeDashboard(signal?: AbortSignal) {
+export async function loadPrototypeDashboard(signal?: AbortSignal, wakeRetry = false) {
   try {
-    const data = await api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cacheTtlMs: 1_500, timeoutMs: 25_000, retry: 0 });
-    if (data.metric?.status === "unavailable" && data.metric.retryable === true && data.connector_readiness
-      && await prepareConnector(data.connector_readiness, signal)) {
-      return await api<PrototypeDashboardPayload>("/prototype/dashboard", { signal, cache: "no-store", timeoutMs: 25_000, retry: 0 });
-    }
-    return data;
+    return await api<PrototypeDashboardPayload>(`/prototype/dashboard${wakeRetry ? "?wake_retry=true" : ""}`, { signal, cache: "no-store", timeoutMs: 25_000, retry: 0 });
   } catch (error: unknown) {
     if (error instanceof TypeError) throw new ApiError("网络连接失败，请检查连接后重试", 503);
     throw error;
@@ -1407,12 +1437,14 @@ export function loadConnectorCatalog(signal?: AbortSignal) {
 export function issueConnectorUploadTicket(
   resourceId: string,
   classification: ConnectorClassification,
-  options: ApiCommandOptions = {},
+  options: ApiCommandOptions & { settlementBinding?: ConnectorSettlementBindingInput } = {},
 ) {
+  const { settlementBinding, ...commandOptions } = options;
   return post<ConnectorTicketPayload>("/trust-space/connectors/tickets", {
     resource_id: resourceId,
     classification,
-  }, options);
+    ...(settlementBinding ? { settlement_binding: settlementBinding } : {}),
+  }, commandOptions);
 }
 
 export function registerConnectorReceipt(receipt: ConnectorSignedReceipt, options: ApiCommandOptions = {}) {
@@ -1763,32 +1795,9 @@ export function loadAuditTask(taskId: string, signal?: AbortSignal) {
   return api<AuditTaskPayload>(`/trust-space/audit/tasks/${encodeURIComponent(taskId)}`, { signal, cacheTtlMs: 1_500 });
 }
 
-const TRUSTED_API_BASE = import.meta.env.VITE_API_BASE || "/api";
-
 export async function downloadAudit(format: "json" | "csv", signal?: AbortSignal) {
-  const token = sessionStorage.getItem("hiddenchain_token");
-  const response = await fetch(`${TRUSTED_API_BASE}/trust-space/audit/export?format=${format}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    signal,
-  });
-  if (!response.ok) {
-    let message = "审计导出失败，请稍后重试";
-    try {
-      const body = await response.json() as { detail?: string | { message?: string } };
-      const detail = body.detail;
-      if (typeof detail === "string") message = detail;
-      else if (detail?.message) message = detail.message;
-    } catch {
-      // Preserve the safe local fallback when the server did not return JSON.
-    }
-    throw new ApiError(message, response.status);
-  }
-  const disposition = response.headers.get("content-disposition") || "";
-  const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  const filename = encodedFilename
-    ? decodeURIComponent(encodedFilename)
-    : disposition.match(/filename=([^;]+)/i)?.[1]?.replace(/["']/g, "") || `审计记录.${format}`;
-  return { blob: await response.blob(), filename, contentType: response.headers.get("content-type") || "" };
+  const result = await downloadBlob(`/trust-space/audit/export?format=${format}`, { signal });
+  return { ...result, filename: result.filename === "下载文件" ? `审计记录.${format}` : result.filename };
 }
 
 export function createAssistantSession(

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { invalidateApiCache, post, prepareIdempotencyKey, type ApiResponseMetadata } from "./api";
+import { api, createIdempotencyKey, downloadBlob, invalidateApiCache, post, prepareIdempotencyKey, type ApiResponseMetadata } from "./api";
 
 afterEach(() => {
   invalidateApiCache();
@@ -7,7 +7,56 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("session expiry response ownership", () => {
+  it.each(["json", "download"])("expires the current session for a %s 401", async (kind) => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("sessionStorage", { getItem: () => "current-session" });
+    vi.stubGlobal("window", { setTimeout, clearTimeout, dispatchEvent });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{}', { status: 401 })));
+
+    await expect(kind === "json" ? api("/private-data") : downloadBlob("/private-report")).rejects.toMatchObject({ status: 401 });
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent.mock.calls[0][0].type).toBe("hiddenchain:unauthorized");
+  });
+
+  it.each(["json", "download"])("does not expire a new session when an old %s request returns 401", async (kind) => {
+    let token = "old-session";
+    let respond!: (response: Response) => void;
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("sessionStorage", { getItem: () => token });
+    vi.stubGlobal("window", { setTimeout, clearTimeout, dispatchEvent });
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { respond = resolve; })));
+
+    const result = kind === "json" ? api("/private-data") : downloadBlob("/private-report");
+    const observed = expect(result).rejects.toMatchObject({ status: 401 });
+    token = "new-session";
+    respond(new Response('{}', { status: 401 }));
+    await observed;
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it("does not flag an anonymous failed login as expiry of an authenticated session", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("sessionStorage", { getItem: () => null });
+    vi.stubGlobal("window", { setTimeout, clearTimeout, dispatchEvent });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{}', { status: 401 })));
+    await expect(post("/auth/login", { username: "invalid", password: "invalid" })).rejects.toMatchObject({ status: 401 });
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+});
+
 describe("command API contract", () => {
+  it("uses secure random bytes when randomUUID is unavailable on HTTP", async () => {
+    const realCrypto = globalThis.crypto;
+    vi.stubGlobal("crypto", { getRandomValues: realCrypto.getRandomValues.bind(realCrypto) });
+    vi.stubGlobal("sessionStorage", { getItem: () => null });
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('{}', { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(createIdempotencyKey("demo")).toMatch(/^demo:[0-9a-f-]{36}$/);
+    await api("/http-demo", { cacheTtlMs: 0 });
+    expect(new Headers(fetcher.mock.calls[0][1]?.headers).get("X-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+  });
   it("retains one idempotency key for the same request fingerprint", () => {
     const first = prepareIdempotencyKey(null, "settlement-create", "payload-a");
     const replay = prepareIdempotencyKey(first, "settlement-create", "payload-a");

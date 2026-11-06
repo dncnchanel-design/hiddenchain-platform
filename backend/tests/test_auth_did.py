@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -11,6 +12,7 @@ from app.database import SessionLocal, engine
 from app.main import app
 from app.models import AuditLog, Base, DidIdentity, DidLoginChallenge, Organization, User
 from app.services.rate_limit import limiter
+from app.routers import auth
 
 
 @pytest.fixture(autouse=True)
@@ -194,3 +196,26 @@ def test_did_wallet_login_accepts_render_binding_configuration(client):
         assert response.json()["did"]["did_id"] == "did:hiddenchain:org:org-generator-t01"
     finally:
         object.__setattr__(settings, "did_wallet_bindings_json", original_bindings)
+
+
+def test_configured_wallet_does_not_persist_and_old_address_cannot_bypass_rotation(client, monkeypatch):
+    did = "did:hiddenchain:org:org-generator-t01"
+    old, new = Account.create(), Account.create()
+    monkeypatch.setattr(auth, "settings", replace(settings, did_wallet_bindings_json=json.dumps({did: old.address})))
+
+    def login(account):
+        challenge = client.post("/api/auth/did/challenge", json={"wallet_address": account.address}).json()
+        return client.post("/api/auth/did/verify", json={
+            "challenge": challenge["challenge"], "wallet_address": account.address,
+            "signature": _sign_challenge(challenge, account),
+        })
+
+    assert login(old).status_code == 200
+    with SessionLocal() as db:
+        assert db.get(DidIdentity, did).chain_address is None
+        # Simulate an existing address left by an older version.
+        db.get(DidIdentity, did).chain_address = old.address.lower()
+        db.commit()
+    monkeypatch.setattr(auth, "settings", replace(settings, did_wallet_bindings_json=json.dumps({did: new.address})))
+    assert login(old).status_code == 403
+    assert login(new).status_code == 200

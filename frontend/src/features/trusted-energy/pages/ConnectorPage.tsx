@@ -3,6 +3,7 @@ import { ApiError } from "../../../api";
 import { useRemote } from "../../../hooks";
 import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypePageFrame";
 import { RemoteState } from "../components/ui-primitives";
+import { connectorRegistrationMessage, createSettlementBinding, receiptMatchesSettlement, settlementBindingMatches, settlementCsvTemplate } from "../connector-settlement";
 import {
   issueConnectorUploadTicket,
   loadConnectorCatalog,
@@ -14,6 +15,7 @@ import {
   type ConnectorClassification,
   type ConnectorSignedReceipt,
   type ConnectorTicket,
+  type ConnectorSettlementBinding,
 } from "../trusted-space-api";
 
 const PENDING_STORAGE_KEY = "hiddenchain_connector_pending_receipt_v1";
@@ -32,6 +34,8 @@ type PendingRegistration = {
   resource_name: string;
   receipt: ConnectorSignedReceipt | null;
 };
+
+type ConnectorOperation = { signal: AbortSignal; isCurrent: () => boolean; isOwned: () => boolean };
 
 function isPendingRegistration(value: unknown): value is PendingRegistration {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -106,7 +110,8 @@ function receiptMatchesPending(receipt: ConnectorSignedReceipt, pending: Pending
   return receipt.ticket_id === pending.ticket_id
     && receipt.connector_id === pending.connector_id
     && receipt.organization_id === pending.organization_id
-    && receipt.resource_id === pending.resource_id;
+    && receipt.resource_id === pending.resource_id
+    && receiptMatchesSettlement(pending.ticket, receipt);
 }
 
 function formatBytes(value: number): string {
@@ -151,34 +156,73 @@ export function ConnectorPage() {
   });
   const shouldAutoRecoverRef = useRef(initialRecovery.shouldAutoRecover);
   const autoRecoveryStartedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const operationRef = useRef<AbortController | null>(null);
   const [selectedResourceId, setSelectedResourceId] = useState("");
   const [classification, setClassification] = useState<ConnectorClassification>("L3");
+  const [useForSettlement, setUseForSettlement] = useState(false);
+  const [tradeBatch, setTradeBatch] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
   const [busy, setBusy] = useState<"upload" | "recover" | null>(null);
   const [pending, setPending] = useState<PendingRegistration | null>(initialRecovery.value);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const selectedResource = remote.data?.resources.find((item) => item.resource_id === selectedResourceId)
+  const selectedResource = remote.data?.resources.find((item) => item.resource_id === (pending?.resource_id || selectedResourceId))
     || remote.data?.resources[0]
     || null;
+  const pendingBinding = pending?.ticket.claims.settlement_binding;
+  const settlementMode = Boolean(pending ? pendingBinding : useForSettlement && selectedResource?.settlement_asset_type);
 
-  const completeRegistration = useCallback(async (candidate: PendingRegistration) => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      operationRef.current?.abort();
+      operationRef.current = null;
+    };
+  }, []);
+
+  const beginOperation = useCallback((): ConnectorOperation | null => {
+    if (operationRef.current || !mountedRef.current) return null;
+    const controller = new AbortController();
+    const token = sessionStorage.getItem("hiddenchain_token");
+    operationRef.current = controller;
+    const isOwned = () => mountedRef.current && operationRef.current === controller;
+    return { signal: controller.signal, isOwned, isCurrent: () => isOwned() && sessionStorage.getItem("hiddenchain_token") === token };
+  }, []);
+
+  const handleExpiredRegistration = useCallback((reason: unknown): boolean => {
+    if (!(reason instanceof ApiError) || reason.status !== 410) return false;
+    clearPendingRegistration();
+    setPending(null);
+    setMessage("");
+    setError("回执恢复或补登记期限已结束，请重新接入该资源");
+    return true;
+  }, []);
+
+  const completeRegistration = useCallback(async (candidate: PendingRegistration, operation: ConnectorOperation) => {
     let receipt = candidate.receipt;
     if (!receipt) {
       try {
-        const central = await loadConnectorReceipt(candidate.ticket_id);
+        const central = await loadConnectorReceipt(candidate.ticket_id, operation.signal);
+        if (!operation.isCurrent()) return;
         if (central.receipt_id) {
+          const completedMessage = connectorRegistrationMessage(central, candidate.ticket);
           clearPendingRegistration();
           setPending(null);
           setError("");
-          setMessage("签名回执已完成中央登记");
+          setMessage(completedMessage);
           await reloadCatalog();
           return;
         }
       } catch {
+        if (!operation.isCurrent()) return;
         // Continue with connector receipt recovery; central read outages are handled by registration below.
       }
-      receipt = await lookupConnectorReceipt(candidate.receipt_lookup_url, candidate.ticket);
+      receipt = await lookupConnectorReceipt(candidate.receipt_lookup_url, candidate.ticket, operation.signal);
+      if (!operation.isCurrent()) return;
       if (!receiptMatchesPending(receipt, candidate)) {
         throw new ApiError("连接器返回的签名回执与当前票据不一致，已停止补登记", 422, undefined, { code: "CONNECTOR_RECEIPT_MISMATCH" });
       }
@@ -186,22 +230,26 @@ export function ConnectorPage() {
       persistPendingRegistration(recovered);
       setPending(recovered);
     }
+    let completedMessage: string;
     try {
-      await registerConnectorReceipt(receipt);
-    } catch {
-      setError("");
+      const registered = await registerConnectorReceipt(receipt, { signal: operation.signal });
+      if (!operation.isCurrent()) return;
+      completedMessage = connectorRegistrationMessage(registered, candidate.ticket, receipt.receipt_id);
+    } catch (reason) {
+      if (!operation.isCurrent() || handleExpiredRegistration(reason)) return;
+      setError(errorMessage(reason, "回执登记暂未完成，请稍后重试"));
       setMessage("本地上传成功，待补登记");
       return;
     }
     clearPendingRegistration();
     setPending(null);
     setError("");
-    setMessage("本地上传与签名回执登记均已完成");
+    setMessage(completedMessage);
     await reloadCatalog();
-  }, [reloadCatalog]);
+  }, [handleExpiredRegistration, reloadCatalog]);
 
   const recover = useCallback(async () => {
-    if (!pending || !remote.data || busy) return;
+    if (!pending || !remote.data || busy || operationRef.current) return;
     if (!pendingMatchesCatalog(pending, remote.data)) {
       clearPendingRegistration();
       setPending(null);
@@ -209,18 +257,24 @@ export function ConnectorPage() {
       setError("待补登记记录不属于当前主体或连接器地址已变更，已停止自动恢复");
       return;
     }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy("recover");
     setError("");
     setMessage(pending.receipt ? "正在补登记签名回执…" : "正在恢复签名回执并补登记…");
     try {
-      await completeRegistration(pending);
+      await completeRegistration(pending, operation);
     } catch (reason) {
+      if (!operation.isCurrent() || handleExpiredRegistration(reason)) return;
       setMessage(pending.receipt ? "本地上传成功，待补登记" : "上传结果仍待确认，请勿重复上传");
       setError(errorMessage(reason, "签名回执恢复失败，请稍后重试"));
     } finally {
-      setBusy(null);
+      if (operation.isOwned()) {
+        operationRef.current = null;
+        setBusy(null);
+      }
     }
-  }, [busy, completeRegistration, pending, remote.data]);
+  }, [beginOperation, busy, completeRegistration, handleExpiredRegistration, pending, remote.data]);
 
   useEffect(() => {
     if (!shouldAutoRecoverRef.current || autoRecoveryStartedRef.current || !remote.data || !pending) return;
@@ -229,6 +283,7 @@ export function ConnectorPage() {
   }, [pending, recover, remote.data]);
 
   async function upload() {
+    if (operationRef.current) return;
     const catalog = remote.data;
     const resource = selectedResource;
     const file = fileRef.current?.files?.[0];
@@ -248,7 +303,18 @@ export function ConnectorPage() {
       setError("企业连接器当前离线，请联系本主体管理员");
       return;
     }
+    let settlementBinding: ConnectorSettlementBinding | undefined;
+    if (settlementMode) {
+      try {
+        settlementBinding = createSettlementBinding(tradeBatch, periodStart, periodEnd);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "请检查结算批次和期间");
+        return;
+      }
+    }
 
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy("upload");
     setError("");
     setMessage("正在获取一次性上传凭证…");
@@ -256,10 +322,12 @@ export function ConnectorPage() {
     try {
       let ticketPayload;
       try {
-        ticketPayload = await issueConnectorUploadTicket(resource.resource_id, classification);
-      } catch {
+        ticketPayload = await issueConnectorUploadTicket(resource.resource_id, classification, { settlementBinding, signal: operation.signal });
+      } catch (reason) {
+        if (reason instanceof ApiError) throw reason;
         throw new ApiError("一次性上传凭证获取失败，请刷新目录后重试", 503, undefined, { code: "CONNECTOR_TICKET_ISSUE_FAILED" });
       }
+      if (!operation.isCurrent()) return;
       if (ticketPayload.ticket.claims.jti.length < 8
         || ticketPayload.ticket.claims.resource_id !== resource.resource_id
         || ticketPayload.ticket.claims.resource_name !== resource.resource_name
@@ -270,7 +338,8 @@ export function ConnectorPage() {
         || ticketPayload.connector.organization_id !== catalog.connector.organization_id
         || ticketPayload.connector.energy_domain !== catalog.connector.energy_domain
         || !matchesIssuedEndpoint(catalog.connector.endpoint, ticketPayload.upload_url, "/ingest")
-        || !matchesIssuedEndpoint(catalog.connector.endpoint, ticketPayload.receipt_lookup_url, "/ingest/receipts/lookup")) {
+        || !matchesIssuedEndpoint(catalog.connector.endpoint, ticketPayload.receipt_lookup_url, "/ingest/receipts/lookup")
+        || !settlementBindingMatches(settlementBinding, ticketPayload.ticket.claims.settlement_binding)) {
         throw new ApiError("一次性上传凭证与当前目录不一致，请刷新后重试", 502, undefined, { code: "CONNECTOR_TICKET_MISMATCH" });
       }
       candidate = {
@@ -291,7 +360,8 @@ export function ConnectorPage() {
       }
       setPending(candidate);
       setMessage("正在将原始 CSV 直传企业连接器…");
-      const receipt = await uploadConnectorCsv(candidate.upload_url, candidate.ticket, file);
+      const receipt = await uploadConnectorCsv(candidate.upload_url, candidate.ticket, file, operation.signal);
+      if (!operation.isCurrent()) return;
       if (!receiptMatchesPending(receipt, candidate)) {
         throw new ApiError("连接器返回的签名回执与当前票据不一致，已停止中央登记", 422, undefined, { code: "CONNECTOR_RECEIPT_MISMATCH" });
       }
@@ -299,9 +369,11 @@ export function ConnectorPage() {
       persistPendingRegistration(candidate);
       setPending(candidate);
       setMessage("本地上传成功，正在登记签名回执…");
-      await completeRegistration(candidate);
+      await completeRegistration(candidate, operation);
+      if (!operation.isCurrent()) return;
       if (fileRef.current) fileRef.current.value = "";
     } catch (reason) {
+      if (!operation.isCurrent()) return;
       if (candidate?.receipt) {
         setError("");
         setMessage("本地上传成功，待补登记");
@@ -315,7 +387,10 @@ export function ConnectorPage() {
         setError(errorMessage(reason, "上传失败，请稍后重试"));
       }
     } finally {
-      setBusy(null);
+      if (operation.isOwned()) {
+        operationRef.current = null;
+        setBusy(null);
+      }
     }
   }
 
@@ -323,10 +398,18 @@ export function ConnectorPage() {
     if (!remote.data || !selectedResource) { setError("请先从目录选择资源"); return; }
     setError("");
     const today = new Date().toISOString().slice(0, 10);
-    const csv = [
+    let csv = [
       "record_date,value,region,organization,unit",
       [today, "100", "示例区域", remote.data.connector.organization_name, selectedResource.unit].map(csvCell).join(","),
     ].join("\r\n");
+    if (settlementMode) {
+      try {
+        csv = settlementCsvTemplate(pendingBinding || createSettlementBinding(tradeBatch, periodStart, periodEnd), remote.data.connector.organization_name);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "请先填写结算批次和期间");
+        return;
+      }
+    }
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
@@ -336,6 +419,7 @@ export function ConnectorPage() {
   }
 
   const isBusy = busy !== null;
+  const contextLocked = isBusy || Boolean(pending);
   const unavailable = remote.data?.availability?.can_upload === false;
 
   return <PrototypePageFrame className="prototype-connector-page">
@@ -348,11 +432,18 @@ export function ConnectorPage() {
       <div className="prototype-connector-layout">
         <div>
           <div className="prototype-form-grid">
-            <label><span>规范资源</span><select value={selectedResource?.resource_id || ""} disabled={isBusy || !remote.data.resources.length} onChange={(event) => setSelectedResourceId(event.target.value)}>{remote.data.resources.map((item) => <option key={item.resource_id} value={item.resource_id}>{item.resource_name}（{item.unit}）</option>)}</select></label>
-            <label><span>数据分级</span><select value={classification} disabled={isBusy} onChange={(event) => setClassification(event.target.value as ConnectorClassification)}><option value="L3">L3 · 敏感</option><option value="L2">L2 · 内部</option><option value="L1">L1 · 公开</option></select></label>
+            <label><span>规范资源</span><select value={selectedResource?.resource_id || ""} disabled={contextLocked || !remote.data.resources.length} onChange={(event) => { setSelectedResourceId(event.target.value); setUseForSettlement(false); }}>{remote.data.resources.map((item) => <option key={item.resource_id} value={item.resource_id}>{item.resource_name}（{item.unit}）</option>)}</select></label>
+            <label><span>数据分级</span><select value={pending?.ticket.claims.classification || classification} disabled={contextLocked} onChange={(event) => setClassification(event.target.value as ConnectorClassification)}><option value="L3">L3 · 敏感</option><option value="L2">L2 · 内部</option><option value="L1">L1 · 公开</option></select></label>
+            {(selectedResource?.settlement_asset_type || pendingBinding) && <label><span>用于演示结算</span><select value={settlementMode ? "yes" : "no"} disabled={contextLocked} onChange={(event) => setUseForSettlement(event.target.value === "yes")}><option value="no">否，仅登记资源</option><option value="yes">是，绑定结算批次</option></select></label>}
+            {settlementMode && <>
+              <label><span>交易批次</span><input value={pendingBinding?.trade_batch_no ?? tradeBatch} maxLength={64} disabled={contextLocked} onChange={(event) => setTradeBatch(event.target.value)} placeholder="双方使用相同批次，3–64 个字符" /></label>
+              <label><span>结算开始日期</span><input type="date" value={pendingBinding?.period_start ?? periodStart} disabled={contextLocked} onChange={(event) => setPeriodStart(event.target.value)} /></label>
+              <label><span>结算结束日期</span><input type="date" value={pendingBinding?.period_end ?? periodEnd} disabled={contextLocked} onChange={(event) => setPeriodEnd(event.target.value)} /></label>
+            </>}
             <label className="prototype-file-field"><span>CSV 文件（最大 {formatBytes(remote.data.upload_contract.max_bytes)}）</span><input ref={fileRef} type="file" accept=".csv,text/csv,application/csv" disabled={isBusy || Boolean(pending)} /></label>
           </div>
           {selectedResource && <p className="prototype-resource-intro">必需列：{selectedResource.required_columns.join("、")}；可选列：{selectedResource.optional_columns.join("、") || "无"}。最终格式与数据校验由企业连接器完成。</p>}
+          {settlementMode && <p className="prototype-resource-intro">结算 CSV 须按日完整覆盖所选期间，每日恰一行 MWh 电量，不填写 hour；电量非负、最多 6 位小数，期间不超过 366 天。下载模板后请填写每日电量。中央仅接收已签名汇总与来源证据，本入口用于演示结算。</p>}
           <div className="prototype-form-actions">
             <button type="button" className="prototype-primary-button" disabled={isBusy || Boolean(pending) || !selectedResource} aria-label="将 CSV 直传企业连接器并登记签名回执" onClick={() => void upload()}>{busy === "upload" ? "上传处理中…" : "直传连接器并登记回执"}</button>
             {pending && <button type="button" className="prototype-secondary-button" disabled={isBusy} aria-label={pending.receipt ? "补登记签名回执" : "恢复签名回执并补登记"} onClick={() => void recover()}>{busy === "recover" ? "恢复处理中…" : pending.receipt ? "补登记" : "恢复回执并补登记"}</button>}
@@ -362,7 +453,7 @@ export function ConnectorPage() {
         </div>
         <div className="prototype-connector-sample">
           <div className="prototype-sample-heading"><b>规范 CSV 示例</b><button type="button" className="prototype-secondary-button" disabled={isBusy || !selectedResource} aria-label="在浏览器本地生成并下载规范 CSV 示例" onClick={downloadSample}>↓ 下载示例 CSV</button></div>
-          <pre>record_date,value,region,organization,unit{"\n"}2026-08-29,100,示例区域,{remote.data.connector.organization_name},{selectedResource?.unit || "单位"}</pre>
+          <pre>record_date,value,region,organization,unit{"\n"}{settlementMode ? `${pendingBinding?.period_start || periodStart || "YYYY-MM-DD"},,,${csvCell(remote.data.connector.organization_name)},MWh` : `2026-08-29,100,示例区域,${csvCell(remote.data.connector.organization_name)},${selectedResource?.unit || "单位"}`}</pre>
         </div>
       </div>
     </section>}

@@ -148,6 +148,63 @@ def _signed_headers(module, key: Ed25519PrivateKey, payload: dict[str, object], 
     }
 
 
+@pytest.mark.parametrize("mixed", [False, True])
+def test_ingest_rejects_units_outside_resource_definition_without_consuming_ticket(connector, mixed):
+    content = _csv().decode().replace("吨", "kg", 1 if mixed else -1).encode()
+    claims = _claims(jti="ticket-invalid-unit-0001")
+    response = _post_ingest(connector["client"], connector["platform_key"], claims, content)
+    assert response.status_code == 422, response.text
+    with connector["module"]._database() as db:
+        assert db.execute("SELECT COUNT(*) FROM resource_versions").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM ingest_tickets").fetchone()[0] == 0
+    assert _post_ingest(connector["client"], connector["platform_key"], claims).status_code == 201
+
+
+@pytest.mark.parametrize("aggregation", ["sum", "average"])
+def test_dashboard_rejects_overflow_without_recording_a_success(connector, aggregation):
+    module, key = connector["module"], connector["platform_key"]
+    assert _post_ingest(connector["client"], key, _claims(jti="ticket-overflow-0001"), _csv((1e308,) * 3)).status_code == 201
+    request = {"request_id": "dashboard-overflow-0001", "provider_org_id": "org-coal-t01", "resource": "inventory", "aggregation": aggregation, "start_date": "2026-08-01", "end_date": "2026-08-01", "decimals": 2}
+    with TestClient(module.app, raise_server_exceptions=False) as client:
+        response = client.post("/dashboard", json=request, headers=_signed_headers(module, key, request, "dashboard-overflow-nonce"))
+    assert response.status_code == 422, response.text
+    with module._database() as db:
+        assert db.execute("SELECT COUNT(*) FROM ingest_audit_chain WHERE event_json LIKE '%DASHBOARD_AGGREGATE_ISSUED%'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("route", ["compute", "dashboard"])
+def test_existing_mixed_unit_versions_cannot_issue_signed_aggregates(connector, route):
+    module, key, client = connector["module"], connector["platform_key"], connector["client"]
+    created = _post_ingest(client, key, _claims(jti="ticket-legacy-unit-0001"))
+    assert created.status_code == 201
+    with module._database() as db:
+        # Simulate a version accepted by the previous connector implementation.
+        db.execute("UPDATE version_records SET unit = 'kg' WHERE value = 10")
+    if route == "dashboard":
+        request = {"request_id": "dashboard-legacy-unit", "provider_org_id": "org-coal-t01", "resource": "inventory", "aggregation": "sum", "start_date": "2026-08-01", "end_date": "2026-08-01", "decimals": 2}
+    else:
+        receipt = created.json()
+        request = module._canonical_request_payload(module.ComputeRequest(task_id="compute-legacy-unit", authorization_id="auth-legacy-unit", dataset_version=receipt["version"], dataset_local_ref=receipt["local_ref"], dataset_content_hash=receipt["content_hash"], resource="inventory", function="sum", start_date="2026-08-01", end_date="2026-08-01"))
+    response = client.post(f"/{route}", json=request, headers=_signed_headers(module, key, request, "legacy-unit-nonce"))
+    assert response.status_code == 422, response.text
+    with module._database() as db:
+        assert db.execute("SELECT COUNT(*) FROM query_log").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM ingest_audit_chain WHERE event_json LIKE '%AGGREGATE_ISSUED%' OR event_json LIKE '%RESULT_ISSUED%'").fetchone()[0] == 0
+
+
+def test_dashboard_signing_failure_does_not_record_a_success(connector, monkeypatch):
+    module, key, client = connector["module"], connector["platform_key"], connector["client"]
+    assert _post_ingest(client, key, _claims(jti="ticket-dashboard-sign-0001")).status_code == 201
+    request = {"request_id": "dashboard-sign-failure", "provider_org_id": "org-coal-t01", "resource": "inventory", "aggregation": "sum", "start_date": "2026-08-01", "end_date": "2026-08-01", "decimals": 2}
+    def fail_signing(_payload):
+        raise RuntimeError("signing unavailable")
+    monkeypatch.setattr(module, "_signed_response", fail_signing)
+    with pytest.raises(RuntimeError, match="signing unavailable"):
+        client.post("/dashboard", json=request, headers=_signed_headers(module, key, request, "dashboard-sign-failure-nonce"))
+    with module._database() as db:
+        assert db.execute("SELECT COUNT(*) FROM ingest_audit_chain WHERE event_json LIKE '%DASHBOARD_AGGREGATE_ISSUED%'").fetchone()[0] == 0
+
+
 def test_ingest_happy_path_returns_signed_receipt_without_raw_rows_and_updates_catalog(connector):
     client = connector["client"]
     claims = _claims(jti="ticket-happy-0001")

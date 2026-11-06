@@ -35,9 +35,26 @@ class CheckFailure(AssertionError):
     pass
 
 
+class SeededSettlementBlocked(CheckFailure):
+    def __init__(self, evidence: dict[str, Any]):
+        self.evidence = evidence
+        super().__init__("The already-executed demo batch cannot create another settlement")
+
+
 def require(condition: Any, message: str) -> None:
     if not condition:
         raise CheckFailure(message)
+
+
+def validate_seeded_settlement_conflict(before: dict[str, Any], after: dict[str, Any], seed: dict[str, Any], response: dict[str, Any]) -> None:
+    require(response.get("http_status") == 409 and response.get("detail") == "该批次、期间及参与方已有结算任务，请勿重复结算", "Expected the exact duplicate-settlement guard, not an unrelated conflict")
+    require(seed.get("task_id") == "task-demo-business-e2e" and before.get("task_id") != seed["task_id"], "Duplicate probe is not distinct from the fixed demo seed")
+    require(before.get("trade_batch_no") == seed.get("trade_batch_no") == "DEMO-2026-08-E2E", "Only the already-seeded demo batch may be classified as expected blocked")
+    require(before.get("period_start") == seed.get("period_start") == "2026-08-01" and before.get("period_end") == seed.get("period_end") == "2026-08-31", "Duplicate probe period does not match the fixed demo seed")
+    parties = lambda task: sorted((item["org_id"], item["role_in_task"]) for item in task.get("participants", []))
+    require(parties(before) == parties(seed) == [("org-generator-t01", "GENERATOR"), ("org-retailer-t01", "RETAILER")], "Duplicate probe participants do not match the fixed demo seed")
+    require((seed.get("compute_summary") or {}).get("status") == "SUCCESS", "The seeded batch has no successful computation evidence")
+    require(before == after, "Duplicate rejection changed task state or its execution/evidence summaries")
 
 
 def validate_negative_query_rejection(name: str, result: dict[str, Any]) -> None:
@@ -138,6 +155,9 @@ class Acceptance:
             evidence = action()
             actual_status = evidence.pop("_status", status)
             item = {"check": name, "status": actual_status, "account": account, "ui_surface": ui, "evidence": evidence}
+        except SeededSettlementBlocked as error:
+            item = {"check": name, "status": "EXPECTED_BLOCKED", "account": account, "ui_surface": ui, "evidence": error.evidence}
+            evidence = None
         except Exception as error:
             item = {"check": name, "status": "FAIL", "account": account, "ui_surface": ui, "error": f"{type(error).__name__}: {str(error)[:400]}"}
             evidence = None
@@ -147,6 +167,12 @@ class Acceptance:
         self.save()
         print(json.dumps({"check": name, "status": item["status"], **({"error": item["error"]} if "error" in item else {})}, ensure_ascii=True), flush=True)
         return evidence
+
+
+    def blocked_dependents(self, names: tuple[str, ...], account: str) -> None:
+        prerequisite = self.results[-1]
+        for name in names:
+            self.check(name, lambda: {"prerequisite": prerequisite["check"], "prerequisite_status": prerequisite["status"], "reason": "The prerequisite settlement was not executed; this dependent behavior was not tested."}, account=account, status="NOT_EXERCISED_PREREQUISITE_BLOCKED")
 
     def own(self, value: str) -> str:
         self.owned.add(value)
@@ -257,8 +283,8 @@ class Acceptance:
             data = self.call(f"/trust-space/contracts/{contract_id}", "generator")
             require(data["agreement"]["state"] == "ACTIVE", "Normal provider approval did not create an ACTIVE agreement")
             task = self.create_task("consumed contract lifecycle")
-            require(task["readiness"]["preflight_passed"], "Consumed contract prerequisite lacks normal settlement readiness")
-            done = self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key("contract-run"))
+            done = self.run_settlement(task, "contract-run")
+            require(task["readiness"]["preflight_passed"], "A contract was consumed despite blocked preflight readiness")
             agreement = next(item for item in done["data_space"]["agreements"] if item["provider_org_id"] == self.sessions["generator"]["user"]["org_id"])
             require(agreement["state"] == "CONSUMED" and agreement["use_count"] == agreement["max_uses"], "Normal settlement did not consume its real agreement")
             fixture["consumed_contract_id"] = self.own(agreement["contract_id"])
@@ -267,7 +293,9 @@ class Acceptance:
             require(consumed["contract"]["task_id"] == task["task_id"] and consumed["agreement"]["state"] == "CONSUMED", "Consumed contract detail is not bound to this run's settlement")
             return {"contract_id": contract_id, "agreement_state": data["agreement"]["state"], "allowed_actions": data["allowed_actions"],
                     "consumed_contract_id": agreement["contract_id"], "consumed_task_id": task["task_id"], "consumed_state": "CONSUMED"}
-        self.check("contract:normal-ui-generated-state", detail, account="generator")
+        if not self.check("contract:normal-ui-generated-state", detail, account="generator"):
+            self.blocked_dependents(("contract:comment-and-replay", "contract:counter", "contract:accept", "contract:reject"), "generator")
+            return
         def comment():
             records = []
             for target in (contract_id, fixture["consumed_contract_id"]):
@@ -305,6 +333,19 @@ class Acceptance:
         self.own(task["task_id"])
         return task
 
+    def run_settlement(self, task: dict[str, Any], key_label: str) -> dict[str, Any]:
+        before = self.call(f"/settlement/tasks/{task['task_id']}", "exchange")
+        response = self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key(key_label), expected=(200, 409))
+        if response.get("http_status") == 409:
+            after = self.call(f"/settlement/tasks/{task['task_id']}", "exchange")
+            seed = self.call("/settlement/tasks/task-demo-business-e2e", "exchange")
+            validate_seeded_settlement_conflict(before, after, seed, response)
+            raise SeededSettlementBlocked({"task_id": task["task_id"], "seed_task_id": seed["task_id"], "http_status": 409,
+                                           "guard_classification": "DUPLICATE_SETTLEMENT", "api_detail": response["detail"], "task_unchanged": True,
+                                           "new_settlement_executed": False,
+                                           "limitation": "The seeded demo batch was already executed. A new-batch settlement journey is not validated by this check."})
+        return response
+
     def settlements(self) -> None:
         def cancel():
             task = self.create_task("manual cancellation")
@@ -324,7 +365,7 @@ class Acceptance:
             response = self.call(f"/trust-space/ttc/{task['task_id']}/transitions", "exchange", {"to_state": "INTERRUPTED", "trigger": "TRUSTED_SPACE_UI", "reason": self.run_id + " own task interrupt probe"}, match=detail["task"]["state_version"], expected=(409,))
             unchanged = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
             require(unchanged["task"]["ttc_state"] == "INIT" and unchanged["task"]["state_version"] == detail["task"]["state_version"], "Rejected INIT interruption changed the task")
-            self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key("interrupt-run"))
+            self.run_settlement(task, "interrupt-run")
             completed = self.call(f"/trust-space/ttc/{task['task_id']}", "exchange")
             require(completed["task"]["ttc_state"] == "RESULT_CONFIRM" and "transition:REWORK" in completed["allowed_actions"], "Normal settlement did not reach a reviewable result")
             self.call(f"/trust-space/ttc/{task['task_id']}/transitions", "exchange", {"to_state": "REWORK", "trigger": "TRUSTED_SPACE_UI", "reason": self.run_id + " rework own completed settlement"}, match=completed["task"]["state_version"])
@@ -341,12 +382,13 @@ class Acceptance:
         self.check("ttc:manual-interruption-availability", interrupt, account="exchange")
         def execute():
             task = self.create_task("result objection")
-            require(task["readiness"]["preflight_passed"], "Demo seed readiness is not available")
-            self.call(f"/settlement/tasks/{task['task_id']}/run", "exchange", {"compute_mode": "LOCAL_CONTROLLED", "algorithm_code": "CONTROLLED_SETTLEMENT_V1"}, match=task["state_version"], key=self.key("run"))
+            self.run_settlement(task, "run")
+            require(task["readiness"]["preflight_passed"], "A settlement ran despite blocked preflight readiness")
             task = self.call(f"/settlement/tasks/{task['task_id']}", "exchange")
             self.settlement_task = task
             return {"task_id": task["task_id"], "status": task["status"], "ttc_state": task["ttc"]["state"]}
         if not self.check("settlement:own-task-run", execute, account="exchange"):
+            self.blocked_dependents(("mpc:event-cursor", "mpc:retry-capability", "mpc:cancel-capability", "result:reject-and-replay"), "exchange")
             return
         task_id = self.settlement_task["task_id"]
         def events():

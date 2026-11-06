@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -47,6 +47,7 @@ from ..services.datapackage import FrictionlessCatalogAdapter
 from ..services.duckdb_connector import DuckDBMetadataAdapter
 from ..services.odcs_connector import OpenDataContractAdapter
 from ..services.solar import PvlibSolarAdapter
+from ..services.settlement_guard import SettlementConflict
 from ..services.workflow import (
     _scoped_task_allowed,
     ensure_data_capsule,
@@ -723,12 +724,11 @@ def create_task(
         .order_by(SettlementTask.created_at.desc())
     )
     if existing:
+        # A matching name does not establish identical participants or rules.
+        # Legacy tasks without a fingerprint cannot be safely replayed.
+        if existing.request_fingerprint != request_fingerprint:
+            raise HTTPException(status_code=409, detail="已有任务与请求载荷不一致，请使用新的任务名称")
         if normalized_idempotency_key:
-            if (
-                existing.request_fingerprint
-                and existing.request_fingerprint != request_fingerprint
-            ):
-                raise HTTPException(status_code=409, detail="已有任务与请求载荷不一致")
             if existing.request_idempotency_key not in {
                 None,
                 normalized_idempotency_key,
@@ -743,7 +743,7 @@ def create_task(
     task = SettlementTask(
         capsule_id=(
             f"HC-CAPSULE-{payload.period_start.strftime('%Y%m')}-"
-            f"{sha256_json({'task_name': payload.task_name, 'trade_batch_no': payload.trade_batch_no})[:8].upper()}"
+            f"{sha256_json({'task_name': payload.task_name, 'trade_batch_no': payload.trade_batch_no, 'period_start': payload.period_start.isoformat(), 'period_end': payload.period_end.isoformat(), 'creator_org_id': user.org_id})[:32].upper()}"
         ),
         task_name=payload.task_name,
         trade_batch_no=payload.trade_batch_no,
@@ -767,7 +767,11 @@ def create_task(
         state_version=1,
     )
     db.add(task)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="任务创建冲突，请重新查询后重试") from exc
     ensure_data_capsule(db, task)
     for participant in payload.participants:
         db.add(
@@ -917,6 +921,9 @@ def run_task(
         except (TrustDomainError, IntegrityError):
             db.rollback()
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except SettlementConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         db.rollback()
         try:
@@ -1114,6 +1121,30 @@ def confirm_result(
     if payload.decision == "APPROVE" and will_finalize:
         audit_gate, audit_approval_signatures = _assert_settlement_audit_gate(db, task)
 
+    # SELECT FOR UPDATE does not lock rows on SQLite. Claim the task version
+    # before writing either participant's decision so concurrent approvals
+    # cannot both persist a stale PARTIALLY_CONFIRMED aggregate state.
+    claimed = db.execute(
+        update(SettlementTask)
+        .where(
+            SettlementTask.task_id == task.task_id,
+            SettlementTask.state_version == expected_version,
+            SettlementTask.ttc_state == TTCState.RESULT_CONFIRM.value,
+            SettlementTask.status.in_(("PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED")),
+        )
+        .values(state_version=expected_version + 1),
+        execution_options={"synchronize_session": False},
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        db.refresh(task)
+        raise HTTPException(
+            status_code=412,
+            detail="任务状态版本已变化，请刷新后重试",
+            headers={"ETag": _etag(task)},
+        )
+    task.state_version = expected_version + 1
+
     signed_decision = {
         "task_id": task.task_id,
         "result_id": result.result_id,
@@ -1139,7 +1170,6 @@ def confirm_result(
             TaskParticipant.org_id == user.org_id,
         )
     )
-    task.state_version = int(task.state_version or 1) + 1
     if payload.decision == "REJECT":
         result.confirm_status = "REJECTED"
         if participant is not None:

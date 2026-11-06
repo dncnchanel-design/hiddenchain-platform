@@ -56,11 +56,17 @@ class DataUploadCreate(StrictModel):
     def validate_payload_shape(self) -> "DataUploadCreate":
         payload = self.local_payload
 
+        def finite(value: int | float) -> bool:
+            try:
+                return math.isfinite(float(value))
+            except OverflowError:
+                return False
+
         def number(name: str, *, minimum: float | None = None, maximum: float | None = None) -> None:
             value = payload.get(name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(f"local_payload.{name} must be a number")
-            if not math.isfinite(float(value)):
+            if not finite(value):
                 raise ValueError(f"local_payload.{name} must be finite")
             if minimum is not None and value < minimum:
                 raise ValueError(f"local_payload.{name} must be >= {minimum}")
@@ -79,7 +85,7 @@ class DataUploadCreate(StrictModel):
             if any(
                 isinstance(item, bool)
                 or not isinstance(item, (int, float))
-                or not math.isfinite(float(item))
+                or not finite(item)
                 or item < 0
                 for item in curve
             ):
@@ -184,6 +190,8 @@ class SolarEvaluationRequest(StrictModel):
 
 
 class RuleCreate(StrictModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     rule_name: str = Field(min_length=2, max_length=128)
     description: str = Field(default="", max_length=2000)
     contract_price: float = Field(gt=0)

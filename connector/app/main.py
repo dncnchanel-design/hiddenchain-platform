@@ -13,6 +13,8 @@ import statistics
 from bisect import bisect_right
 from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation, localcontext
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Literal
 
@@ -20,7 +22,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from . import synthetic_data
 
@@ -471,6 +473,27 @@ class DashboardRequest(BaseModel):
     data_window: Literal["latest_available"] | None = None
 
 
+class SettlementBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal["connector-settlement-binding-v1"] = "connector-settlement-binding-v1"
+    trade_batch_no: str = Field(min_length=3, max_length=64)
+    period_start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    period_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @field_validator("trade_batch_no", mode="before")
+    @classmethod
+    def trim_batch(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "SettlementBinding":
+        start, end = date.fromisoformat(self.period_start), date.fromisoformat(self.period_end)
+        if not 0 <= (end - start).days < 366:
+            raise ValueError("结算期间必须按顺序且不超过366天")
+        return self
+
+
 class IngestTicketClaims(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -489,6 +512,7 @@ class IngestTicketClaims(BaseModel):
     purpose: Literal["LOCAL_DATASET_INGEST"]
     issued_at: int
     expires_at: int
+    settlement_binding: SettlementBinding | None = None
 
 
 class IngestTicketEnvelope(BaseModel):
@@ -665,6 +689,8 @@ def _verify_ingest_ticket(
     claims = envelope.claims
     public_text, should_register = _platform_public_key_candidate(envelope.public_key)
     claims_payload = claims.model_dump(mode="json")
+    if claims.settlement_binding is None:
+        claims_payload.pop("settlement_binding", None)
     _verify_ed25519(public_text, envelope.signature, claims_payload)
     if not ORGANIZATION_ID:
         raise HTTPException(503, "主体节点未绑定组织身份")
@@ -677,6 +703,11 @@ def _verify_ingest_ticket(
     resource_name, _unit = _resource_definition(claims.resource_id)
     if claims.resource_name != resource_name:
         raise HTTPException(422, "票据资源名称与固定目录不一致")
+    if claims.settlement_binding is not None:
+        if os.getenv("APP_ENV", "development").strip().lower() not in {"development", "test", "demo"}:
+            raise HTTPException(403, "当前环境不启用演示结算聚合接入")
+        if claims.energy_domain != "electricity" or claims.resource_id not in {"generation", "supply"}:
+            raise HTTPException(422, "结算绑定仅支持电力发电量或供电量")
     now = _now_epoch()
     if claims.issued_at > now + TICKET_CLOCK_SKEW_SECONDS:
         raise HTTPException(401, "票据签发时间无效")
@@ -759,6 +790,8 @@ def _parse_ingest_csv(
             unit = str(row.get("unit") or default_unit).strip()
             if not organization or not unit or any(len(item) > 256 for item in (region, organization, unit)):
                 raise HTTPException(422, "CSV 文本字段无效或过长")
+            if unit != default_unit:
+                raise HTTPException(422, f"CSV 单位必须与资源目录一致：{default_unit}")
             parsed.append((record_date, hour, region, organization, value, unit))
     except csv.Error as exc:
         raise HTTPException(422, "CSV 格式无效") from exc
@@ -766,6 +799,73 @@ def _parse_ingest_csv(
         raise HTTPException(422, "CSV 至少需要一行有效记录")
     schema = {"schema_version": claims.schema_version, "columns": columns}
     return parsed, hashlib.sha256(_canonical(schema)).hexdigest()
+
+
+def _settlement_ingest_summary(
+    claims: IngestTicketClaims,
+    claims_hash: str,
+    raw: bytes,
+    records: list[tuple[str, int | None, str, str, float, str]],
+) -> dict[str, Any] | None:
+    binding = claims.settlement_binding
+    if binding is None:
+        return None
+    start, end = date.fromisoformat(binding.period_start), date.fromisoformat(binding.period_end)
+    expected_days = (end - start).days + 1
+    if len(records) != expected_days or len({row[0] for row in records}) != expected_days:
+        raise HTTPException(422, "结算数据必须完整覆盖期间且每日恰有一行")
+    if any(row[1] is not None for row in records):
+        raise HTTPException(422, "结算接入仅支持日度电量，hour 必须为空")
+    if any(not binding.period_start <= row[0] <= binding.period_end for row in records):
+        raise HTTPException(422, "结算数据日期超出绑定期间")
+    if any(row[5] != "MWh" for row in records):
+        raise HTTPException(422, "结算数据单位必须为 MWh")
+
+    # Sum the original decimal text, never the lossy SQLite REAL representation.
+    # CSV structure/encoding has already passed _parse_ingest_csv.
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"), newline=""))
+    total = Decimal(0)
+    limit = Decimal("1000000000000")
+    with localcontext() as decimal_context:
+        decimal_context.prec = 32  # Up to 366 nonnegative, six-decimal values.
+        for row in reader:
+            if not any(str(value or "").strip() for value in row.values()):
+                continue
+            day_text = str(row["record_date"] or "").strip()
+            if date.fromisoformat(day_text).isoformat() != day_text:
+                raise HTTPException(422, "结算日期必须使用 YYYY-MM-DD 格式")
+            try:
+                value = Decimal(str(row["value"] or "").strip())
+            except InvalidOperation as exc:
+                raise HTTPException(422, "结算电量必须是有限非负十进制数") from exc
+            if not value.is_finite() or value < 0:
+                raise HTTPException(422, "结算电量必须是有限非负十进制数")
+            if value.as_tuple().exponent < -6:
+                raise HTTPException(422, "结算电量最多支持6位小数")
+            if value > limit:
+                raise HTTPException(422, "结算电量汇总不能超过 1e12 MWh")
+            total += value
+            if total > limit:
+                raise HTTPException(422, "结算电量汇总不能超过 1e12 MWh")
+    energy = format(total, "f")
+    if "." in energy:
+        energy = energy.rstrip("0").rstrip(".")
+    if total.is_zero():
+        energy = "0"
+    return {
+        "schema_version": "connector-settlement-summary-v1",
+        "trade_batch_no": binding.trade_batch_no,
+        "period_start": binding.period_start,
+        "period_end": binding.period_end,
+        "asset_type": "GENERATION_DATA" if claims.resource_id == "generation" else "RETAIL_DATA",
+        "aggregation": "SUM",
+        "unit": "MWh",
+        "energy_mwh": energy,
+        "record_count": len(records),
+        "content_hash": hashlib.sha256(raw).hexdigest(),
+        "claims_hash": claims_hash,
+        "raw_records_returned": False,
+    }
 
 
 def _commit_ingest(
@@ -779,6 +879,9 @@ def _commit_ingest(
     consumed_at = _now_epoch()
     receipt_issued_at = _utc_now_iso()
     content_hash = hashlib.sha256(raw).hexdigest()
+    settlement_summary = _settlement_ingest_summary(claims, claims_hash, raw, records)
+    if settlement_summary is not None and consumed_at > claims.expires_at:
+        raise HTTPException(401, "票据已过期，请重新申请结算接入")
     receipt_id = f"receipt-{secrets.token_hex(16)}"
     version_id = f"version-{secrets.token_hex(16)}"
     connection = _database()
@@ -873,6 +976,9 @@ def _commit_ingest(
             "record_count": len(records),
             "occurred_at": receipt_issued_at,
         }
+        if settlement_summary is not None:
+            audit_event["settlement_summary_hash"] = hashlib.sha256(_canonical(settlement_summary)).hexdigest()
+            audit_event["claims_hash"] = claims_hash
         audit_sequence, _previous_hash, audit_hash, _audit_event = _append_local_audit(
             connection,
             audit_event,
@@ -896,6 +1002,8 @@ def _commit_ingest(
             "audit_hash": audit_hash,
             "issued_at": receipt_issued_at,
         }
+        if settlement_summary is not None:
+            receipt_payload["settlement_summary"] = settlement_summary
         signed_receipt = _signed_response(receipt_payload)
         connection.execute(
             "INSERT INTO ingest_receipts(receipt_id, ticket_id, receipt_json, issued_at) VALUES (?, ?, ?, ?)",
@@ -1002,19 +1110,30 @@ def _query_values(payload: ComputeRequest) -> tuple[list[sqlite3.Row], str, int,
     minimum = max(MIN_GROUP_SIZE, payload.minimum_record_count or 0)
     if len(rows) < minimum:
         raise HTTPException(403, f"可用记录少于隐私保护下限 {minimum} 条")
+    unit = _validated_record_unit(payload.resource, rows)
     return (
         rows,
-        rows[0]["unit"],
+        unit,
         int(bound["version_no"]),
         str(bound["local_ref"]),
         str(bound["content_hash"]),
     )
 
 
-def _daily_trend(rows: list[sqlite3.Row], decimals: int | None) -> list[dict[str, Any]]:
+def _validated_record_unit(resource: str, rows: list[sqlite3.Row]) -> str:
+    """Reject legacy incompatible records instead of silently adding unlike units."""
+    _resource_name, unit = _resource_definition(resource)
+    if any(str(row["unit"]) != unit for row in rows):
+        raise HTTPException(422, f"本地数据单位与资源目录不一致：{unit}")
+    return unit
+
+
+def _daily_trend(rows: list[sqlite3.Row], decimals: int | None, minimum: int = MIN_GROUP_SIZE) -> list[dict[str, Any]]:
     grouped: dict[str, list[float]] = {}
     for row in rows:
         grouped.setdefault(str(row["record_date"]), []).append(float(row["value"]))
+    if any(len(values) < minimum for values in grouped.values()):
+        raise HTTPException(403, f"趋势中存在少于隐私保护下限 {minimum} 条的日度分组")
     return [
         {"date": day, "value": round(statistics.fmean(values), decimals) if decimals is not None else statistics.fmean(values)}
         for day, values in sorted(grouped.items())
@@ -1044,18 +1163,21 @@ def _period_value(payload: ComputeRequest, rows: list[sqlite3.Row]) -> float:
     return statistics.fmean(values) if payload.resource in _MEAN_PERIOD_RESOURCES else sum(values)
 
 
-def _psi(rows: list[sqlite3.Row]) -> float:
+def _psi(rows: list[sqlite3.Row], minimum: int = MIN_GROUP_SIZE) -> float:
     days = sorted({str(row["record_date"]) for row in rows})
     if len(days) < 2:
         raise HTTPException(422, "PSI 至少需要两个日期的基期与观察期")
     split = days[len(days) // 2]
     baseline = [float(row["value"]) for row in rows if str(row["record_date"]) < split]
     observed = [float(row["value"]) for row in rows if str(row["record_date"]) >= split]
-    if min(len(baseline), len(observed)) < MIN_GROUP_SIZE:
+    if min(len(baseline), len(observed)) < minimum:
         raise HTTPException(422, "PSI 基期与观察期各自必须满足隐私保护记录下限")
-    low, high = min(baseline), max(baseline)
+    # Finite records can still overflow float bin widths; fixed-precision
+    # subtraction can also move a boundary across zero. Nine exact rational
+    # boundaries preserve the stored floats without either failure.
+    low, high = Fraction.from_float(min(baseline)), Fraction.from_float(max(baseline))
     if low == high:
-        span = max(abs(low), 1.0) * 1e-6
+        span = max(abs(low), Fraction(1)) / 1_000_000
         low, high = low - span, high + span
     edges = [low + (high - low) * index / 10 for index in range(1, 10)]
     def distribution(values: list[float]) -> list[float]:
@@ -1095,6 +1217,9 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
             raise HTTPException(422, "增长率至少需要两个日期")
         previous = [row for row in rows if str(row["record_date"]) == payload.start_date.isoformat()]
         current = [row for row in rows if str(row["record_date"]) == payload.end_date.isoformat()]
+        minimum = max(MIN_GROUP_SIZE, payload.minimum_record_count or 0)
+        if min(len(previous), len(current)) < minimum:
+            raise HTTPException(422, "增长率首末日期各自必须满足隐私保护记录下限")
         base = _period_value(payload, previous)
         if base == 0:
             raise HTTPException(422, "基期数值为零，无法计算增长率")
@@ -1116,7 +1241,7 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
             raise HTTPException(422, "阈值判断必须填写有限数值阈值")
         return {"满足": sum(value >= payload.threshold for value in values), "不满足": sum(value < payload.threshold for value in values)}
     if function == "trend":
-        points = _daily_trend(rows, None)
+        points = _daily_trend(rows, None, max(MIN_GROUP_SIZE, payload.minimum_record_count or 0))
         if len(points) < 2:
             raise HTTPException(422, "趋势分析至少需要两个日期的受控汇总")
         point_values = [point["value"] for point in points]
@@ -1133,9 +1258,10 @@ def _compute(payload: ComputeRequest, rows: list[sqlite3.Row]) -> Any:
         grouped: dict[str, list[float]] = {}
         for row in rows:
             grouped.setdefault(str(row[field]), []).append(float(row["value"]))
-        return {key: sum(items) for key, items in grouped.items() if len(items) >= MIN_GROUP_SIZE}
+        minimum = max(MIN_GROUP_SIZE, payload.minimum_record_count or 0)
+        return {key: sum(items) for key, items in grouped.items() if len(items) >= minimum}
     if function == "psi":
-        return _psi(rows)
+        return _psi(rows, max(MIN_GROUP_SIZE, payload.minimum_record_count or 0))
     raise HTTPException(422, "固定函数尚未启用")
 
 
@@ -1178,24 +1304,28 @@ def _dashboard_series(payload: DashboardRequest) -> tuple[list[dict[str, Any]], 
             dataset_version = "synthetic-v1"
         rows = connection.execute(sql, params).fetchall()
     grouped: dict[str, list[float]] = {}
-    unit = next(unit for resource, _name, unit in RESOURCE_DEFINITIONS[DOMAIN] if resource == payload.resource)
+    unit = _validated_record_unit(payload.resource, rows)
     for row in rows:
         grouped.setdefault(str(row["record_date"]), []).append(float(row["value"]))
-        unit = str(row["unit"])
     valid_days = [(day, values) for day, values in sorted(grouped.items()) if len(values) >= MIN_GROUP_SIZE]
     if not valid_days:
         raise HTTPException(403, f"可用日度记录少于隐私保护下限 {MIN_GROUP_SIZE} 条")
     decimals = min(payload.decimals, MAX_DECIMALS)
     points: list[dict[str, Any]] = []
     for day, values in valid_days:
-        if payload.aggregation == "sum":
-            value = sum(values)
-        elif payload.aggregation == "max":
-            value = max(values)
-        elif payload.aggregation == "min":
-            value = min(values)
-        else:
-            value = statistics.fmean(values)
+        try:
+            if payload.aggregation == "sum":
+                value = sum(values)
+            elif payload.aggregation == "max":
+                value = max(values)
+            elif payload.aggregation == "min":
+                value = min(values)
+            else:
+                value = statistics.fmean(values)
+        except (OverflowError, ZeroDivisionError) as exc:
+            raise HTTPException(422, "数值超出有限计算范围") from exc
+        if not math.isfinite(value):
+            raise HTTPException(422, "数值超出有限计算范围")
         points.append({"date": day, "value": round(value, decimals)})
     return points, unit, sum(len(values) for _day, values in valid_days), dataset_version
 
@@ -1413,21 +1543,22 @@ def dashboard_metrics(
                 "raw_data_exported": False,
             },
         )
+        envelope.update(
+            {
+                "audit_sequence": audit_sequence,
+                "previous_audit_hash": previous_audit_hash,
+                "audit_hash": audit_hash,
+                "audit_event": audit_event,
+            }
+        )
+        signed_response = _signed_response(envelope)
         connection.commit()
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
-    envelope.update(
-        {
-            "audit_sequence": audit_sequence,
-            "previous_audit_hash": previous_audit_hash,
-            "audit_hash": audit_hash,
-            "audit_event": audit_event,
-        }
-    )
-    return _signed_response(envelope)
+    return signed_response
 
 
 @app.post("/compute")
@@ -1481,7 +1612,9 @@ def compute(
                 return cached
             raise HTTPException(409, "本地执行回执已损坏，拒绝重放")
     rows, unit, dataset_version, dataset_local_ref, dataset_content_hash = _query_values(payload)
-    query_hash = hashlib.sha256(_canonical(request_payload)).hexdigest()
+    # Task IDs identify attempts, not the authorized data query being budgeted.
+    budget_payload = {key: value for key, value in request_payload.items() if key not in {"task_id", "request_item_id"}}
+    query_hash = hashlib.sha256(_canonical(budget_payload)).hexdigest()
     now = int(datetime.now(UTC).timestamp())
     decimals = min(payload.decimals, MAX_DECIMALS)
     try:
@@ -1542,7 +1675,7 @@ def compute(
     if payload.function in {"yoy", "mom"}:
         envelope["comparison_period"] = {"start_date": payload.comparison_start_date.isoformat(), "end_date": payload.comparison_end_date.isoformat(), "aggregation": "period_mean" if payload.resource in _MEAN_PERIOD_RESOURCES else "period_total"}
     if payload.function == "trend":
-        envelope["trend"] = _daily_trend(rows, decimals)
+        envelope["trend"] = _daily_trend(rows, decimals, max(MIN_GROUP_SIZE, payload.minimum_record_count or 0))
     result_payload_hash = hashlib.sha256(_canonical(envelope)).hexdigest()
     connection = _database()
     try:

@@ -15,19 +15,18 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); invalidateApiCache(); });
 
-it("reloads the signed dashboard only after its own offered node is ready", async () => {
+it("returns the unavailable dashboard immediately without waiting for the node", async () => {
   let dashboardCalls = 0;
-  const fetcher = vi.fn(async (url: string | URL | Request) => {
+  const fetcher = vi.fn(async (url: string | URL | Request, _options?: RequestInit) => {
     if (String(url) === descriptor.health_url) return health();
     dashboardCalls += 1;
     return json(dashboardCalls === 1 ? { metric: { status: "unavailable", retryable: true }, connector_readiness: descriptor }
       : { metric: { status: "available", value: 15, source: "verified-backend" } });
   });
   vi.stubGlobal("fetch", fetcher);
-  await expect(loadPrototypeDashboard()).resolves.toMatchObject({ metric: { status: "available", value: 15, source: "verified-backend" } });
-  expect(fetcher).toHaveBeenCalledTimes(3);
-  const reloaded = fetcher.mock.calls[2] as unknown as [string, RequestInit];
-  expect(reloaded[1].cache).toBe("no-store");
+  await expect(loadPrototypeDashboard()).resolves.toMatchObject({ metric: { status: "unavailable" }, connector_readiness: descriptor });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][1]?.cache).toBe("no-store");
 });
 
 it.each([false, undefined])("never activates a permanent or unknown dashboard failure (%s)", async (retryable) => {

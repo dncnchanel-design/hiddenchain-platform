@@ -1,5 +1,50 @@
 # Release Synchronization
 
+## GitHub / Render 发布 — 2026-11-06
+
+```text
+AUTHORIZATION = user requested GitHub and Render publication
+SCOPE = reviewed business fixes and signed new-batch settlement ingress
+TARGET = main and agent/deep-brand-green; existing eight Render demo services
+GATES = all applicable final-commit checks; platform and seven connector build_sha; live demo business acceptance
+EXECUTION_EVIDENCE = runtime/release-20261106/
+```
+
+本节记录发布任务与验收标准；最终发布结果以执行证据为准，不用此前本地通过代替线上成功。
+
+## 第二轮缺陷复查 — 2026-11-06（本地完成）
+
+```text
+SCOPE = numeric validation; signed receipt integrity and ordering; privacy group bounds; session/recovery races
+NUMERIC_REGRESSION = 13 passed after 10 failing boundary cases were reproduced
+FIXED_DEFECTS = 12; grouped and described in docs/BUG_RECHECK_2026-11-06.md
+FINAL_BACKEND = 1168 passed across 8 isolated shards; 0 failures/errors/skips
+FINAL_CONNECTOR = 130 passed
+FINAL_FRONTEND = 360 passed across 47 files; lint/typecheck/production guard/brand guard/build passed
+LOCAL_HTTP = two fresh batches ARCHIVED V13; amounts 11378.64 and 55279.86; signed payload tampering/permission/idempotency/duplicate/rule boundaries/receipt ordering/raw-row isolation passed
+LOCAL_UI = normal settlement CSV registration; logout/account switch; archived V13 view; console 0 error/warn
+REVIEW = independent cross-layer review passed; PostgreSQL concurrency reviewed but not exercised
+EVIDENCE = runtime/qa-20261106-recheck/
+TEMP_SERVICES = stopped; ports 8000/5173/8101-8107 not listening
+RELEASE = not committed, pushed or deployed
+```
+
+## 新批次演示结算接入 — 2026-11-06（本地）
+
+```text
+SCOPE = signed daily CSV settlement binding -> aggregate reference -> new batch settlement
+ENVIRONMENT = development/test/demo only; electricity generation and supply
+LOCAL_CONNECTOR = 125 passed
+LOCAL_BACKEND = 1143 passed across 8 shards after full 143-test affected-shard retry; final targeted 39 passed (includes 2 extra precision cases); previous bridge/migration 42 passed
+LOCAL_FRONTEND = 341 passed; lint; typecheck; production/brand guards; build
+LOCAL_HTTP_UI = two fresh HTTP batches ARCHIVED V13; browser uploaded/created/executed third batch, HTTP confirmed and browser ARCHIVED V13; console 0 error/warn
+RELEASE = not committed, pushed or deployed
+EVIDENCE = runtime/settlement-ingress-20261106/
+TEMP_SERVICES = stopped; ports 8000/5173/8101-8107 not listening
+```
+
+本轮验收使用隔离演示数据库和连接器，不写既有用户业务数据；本地通过不代表线上已更新。
+
 ## 业务助手普通数据问法与恢复 — 2026-10-24
 
 ```text
@@ -535,3 +580,45 @@ f2b8006 的本地和线上九组完整验收均通过，线上保留617次MODEL�
 本次修复只在已有授权活动查询状态或本主体暂时不可用工作台响应中提供显式配置的公开健康地址。浏览器在该次操作内执行最多90秒、无凭据/请求体/引用来源/重定向的健康GET，绑定三个主体标识；不定时保活、不接收官方计算数值。查询保持原任务ID和轮询，取消离页的同一生命周期请求；工作台健康就绪后重新读取后端签名汇总。后台既有公钥固定、授权重验、签名结果和隐私预算均保留。
 
 新增后端44回归与旧95目标检查共139项通过；前端增加真实页面多轮poll后卸载取消和同任务恢复验证。纯后端平台请求不因浏览器流程修复而被宣称已经自行冷启动。最终新SHA仍须全量CI、8服务版本、有序13账号/721语言及实际自然冷态浏览器验证。真实钱包按用户决定不配置。免费实例上传本地文件的易失性已告知用户，付费持久化仅在预算获准后进行。
+
+
+### 2026-10-28 本地验证边界
+
+本次未发布、未同步远端或验证线上部署。测试结论仅针对本地合成数据；重复结算约束、并发、真实交易中心对接及正式业务验收未完成前，生产状态保持 BLOCKED。最终测试状态以本次报告为准。
+
+本地最终代码全量后端 1091 项通过；未发布。生产阻塞仍有效，不能将测试通过等同于正式投运验收。
+
+视频交付仅为本地模拟结算任务的浏览器操作记录。输出路径：output/电力结算全流程_1080P满屏字幕版_20261028.mp4；未提交、推送或发布。
+
+视频清晰版已生成：output/电力结算全流程_1080P清晰重录版_20261028.mp4（152秒）。仅本地演示视频交付，未提交、推送或发布。
+
+一分钟视频位于 output/电力结算全流程_60秒清晰版_重点停留_20261028.mp4，仍仅为本地演示素材，未发布。
+
+2026-10-28：新增本地视频 output/隐链明算_答辩演示_60秒实录配乐版_20261028.mp4，1080P、30 fps、1800帧，MP4电影与两轨edit-list呈现时长均60.000秒。素材为内置浏览器实际连续录屏剪辑，含答辩稿字幕和原创配乐音效。本次未提交、推送、部署或改变生产验收结论。
+
+2026-10-29 新增本地交付 output/隐链明算_答辩演示_60秒普通话配音版_20261029.mp4（60秒/1080P/普通话AI旁白）。旧版本保留；无产品发布、提交、推送或部署，生产验收边界不变。
+
+2026-10-29 全功能复验仅针对本地当前工作区。未提交、推送或部署；历史发布SHA不能替代本轮工作区验证。生产边界仍保留：真实钱包/模型/外部链/TEE及远程冷启动未由本轮本地测试证明。
+
+### 2026-10-29 全功能复验最终边界
+
+仅验收本地当前工作区，未提交、推送或部署。基础全量 1459 项通过；最后旧查询修复后的相关 219 项与接口补验 8 项通过，前端最终 build/lint/守卫通过，线上模型代表场景实际调用 12 次成功。浏览器模拟结算已归档 V13，金额来自冻结输入确定性计算；不代表真实交易结算或付款。
+
+已停止本轮自建隔离服务，保留全部证据与数据库。旧 prototype 查询修复为明确不执行、引导新版确认计算；不再提供伪造数值，现行页面不调用该旧接口。四个交易中心自有连接器、外部 EDC/TEE/链和正式并发、防重复结算、生产验收事项未由本轮补齐。原生产 BLOCKED 结论不因本地通过而改变。总报告：runtime/qa-all-20261029/full-functional-report.html。
+
+
+### 2026-11-01 本地排查边界
+
+本轮只检查和修复本地工作区，未提交、推送或部署。容器、远程服务、真实交易和生产验收未获本轮验证；生产 BLOCKED 边界不变。
+
+2026-11-01 追加阻塞：正式交易防重复及输入期间一致性未实现，禁止将本地演示通过作为生产就绪证据。DID 历史配置残留和重复查询历史计数迁移仍待处理。
+
+2026-11-01 补充：本地防重复与期间校验已实现；不代表真实交易中心、外部连接器联调、生产负载或 PostgreSQL 并发验收通过。DID 旧配置写入的历史钱包残留、重复查询旧计数和跨授权推断限制仍需处理。Docker 引擎未运行，容器构建/联调未验证；未提交、推送或部署。
+
+2026-11-01 冷启动优化仅在本地验证，未发布；不能将本地测试或线上旧版本测速称为新版本线上验收。Render 免费实例休眠、文件系统易失与 750 小时共享限制不变。
+
+### 2026-11-05 排查范围
+
+本轮验证本地工作区，尚未发布。测试与服务使用隔离数据；不以本地通过替代远程部署、真实能源市场、生产并发或外部可信能力验收。最终结果见本轮缺陷报告。
+
+2026-11-05 最终：本地排查完成，未提交、推送或部署。后端1131全量先于最后只读预检修复；最后修复另有22相关回归和最终HTTP验证。演示新批次结算数据接入缺口保留，生产状态不因本地通过改变。详情及证据索引：docs/BUG_AUDIT_2026-11-05.md。两套临时隔离栈与Vite已停止。

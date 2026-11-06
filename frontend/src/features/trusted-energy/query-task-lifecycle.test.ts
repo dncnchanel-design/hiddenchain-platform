@@ -40,28 +40,31 @@ describe("trusted query task lifecycle", () => {
       result: { raw: "must-not-persist" },
     };
 
-    writePendingQueryTask(store, source);
+    writePendingQueryTask(store, source, "user-a");
 
     expect(JSON.parse(store.setItem.mock.calls[0][1])).toEqual({
+      owner_user_id: "user-a",
       task_id: "task-real",
       idempotency_key: "trusted-query:key-real",
       submission,
     });
     expect(store.setItem.mock.calls[0][1]).not.toContain("confirmation_token");
     expect(store.setItem.mock.calls[0][1]).not.toContain("must-not-persist");
-    expect(readPendingQueryTask(store)).toEqual({ taskId: "task-real", idempotencyKey: "trusted-query:key-real", submission });
+    expect(readPendingQueryTask(store, "user-a")).toEqual({ taskId: "task-real", idempotencyKey: "trusted-query:key-real", submission });
+    expect(readPendingQueryTask(store, "user-b")).toBeNull();
+    expect(readPendingQueryTask(store, undefined)).toBeNull();
     clearPendingQueryTask(store);
     expect(store.removeItem).toHaveBeenCalledWith(QUERY_TASK_STORAGE_KEY);
   });
 
   it("rejects malformed recovery metadata", () => {
     const store = memoryStore();
-    store.setItem(QUERY_TASK_STORAGE_KEY, JSON.stringify({ task_id: "task-real", idempotency_key: "" }));
-    expect(readPendingQueryTask(store)).toBeNull();
+    store.setItem(QUERY_TASK_STORAGE_KEY, JSON.stringify({ owner_user_id: "user-a", task_id: "task-real", idempotency_key: "" }));
+    expect(readPendingQueryTask(store, "user-a")).toBeNull();
     store.setItem(QUERY_TASK_STORAGE_KEY, "not-json");
-    expect(readPendingQueryTask(store)).toBeNull();
-    store.setItem(QUERY_TASK_STORAGE_KEY, JSON.stringify({ task_id: null, idempotency_key: "preflight-old" }));
-    expect(readPendingQueryTask(store)).toBeNull();
+    expect(readPendingQueryTask(store, "user-a")).toBeNull();
+    store.setItem(QUERY_TASK_STORAGE_KEY, JSON.stringify({ owner_user_id: "user-a", task_id: null, idempotency_key: "preflight-old" }));
+    expect(readPendingQueryTask(store, "user-a")).toBeNull();
   });
 
   it("recovers the pre-submit crash window with a fresh transient token and the original key", async () => {
@@ -88,8 +91,8 @@ describe("trusted query task lifecycle", () => {
     const store = memoryStore();
     const ownSubmission = { ...submission, authorization_id: undefined, asset_id: "owned-asset-v2" };
     const pending = { taskId: null, idempotencyKey: "trusted-query:owned", submission: ownSubmission };
-    writePendingQueryTask(store, pending);
-    const restored = readPendingQueryTask(store)!;
+    writePendingQueryTask(store, pending, "user-a");
+    const restored = readPendingQueryTask(store, "user-a")!;
     expect(restored.submission?.asset_id).toBe("owned-asset-v2");
     const confirm = vi.fn().mockResolvedValue({ confirmation_token: "transient-token", authorization_id: "short-lived-own-grant", provider_org_id: "owner", asset_id: "owned-asset-v2" });
     const execute = vi.fn().mockResolvedValue({ task_id: "owned-task" });

@@ -161,6 +161,12 @@ class SettlementTask(Base, TimestampMixin):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class SettlementIdentityLock(Base):
+    __tablename__ = "settlement_identity_locks"
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("settlement_tasks.task_id"), nullable=False)
+
+
 class TaskParticipant(Base, TimestampMixin):
     __tablename__ = "task_participants"
     participant_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -386,6 +392,7 @@ class ConnectorIngestionTicket(Base, TimestampMixin):
     purpose: Mapped[str] = mapped_column(String(64), nullable=False)
     max_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     claims_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    settlement_binding_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="ISSUED", nullable=False, index=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)

@@ -6,11 +6,11 @@ import { loadPrototypeDashboard } from "./trusted-space-api";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
 
 const state = vi.hoisted(() => ({
-  effects: [] as Array<() => unknown>, retry: { current: 0 }, cleanup: undefined as (() => void) | undefined,
+  effects: [] as Array<() => unknown>, retry: { current: 0 }, wakeRetry: { current: false }, loader: undefined as undefined | ((signal?: AbortSignal) => Promise<unknown>), cleanup: undefined as (() => void) | undefined,
   remote: { data: null as unknown, loading: false, refreshing: false, error: "", refreshError: "", errorStatus: null as number | null, refreshErrorStatus: null as number | null, reload: vi.fn().mockResolvedValue(undefined) },
 }));
-vi.mock("react", async (original) => ({ ...await original<typeof import("react")>(), useRef: () => state.retry, useEffect: (effect: () => unknown) => { state.effects.push(effect); } }));
-vi.mock("../../hooks", () => ({ useRemote: () => state.remote }));
+vi.mock("react", async (original) => ({ ...await original<typeof import("react")>(), useRef: (value: unknown) => typeof value === "boolean" ? state.wakeRetry : state.retry, useEffect: (effect: () => unknown) => { state.effects.push(effect); } }));
+vi.mock("../../hooks", () => ({ useRemote: (loader: (signal?: AbortSignal) => Promise<unknown>) => { state.loader = loader; return state.remote; } }));
 vi.mock("react-router-dom", () => ({ Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a> }));
 vi.mock("./components/VisibleModuleBoundary", () => ({ VisibleModuleBoundary: () => <div>图表</div> }));
 vi.mock("./components/PrototypePageFrame", () => ({ PrototypePageFrame: ({ children }: { children: ReactNode }) => <main>{children}</main>, PrototypeCardTitle: ({ children }: { children: ReactNode }) => <h3>{children}</h3> }));
@@ -32,6 +32,8 @@ function renderPage() {
 beforeEach(() => {
   vi.useFakeTimers();
   state.retry.current = 0;
+  state.wakeRetry.current = false;
+  state.loader = undefined;
   state.remote.data = dashboard();
   state.remote.loading = state.remote.refreshing = false;
   state.remote.error = state.remote.refreshError = "";
@@ -58,6 +60,89 @@ it("allows a 17-second cold dashboard response to finish inside its own 25-secon
   await vi.advanceTimersByTimeAsync(17_010);
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(await observed).toEqual({ value: { metric: { status: "available", value: 14 } } });
+});
+
+it("shows available dashboard content while its node starts, then reloads verified data", async () => {
+  const descriptor = { health_url: "https://node.example/health", organization_id: "org-a", energy_domain: "electricity", connector_id: "node-a", raw_data_accessed: false };
+  state.remote.data = { ...dashboard(), connector_readiness: descriptor };
+  const fetcher = vi.fn((_url: unknown, options: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(new Response(JSON.stringify(descriptor), { headers: { "content-type": "application/json" } })), 60_000);
+    options.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  expect(renderPage()).toContain("主体指标");
+  await vi.advanceTimersByTimeAsync(59_999);
+  expect(state.remote.reload).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(state.remote.reload).toHaveBeenCalledTimes(1);
+  expect(state.wakeRetry.current).toBe(true);
+});
+
+it("uses the wake hint only for the first dashboard reload after node readiness", async () => {
+  const fetcher = vi.fn(async (_url: string | URL | Request) => new Response(JSON.stringify({ metric: { status: "available" } }), { headers: { "content-type": "application/json" } }));
+  vi.stubGlobal("fetch", fetcher);
+  renderPage();
+  await state.loader?.();
+  state.wakeRetry.current = true;
+  await state.loader?.();
+  await state.loader?.();
+  expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+    "/api/prototype/dashboard", "/api/prototype/dashboard?wake_retry=true", "/api/prototype/dashboard",
+  ]);
+});
+
+it("cancels background node activation when leaving the workbench", async () => {
+  state.remote.data = { ...dashboard(), connector_readiness: { health_url: "https://node.example/health", organization_id: "org-a", energy_domain: "electricity", connector_id: "node-a", raw_data_accessed: false } };
+  let aborted = false;
+  vi.stubGlobal("fetch", vi.fn((_url: unknown, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    options.signal?.addEventListener("abort", () => { aborted = true; reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  })));
+  renderPage();
+  state.cleanup?.(); state.cleanup = undefined;
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(aborted).toBe(true);
+  expect(state.remote.reload).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("cancels activation when hidden and starts a fresh one when visible", async () => {
+  const descriptor = { health_url: "https://node.example/health", organization_id: "org-a", energy_domain: "electricity", connector_id: "node-a", raw_data_accessed: false };
+  state.remote.data = { ...dashboard(), connector_readiness: descriptor };
+  let aborted = 0;
+  const fetcher = vi.fn((_url: unknown, options: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(new Response(JSON.stringify(descriptor), { headers: { "content-type": "application/json" } })), 20_000);
+    options.signal?.addEventListener("abort", () => { aborted += 1; clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  renderPage();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  Object.assign(document, { visibilityState: "hidden" });
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(aborted).toBe(1);
+  expect(state.remote.reload).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  Object.assign(document, { visibilityState: "visible" });
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(state.remote.reload).toHaveBeenCalledTimes(1);
+});
+
+it("waits until the page is visible before reloading a node that became ready", async () => {
+  const descriptor = { health_url: "https://node.example/health", organization_id: "org-a", energy_domain: "electricity", connector_id: "node-a", raw_data_accessed: false };
+  state.remote.data = { ...dashboard(), connector_readiness: descriptor };
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+    setTimeout(() => resolve(new Response(JSON.stringify(descriptor), { headers: { "content-type": "application/json" } })), 1_000);
+  })));
+  renderPage();
+  Object.assign(document, { visibilityState: "hidden" });
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(state.remote.reload).not.toHaveBeenCalled();
+  Object.assign(document, { visibilityState: "visible" });
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(state.remote.reload).toHaveBeenCalledTimes(1);
 });
 
 it("reloads a retryable unavailable metric and stops once a real available result arrives", async () => {

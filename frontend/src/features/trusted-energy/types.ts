@@ -85,17 +85,19 @@ export function trustedEntityId(pathname: string, segment: "assets" | "apply" | 
 }
 
 export function getTrustedView(pathname: string): TrustedViewKey {
-  if (pathname.includes("/query")) return "query";
-  if (pathname.includes("/identity")) return "identity";
-  if (pathname.includes("/catalog")) return "catalog";
-  if (pathname.includes("/connector")) return "connector";
-  if (pathname.includes("/authorizations")) return "authorizations";
-  if (pathname.includes("/assets")) return "asset";
-  if (pathname.includes("/apply")) return "apply";
-  if (pathname.includes("/contracts")) return "contract";
-  if (pathname.includes("/ttc")) return "ttc";
-  if (pathname.includes("/mpc")) return "mpc";
-  if (pathname.includes("/results")) return "results";
-  if (pathname.includes("/audit")) return "audit";
+  const prefix = `${TRUSTED_BASE}/`;
+  const segment = pathname.startsWith(prefix) ? pathname.slice(prefix.length).split("/")[0] : "";
+  if (segment === "query") return "query";
+  if (segment === "identity") return "identity";
+  if (segment === "catalog") return "catalog";
+  if (segment === "connector") return "connector";
+  if (segment === "authorizations") return "authorizations";
+  if (segment === "assets") return "asset";
+  if (segment === "apply") return "apply";
+  if (segment === "contracts") return "contract";
+  if (segment === "ttc") return "ttc";
+  if (segment === "mpc") return "mpc";
+  if (segment === "results") return "results";
+  if (segment === "audit") return "audit";
   return "workbench";
 }

@@ -62,11 +62,13 @@ function pendingSubmission(value: unknown): PendingQuerySubmission | null {
   };
 }
 
-export function readPendingQueryTask(store: Pick<SessionStore, "getItem">): PendingQueryTask | null {
+export function readPendingQueryTask(store: Pick<SessionStore, "getItem">, ownerUserId: string | undefined): PendingQueryTask | null {
+  if (!ownerUserId) return null;
   try {
     const raw = store.getItem(QUERY_TASK_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.owner_user_id !== ownerUserId) return null;
     if (!validIdentifier(parsed.idempotency_key, 160)) return null;
     if (parsed.task_id !== null && !validIdentifier(parsed.task_id, 160)) return null;
     const submission = pendingSubmission(parsed.submission);
@@ -81,9 +83,11 @@ export function readPendingQueryTask(store: Pick<SessionStore, "getItem">): Pend
   }
 }
 
-export function writePendingQueryTask(store: Pick<SessionStore, "setItem">, value: PendingQueryTask) {
+export function writePendingQueryTask(store: Pick<SessionStore, "setItem">, value: PendingQueryTask, ownerUserId: string | undefined) {
+  if (!ownerUserId) return false;
   try {
     store.setItem(QUERY_TASK_STORAGE_KEY, JSON.stringify({
+      owner_user_id: ownerUserId,
       task_id: value.taskId,
       idempotency_key: value.idempotencyKey,
       submission: value.submission ? {

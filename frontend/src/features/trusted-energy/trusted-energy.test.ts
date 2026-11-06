@@ -42,6 +42,14 @@ describe("trusted energy console model", () => {
     expect(trustedMenuCodeForView("mpc")).toBe("compute");
   });
 
+  it.each(["asset", "apply", "contract", "ttc", "mpc", "results", "audit"] as const)("keeps %s detail routes independent of entity-id prefixes", (view) => {
+    for (const prefix of ["query", "identity", "catalog", "connector", "authorizations", "assets", "apply", "contracts", "ttc", "mpc", "results", "audit"]) {
+      const pathname = routeForView(view, `${prefix}-record-001`);
+      expect(isKnownTrustedPath(pathname)).toBe(true);
+      expect(getTrustedView(pathname)).toBe(view);
+    }
+  });
+
   it("locks capability truth labels to the product boundary", () => {
     expect(capabilityMatrix).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "MPC 计算", truth: "LOCAL_REAL_EXPERIMENTAL_SINGLE_HOST" }),

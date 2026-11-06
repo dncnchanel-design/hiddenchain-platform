@@ -101,6 +101,44 @@ def signed_headers(module, key, request, nonce):
     return {"X-Request-Timestamp": timestamp, "X-Request-Nonce": nonce, "X-Request-Signature": base64.b64encode(key.sign(module._canonical({"timestamp": timestamp, "nonce": nonce, "payload": canonical}))).decode()}
 
 
+def test_trend_rejects_single_record_days_despite_sufficient_total(connector, platform_key):
+    seed_values(connector)
+    with connector._database() as db:
+        db.execute("DELETE FROM version_records WHERE region != 'A'")
+        db.execute("INSERT INTO version_records(version_id, resource, record_date, hour, region, organization, value, unit) VALUES ('rate-load-v1', 'load', '2026-06-03', NULL, 'A', 'A', 123, 'MW')")
+        db.commit()
+    request = request_dict(connector, "trend", end_date="2026-06-03")
+    with TestClient(connector.app) as client:
+        response = client.post('/compute', json=request, headers=signed_headers(connector, platform_key, request, 'trend-privacy-nonce'))
+    assert response.status_code == 403
+    with connector._database() as db:
+        assert db.execute('SELECT COUNT(*) FROM query_log').fetchone()[0] == 0
+
+
+def test_group_by_honors_signed_minimum_per_group(connector, platform_key):
+    seed_values(connector)
+    request = request_dict(connector, 'group_by', group_by='record_date', minimum_record_count=5)
+    with TestClient(connector.app) as client:
+        response = client.post('/compute', json=request, headers=signed_headers(connector, platform_key, request, 'group-privacy-nonce'))
+    assert response.status_code == 200, response.text
+    assert response.json()['result'] == {}
+
+
+def test_repeated_query_limit_ignores_distinct_task_ids(connector, platform_key):
+    seed_values(connector)
+    with TestClient(connector.app) as client:
+        statuses = []
+        for index in range(4):
+            request = request_dict(connector, 'average')
+            request.update(task_id=f'rate-task-{index:03}', request_item_id=f'rate-item-{index:03}')
+            response = client.post('/compute', json=request, headers=signed_headers(connector, platform_key, request, f'repeat-query-nonce-{index}'))
+            statuses.append(response.status_code)
+        request.update(task_id='rate-task-other', request_item_id='rate-item-other', authorization_id='rate-auth-other')
+        other = client.post('/compute', json=request, headers=signed_headers(connector, platform_key, request, 'repeat-query-other-auth'))
+    assert statuses == [200, 200, 200, 429]
+    assert other.status_code == 200
+
+
 def seed_full_month(module, period, days):
     seed_values(module, period=period)
     with module._database() as db:

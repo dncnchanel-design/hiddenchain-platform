@@ -150,7 +150,7 @@ export function ExcelUploadPage() {
         <div className="upload-file-panel">
           <div className="upload-file-control">
             <FileSpreadsheet size={25} aria-hidden="true" />
-            <Field label="Excel 文件" hint="本角色单表模板只包含 1 个工作表；旧版十工作表模板仍兼容。" error={fileError}>
+            <Field label="Excel 文件" hint="数据期间须与结算周期一致，填写 YYYY-MM、YYYY-MM-DD 或 YYYY-MM-DD/YYYY-MM-DD。旧版十工作表模板仍兼容。" error={fileError}>
               <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => chooseFile(event.target.files?.[0] || null)} disabled={!canUpload || busy} />
             </Field>
             {file && <div className="upload-file-meta"><strong>{file.name}</strong><span>{formatFileSize(file.size)}</span></div>}

@@ -241,6 +241,7 @@ def _persist_upload(
     record.summary_json = {
         "record_count": payload.local_payload.get("record_count", 1),
         "period": payload.local_payload.get("period"),
+        **{key: payload.local_payload[key] for key in ("period_start", "period_end") if key in payload.local_payload},
         "raw_data_stored_in_business_db": False,
         "trusted_acquisition": True,
         "secure_transport": payload.ingress.model_dump(),

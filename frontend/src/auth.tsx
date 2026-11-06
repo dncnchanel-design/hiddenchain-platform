@@ -40,7 +40,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     let serverLogoutConfirmed = false;
-    if (sessionStorage.getItem(TOKEN_KEY)) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (token) {
       try {
         await post<void>("/auth/logout", {});
         serverLogoutConfirmed = true;
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Always clear the local session so a network failure never traps the user.
       }
     }
+    if (sessionStorage.getItem(TOKEN_KEY) !== token) return serverLogoutConfirmed;
     sessionStorage.removeItem(TOKEN_KEY);
     invalidateApiCache();
     setSession(null);
@@ -67,19 +69,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadSession = useCallback(async () => {
-    if (!sessionStorage.getItem(TOKEN_KEY)) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (!token) {
       setLoading(false);
       return;
     }
     try {
       setSessionError("");
-      setSession(await api<SessionPayload>("/auth/me"));
+      const restored = await api<SessionPayload>("/auth/me");
+      if (sessionStorage.getItem(TOKEN_KEY) !== token) return;
+      setSession(restored);
       setSessionExpired(false);
     } catch (reason) {
+      if (sessionStorage.getItem(TOKEN_KEY) !== token) return;
       if (reason instanceof ApiError && reason.status === 401) expireSession();
       else setSessionError("暂时无法验证会话。有效凭证已保留，请检查服务或网络后重试。");
     } finally {
-      setLoading(false);
+      if (sessionStorage.getItem(TOKEN_KEY) === token) setLoading(false);
     }
   }, [expireSession]);
 
@@ -100,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(safeSession);
     setSessionExpired(false);
     setSessionError("");
+    setLoading(false);
     return safeSession;
   }, []);
 
@@ -135,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(safeSession);
     setSessionExpired(false);
     setSessionError("");
+    setLoading(false);
     return safeSession;
   }, []);
 

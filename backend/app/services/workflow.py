@@ -39,6 +39,8 @@ from .adapters import (
     RulePackageAdapter,
 )
 from .common import add_audit_log, model_dict, trace_id
+from .settlement_period import matches_period, select_period_upload
+from .settlement_guard import SettlementConflict, reserve_settlement_identity, settlement_identity_conflict
 from .audit_scope import audit_task_scope_query
 from .lineage import emit_run_event, input_dataset
 from .llm import DeepSeekUnavailable, explain_audit, invoke_agent_analysis
@@ -344,23 +346,18 @@ def task_summary(
     ).all()
     participant_payloads: list[dict[str, Any]] = []
     preflight_blockers: list[str] = []
+    if task.status in {"DRAFT", "READY", "EXCEPTION"} or task.ttc_state in {TTCState.REWORK.value, TTCState.FAILED.value}:
+        identity_conflict = settlement_identity_conflict(db, task, participants)
+        if identity_conflict is not None:
+            preflight_blockers.append(identity_conflict)
     ready_data_count = 0
     for participant in participants:
         organization = db.get(Organization, participant.org_id)
         expected_type = "GENERATION_DATA" if participant.role_in_task == "GENERATOR" else "RETAIL_DATA"
-        upload = db.scalar(
-            select(DataUpload)
-            .where(
-                DataUpload.owner_org_id == participant.org_id,
-                DataUpload.asset_type == expected_type,
-                DataUpload.trade_batch_no == task.trade_batch_no,
-                DataUpload.validation_status == "PASSED",
-            )
-            .order_by(DataUpload.created_at.desc())
-        )
+        upload, has_candidates = select_period_upload(db, task, participant.org_id, expected_type)
         provider_name = organization.org_name if organization else participant.org_id
         if upload is None:
-            preflight_blockers.append(f"{provider_name}尚未提供当前批次的已校验数据")
+            preflight_blockers.append(f"{provider_name}的数据期间无法核验或与结算期间不一致，请补齐并校验" if has_candidates else f"{provider_name}尚未提供当前批次的已校验数据")
         elif not upload.signature_value:
             preflight_blockers.append(f"{provider_name}尚未确认当前批次的数据承诺")
         else:
@@ -382,6 +379,17 @@ def task_summary(
                 ),
             }
         )
+        scenario_type = "RENEWABLE_FORECAST" if participant.role_in_task == "GENERATOR" else "VPP_RESOURCE"
+        scenario, has_scenario = select_period_upload(db, task, participant.org_id, scenario_type)
+        if has_scenario and scenario is None:
+            preflight_blockers.append(f"{provider_name}的{scenario_type}数据期间无法核验或与结算期间不一致，请补齐并校验")
+        elif scenario is not None and not scenario.signature_value:
+            preflight_blockers.append(f"{provider_name}尚未确认{scenario_type}数据承诺")
+    grid, has_grid = select_period_upload(db, task, task.creator_org_id, "GRID_CONSTRAINT")
+    if has_grid and grid is None:
+        preflight_blockers.append("调度边界数据期间无法核验或与结算期间不一致，请补齐并校验")
+    elif grid is not None and not grid.signature_value:
+        preflight_blockers.append("尚未确认调度边界数据承诺")
     results = (
         db.scalars(
             select(SettlementResult).where(
@@ -833,7 +841,9 @@ def run_settlement_workflow(
     if task.status in {"AUDITED", "PENDING_CONFIRMATION", "PARTIALLY_CONFIRMED"} and task.ttc_state != TTCState.REWORK.value:
         return workflow_bundle(db, task, actor)
     if task.status == "RUNNING":
-        raise ValueError("Settlement task is already running")
+        # The current request does not own this execution. Rejecting it must
+        # not enter the failure recorder and fail the other request's Attempt.
+        raise SettlementConflict("Settlement task is already running")
 
     required_agent_tools = (
         ("ORCHESTRATOR", "WorkflowEngine"),
@@ -870,6 +880,21 @@ def run_settlement_workflow(
     ).all()
     if len(participants) != 2 or {item.role_in_task for item in participants} != {"GENERATOR", "RETAILER"}:
         raise ValueError("Settlement requires generator and retailer participants")
+    for participant in participants:
+        required_type = "GENERATION_DATA" if participant.role_in_task == "GENERATOR" else "RETAIL_DATA"
+        optional_type = "RENEWABLE_FORECAST" if participant.role_in_task == "GENERATOR" else "VPP_RESOURCE"
+        required, _ = select_period_upload(db, task, participant.org_id, required_type)
+        optional, has_optional = select_period_upload(db, task, participant.org_id, optional_type)
+        if required is None or (has_optional and optional is None):
+            raise ValueError(f"结算数据缺失或期间无法核验、与结算期间不一致，请补齐并校验: {participant.org_id}")
+        if not required.signature_value or (optional is not None and not optional.signature_value):
+            raise ValueError(f"Data commitment is not confirmed for {participant.org_id}")
+    grid, has_grid = select_period_upload(db, task, task.creator_org_id, "GRID_CONSTRAINT")
+    if has_grid and grid is None:
+        raise ValueError("调度边界数据期间无法核验或与结算期间不一致，请补齐并校验")
+    if grid is not None and not grid.signature_value:
+        raise ValueError("尚未确认调度边界数据承诺")
+    reserve_settlement_identity(db, task, participants)
     orgs = {item.org_id: db.get(Organization, item.org_id) for item in participants}
 
     identity_proofs = [IdentityCredentialAdapter.verify_owner(db, item.org_id) for item in participants]
@@ -961,17 +986,10 @@ def run_settlement_workflow(
     policy_decisions: list[dict[str, Any]] = []
     for participant in participants:
         expected_type = "GENERATION_DATA" if participant.role_in_task == "GENERATOR" else "RETAIL_DATA"
-        upload = db.scalar(
-            select(DataUpload)
-            .where(
-                DataUpload.owner_org_id == participant.org_id,
-                DataUpload.asset_type == expected_type,
-                DataUpload.trade_batch_no == task.trade_batch_no,
-                DataUpload.validation_status == "PASSED",
-            )
-            .order_by(DataUpload.created_at.desc())
-        )
+        upload, has_candidates = select_period_upload(db, task, participant.org_id, expected_type)
         if upload is None:
+            if has_candidates:
+                raise ValueError(f"数据期间无法核验或与结算期间不一致，请补齐并校验: {participant.org_id} {expected_type}")
             raise ValueError(
                 f"Missing validated {expected_type} for {participant.org_id} "
                 f"in batch {task.trade_batch_no}"
@@ -991,16 +1009,9 @@ def run_settlement_workflow(
             if participant.role_in_task == "GENERATOR"
             else "VPP_RESOURCE"
         )
-        scenario_upload = db.scalar(
-            select(DataUpload)
-            .where(
-                DataUpload.owner_org_id == participant.org_id,
-                DataUpload.asset_type == scenario_asset_type,
-                DataUpload.trade_batch_no == task.trade_batch_no,
-                DataUpload.validation_status == "PASSED",
-            )
-            .order_by(DataUpload.created_at.desc())
-        )
+        scenario_upload, has_scenario = select_period_upload(db, task, participant.org_id, scenario_asset_type)
+        if has_scenario and scenario_upload is None:
+            raise ValueError(f"数据期间无法核验或与结算期间不一致，请补齐并校验: {participant.org_id} {scenario_asset_type}")
         if scenario_upload is not None:
             provider_uploads.append(scenario_upload)
             scenario_uploads[scenario_asset_type] = scenario_upload
@@ -1033,16 +1044,9 @@ def run_settlement_workflow(
         policy_decisions.append(decision)
         participant.data_status = "AUTHORIZED"
 
-    grid_upload = db.scalar(
-        select(DataUpload)
-        .where(
-            DataUpload.owner_org_id == task.creator_org_id,
-            DataUpload.asset_type == "GRID_CONSTRAINT",
-            DataUpload.trade_batch_no == task.trade_batch_no,
-            DataUpload.validation_status == "PASSED",
-        )
-        .order_by(DataUpload.created_at.desc())
-    )
+    grid_upload, has_grid = select_period_upload(db, task, task.creator_org_id, "GRID_CONSTRAINT")
+    if has_grid and grid_upload is None:
+        raise ValueError("调度边界数据期间无法核验或与结算期间不一致，请补齐并校验")
     if grid_upload is not None:
         grid_provider = db.get(Organization, grid_upload.owner_org_id)
         if grid_provider is None:
@@ -1248,6 +1252,8 @@ def run_settlement_workflow(
         snapshot,
         [*uploads_by_role.values(), *scenario_uploads.values()],
     )
+    if any(not matches_period(upload, task) for upload in [*uploads_by_role.values(), *scenario_uploads.values()]):
+        raise ValueError("冻结数据期间无法核验或与结算期间不一致，请补齐并校验")
     task.current_stage = "隐私计算与场景结果生成"
     TtcStateMachine.transition(
         db,

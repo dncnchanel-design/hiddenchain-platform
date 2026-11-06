@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Calculator } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { ApiError, createIdempotencyKey } from "../../../api";
@@ -59,6 +59,7 @@ type QueryStepStatus = "待处理" | "进行中" | "已完成" | "待选择主�
 type QueryStep = { stage: string; status: QueryStepStatus; detail?: string };
 type ExecuteBody = Parameters<typeof executeTrustedQuery>[0];
 type RetrySubmission = { body: ExecuteBody; metadata: PendingQuerySubmission; idempotencyKey: string };
+type PageOperation = { signal?: AbortSignal; isCurrent: () => boolean };
 
 const INITIAL_STEPS: QueryStep[] = [
   { stage: "解析需求", status: "待处理" },
@@ -234,7 +235,7 @@ export function QueryPage() {
   const [execution, setExecution] = useState<ControlledQueryResult | null>(null);
   const [task, setTask] = useState<TrustedQueryTask | null>(null);
   const [initialPending] = useState<PendingQueryTask | null>(() => {
-    const value = readPendingQueryTask(sessionStorage);
+    const value = readPendingQueryTask(sessionStorage, context?.actor.user_id);
     if (!value) clearPendingQueryTask(sessionStorage);
     return value;
   });
@@ -247,6 +248,15 @@ export function QueryPage() {
   const [pollingError, setPollingError] = useState("");
   const [busy, setBusy] = useState<"parsing" | "executing" | "">("");
   const [error, setError] = useState("");
+  const lifetimeRef = useRef<{ controller: AbortController; token: string | null } | null>(null);
+
+  const pageOperation = useCallback((): PageOperation => {
+    const lifetime = lifetimeRef.current;
+    return {
+      signal: lifetime?.controller.signal,
+      isCurrent: () => Boolean(lifetime && lifetimeRef.current === lifetime && !lifetime.controller.signal.aborted && sessionStorage.getItem("hiddenchain_token") === lifetime.token),
+    };
+  }, []);
 
   const pendingTaskId = pendingTask?.taskId || null;
   const taskActive = Boolean(pendingTaskId && task?.status !== "FAILED" && task?.status !== "SUCCEEDED") || Boolean(pendingTaskId && !task);
@@ -256,31 +266,37 @@ export function QueryPage() {
   const canComputeOwn = Boolean(selectedProvider?.actions.can_compute_own && selectedProvider.provider.org_id === context?.current_subject.org_id);
   const needsApplication = !approvedAuthorization && !canUseSubjectRule && !canComputeOwn;
 
-  async function refreshAuthorizations() {
+  const refreshAuthorizations = useCallback(async (operation = pageOperation()) => {
+    if (!operation.isCurrent()) return [];
     setAuthorizationLoading(true);
     setAuthorizationError("");
     try {
-      const approved = await loadUsageRequests({ mine: true, status: "APPROVED", page: 1, pageSize: 100, fresh: true });
+      const approved = await loadUsageRequests({ mine: true, status: "APPROVED", page: 1, pageSize: 100, fresh: true }, operation.signal);
+      if (!operation.isCurrent()) return [];
       const items = [...approved.items];
       for (let page = 2; page <= Math.ceil(approved.total / 100); page += 1) {
-        const next = await loadUsageRequests({ mine: true, status: "APPROVED", page, pageSize: 100, fresh: true });
+        const next = await loadUsageRequests({ mine: true, status: "APPROVED", page, pageSize: 100, fresh: true }, operation.signal);
+        if (!operation.isCurrent()) return [];
         items.push(...next.items);
         if (!next.items.length) break;
       }
       setApprovedAuthorizations(items);
       return items;
     } catch (reason) {
+      if (!operation.isCurrent()) return [];
       setApprovedAuthorizations([]);
       setAuthorizationError(errorMessage(reason, "授权状态读取失败，请重新检查"));
       throw reason;
     } finally {
-      setAuthorizationLoading(false);
+      if (operation.isCurrent()) setAuthorizationLoading(false);
     }
-  }
+  }, [pageOperation]);
 
   async function recheckAuthorizations() {
+    const operation = pageOperation();
     try {
-      await refreshAuthorizations();
+      await refreshAuthorizations(operation);
+      if (!operation.isCurrent()) return;
       setError("");
       if (!execution && !taskActive) setSteps((current) => current.map((step, index) => index === 1 ? { ...step, status: "待授权", detail: undefined } : index > 1 ? { ...step, status: "待处理", detail: undefined } : step));
     } catch {
@@ -297,11 +313,11 @@ export function QueryPage() {
     setSteps((current) => current.map((step, index) => index === 1 ? { ...step, status: "待授权" } : index > 1 ? { ...step, status: "待处理", detail: undefined } : step));
   }
 
-  function rememberPending(value: PendingQueryTask) {
-    const persisted = writePendingQueryTask(sessionStorage, value);
+  const rememberPending = useCallback((value: PendingQueryTask) => {
+    const persisted = writePendingQueryTask(sessionStorage, value, context?.actor.user_id);
     setPendingTask(value);
     return persisted;
-  }
+  }, [context?.actor.user_id]);
 
   function forgetPending() {
     clearPendingQueryTask(sessionStorage);
@@ -428,7 +444,7 @@ export function QueryPage() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   // The nonce is an explicit manual retry trigger for the same durable task.
-  }, [pendingTaskId, pollRetryNonce]);
+  }, [pendingTaskId, pollRetryNonce, refreshAuthorizations]);
 
   useEffect(() => {
     const candidate = pendingTask;
@@ -470,11 +486,21 @@ export function QueryPage() {
       controller.abort();
     };
   // The nonce is the explicit retry trigger for a restored pre-submit crash window.
-  }, [pendingTask, preflightRetryNonce, restoredPreflight]);
+  }, [pendingTask, preflightRetryNonce, rememberPending, restoredPreflight]);
+
+  useEffect(() => {
+    const lifetime = { controller: new AbortController(), token: sessionStorage.getItem("hiddenchain_token") };
+    lifetimeRef.current = lifetime;
+    return () => {
+      lifetime.controller.abort();
+      if (lifetimeRef.current === lifetime) lifetimeRef.current = null;
+    };
+  }, []);
 
   async function ask() {
+    const operation = pageOperation();
     const text = question.trim();
-    if (!text || busy || pendingTask) return;
+    if (!text || busy || pendingTask || !operation.isCurrent()) return;
     setBusy("parsing");
     setError("");
     setPollingError("");
@@ -487,7 +513,8 @@ export function QueryPage() {
     setTask(null);
     setSteps(updateStep(INITIAL_STEPS, 0, "进行中"));
     try {
-      const parsed = await parseTrustedQuery(text);
+      const parsed = await parseTrustedQuery(text, operation.signal);
+      if (!operation.isCurrent()) return;
       setIntent(parsed);
       setStep(0, "已完成", parsed.provider === "deepseek" ? "DeepSeek 已完成固定字段解析" : "AI 不可用，当前仅为规则预览");
       if (!parsed.ready || !parsed.energy_domain || !parsed.resource || !parsed.function || !parsed.start_date || !parsed.end_date) {
@@ -497,19 +524,22 @@ export function QueryPage() {
       }
 
       setStep(1, "进行中", "正在查找可授权的数据主体");
-      const catalog = await loadCatalog({ domain: parsed.energy_domain, page: 1, pageSize: 100 });
+      const catalog = await loadCatalog({ domain: parsed.energy_domain, page: 1, pageSize: 100 }, operation.signal);
+      if (!operation.isCurrent()) return;
       const assets = [...catalog.items];
       for (let page = 2; page <= Math.ceil(catalog.total / 100); page += 1) {
-        const next = await loadCatalog({ domain: parsed.energy_domain, page, pageSize: 100 });
+        const next = await loadCatalog({ domain: parsed.energy_domain, page, pageSize: 100 }, operation.signal);
+        if (!operation.isCurrent()) return;
         assets.push(...next.items);
         if (!next.items.length) break;
       }
       let approved: UsageRequest[] = [];
       try {
-        approved = await refreshAuthorizations();
+        approved = await refreshAuthorizations(operation);
       } catch {
         // Keep the query preview and show the authorization retry action.
       }
+      if (!operation.isCurrent()) return;
       const matches = queryProviders(assets, parsed, approved, context?.current_subject.org_id || "");
       if (!matches.length) {
         setStep(1, "已阻断", "目录中没有可用主体资源");
@@ -520,26 +550,30 @@ export function QueryPage() {
       setSelectedProviderId(matches[0].asset_id);
       setStep(1, "待授权", matches.length > 1 ? "请选择主体后确认授权" : "请确认主体授权");
     } catch (reason) {
+      if (!operation.isCurrent()) return;
       setStep(0, "失败");
       setError(errorMessage(reason, "AI 查询解析失败，查询未执行"));
     } finally {
-      setBusy("");
+      if (operation.isCurrent()) setBusy("");
     }
   }
 
-  async function submitTrustedTask(submission: RetrySubmission) {
+  async function submitTrustedTask(submission: RetrySubmission, operation = pageOperation()) {
+    if (!operation.isCurrent()) return;
     setBusy("executing");
     setError("");
     setPollingError("");
     setStep(2, "进行中", "正在创建持久化查询任务");
     try {
-      const next = await executeTrustedQuery(submission.body, submission.idempotencyKey);
+      const next = await executeTrustedQuery(submission.body, submission.idempotencyKey, operation.signal);
+      if (!operation.isCurrent()) return;
       rememberPending({ taskId: next.task_id, idempotencyKey: submission.idempotencyKey, submission: submission.metadata });
       setTask(next);
       setRetrySubmission(null);
       setStep(2, "进行中", `${QUERY_STATUS_LABELS[next.status]} · 任务 ${next.task_id}`);
       setPollRetryNonce((value) => value + 1);
     } catch (reason) {
+      if (!operation.isCurrent()) return;
       setStep(2, "失败", "任务提交响应未确认");
       setSteps((current) => updateStep(current, 3, "已阻断", "尚未取得持久化任务结果"));
       setError(errorMessage(reason, "查询任务提交失败，未交付结果"));
@@ -554,20 +588,22 @@ export function QueryPage() {
         }
       }
     } finally {
-      setBusy("");
+      if (operation.isCurrent()) setBusy("");
     }
   }
 
   async function confirmAndExecute() {
-    if (!intent || !selectedProvider || !intent.energy_domain || !intent.resource || !intent.function || !intent.start_date || !intent.end_date || busy || pendingTask) return;
+    const operation = pageOperation();
+    if (!intent || !selectedProvider || !intent.energy_domain || !intent.resource || !intent.function || !intent.start_date || !intent.end_date || busy || pendingTask || !operation.isCurrent()) return;
     setBusy("executing");
     let approved: UsageRequest | undefined;
     try {
-      approved = findQueryAuthorization(await refreshAuthorizations(), selectedProvider, intent, context?.current_subject.org_id);
+      approved = findQueryAuthorization(await refreshAuthorizations(operation), selectedProvider, intent, context?.current_subject.org_id);
     } catch {
-      setBusy("");
+      if (operation.isCurrent()) setBusy("");
       return;
     }
+    if (!operation.isCurrent()) return;
     if (!approved && !canUseSubjectRule && !canComputeOwn) {
       setError("");
       setStep(1, "待授权", "请先向数据提供方申请授权");
@@ -591,7 +627,8 @@ export function QueryPage() {
     setExecution(null);
     setStep(1, "进行中", approved ? "正在核对已有授权" : canComputeOwn ? "正在核对本方数据计算权限" : "正在核对主体批准规则");
     try {
-      const confirmation: QueryConfirmation = await confirmTrustedQuery(baseRequest);
+      const confirmation: QueryConfirmation = await confirmTrustedQuery(baseRequest, operation.signal);
+      if (!operation.isCurrent()) return;
       setStep(1, "已完成", "授权范围与查询条件已锁定");
       const idempotencyKey = createIdempotencyKey("trusted-query");
       const metadata: PendingQuerySubmission = {
@@ -611,8 +648,9 @@ export function QueryPage() {
       }
       setRetrySubmission(submission);
       setBusy("");
-      await submitTrustedTask(submission);
+      await submitTrustedTask(submission, operation);
     } catch (reason) {
+      if (!operation.isCurrent()) return;
       setStep(1, "失败");
       setSteps((current) => current.map((step, index) => index > 1 ? { ...step, status: "已阻断" } : step));
       setError(errorMessage(reason, "授权确认未完成，查询未执行"));

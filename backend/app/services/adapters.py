@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from datetime import datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 import httpx
@@ -562,6 +562,8 @@ class DataSpaceConnectorAdapter:
                 "validation_status": upload.validation_status,
                 "record_count": summary.get("record_count", 0),
                 "period": summary.get("period"),
+                "period_start": summary.get("period_start"),
+                "period_end": summary.get("period_end"),
                 "data_hash": upload.data_hash,
             },
             "commitment_confirmed": bool(upload.signature_value),
@@ -1047,6 +1049,18 @@ class LocalControlledComputeAdapter:
         quantum = Decimal("1").scaleb(-digits)
         return value.quantize(quantum, rounding=ROUND_HALF_UP)
 
+    @classmethod
+    def _official_number(cls, value: Decimal, digits: int) -> float:
+        """Preserve the quantized decimal value across the existing JSON DTO."""
+        try:
+            quantized = cls._quantize(value, digits)
+            serialized = float(quantized)
+        except (InvalidOperation, OverflowError, ValueError) as exc:
+            raise ValueError("结算结果超出当前数值接口可准确表达的精度范围，未生成正式结果") from exc
+        if not math.isfinite(serialized) or Decimal(str(serialized)) != quantized:
+            raise ValueError("结算结果超出当前数值接口可准确表达的精度范围，未生成正式结果")
+        return serialized
+
     @staticmethod
     def _verified_vault_payload(upload: DataUpload) -> dict[str, Any]:
         payload = LocalDomainVault.read(upload.data_ref)
@@ -1140,14 +1154,14 @@ class LocalControlledComputeAdapter:
 
         result = {
             "capsule_id": capsule_id,
-            "settlement_energy_mwh": float(self._quantize(settlement_energy, 3)),
-            "deviation_mwh": float(self._quantize(deviation, 3)),
-            "gross_deviation_mwh": float(self._quantize(gross_deviation, 3)),
-            "vpp_adjustment_mwh": float(self._quantize(vpp_adjustment, 3)),
-            "base_amount_yuan": float(self._quantize(base_amount, digits)),
-            "deviation_penalty_yuan": float(self._quantize(deviation_penalty, digits)),
-            "service_fee_yuan": float(self._quantize(service_fee, digits)),
-            "payable_amount_yuan": float(self._quantize(payable, digits)),
+            "settlement_energy_mwh": self._official_number(settlement_energy, 3),
+            "deviation_mwh": self._official_number(deviation, 3),
+            "gross_deviation_mwh": self._official_number(gross_deviation, 3),
+            "vpp_adjustment_mwh": self._official_number(vpp_adjustment, 3),
+            "base_amount_yuan": self._official_number(base_amount, digits),
+            "deviation_penalty_yuan": self._official_number(deviation_penalty, digits),
+            "service_fee_yuan": self._official_number(service_fee, digits),
+            "payable_amount_yuan": self._official_number(payable, digits),
             "rule_hash": rule_package["rule_hash"],
             "scenario_coordination": [
                 {

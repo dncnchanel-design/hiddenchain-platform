@@ -7,7 +7,7 @@ import ttcSource from "./pages/TtcPage.tsx?raw";
 
 describe("trusted query async boundaries", () => {
   it("uses the durable task before loading a successful result", () => {
-    expect(querySource).toContain("executeTrustedQuery(submission.body, submission.idempotencyKey)");
+    expect(querySource).toContain("executeTrustedQuery(submission.body, submission.idempotencyKey, operation.signal)");
     expect(querySource).toContain("loadTrustedQueryTask(pendingTaskId");
     expect(querySource).toContain('next.status === "SUCCEEDED"');
     expect(querySource.indexOf('next.status === "SUCCEEDED"')).toBeLessThan(querySource.indexOf("loadTrustedQueryResult(pendingTaskId"));

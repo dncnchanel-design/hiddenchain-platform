@@ -24,9 +24,18 @@ export type IdempotencyKeyRecord = {
   key: string;
 };
 
+function randomUUID(): string {
+  if (typeof globalThis.crypto.randomUUID === "function") return globalThis.crypto.randomUUID();
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function createIdempotencyKey(scope: string): string {
   const normalizedScope = scope.replace(/[^a-zA-Z0-9:_-]/g, "-").slice(0, 40) || "command";
-  return `${normalizedScope}:${globalThis.crypto.randomUUID()}`.slice(0, 128);
+  return `${normalizedScope}:${randomUUID()}`.slice(0, 128);
 }
 
 export function prepareIdempotencyKey(
@@ -111,6 +120,13 @@ function storeCachedResponse(key: string, value: unknown, expiresAt: number) {
   GET_CACHE.set(key, { value, expiresAt });
 }
 
+function expireRequestSession(token: string | null) {
+  // A response from before logout/account switching cannot expire a new session.
+  if (token && sessionStorage.getItem("hiddenchain_token") === token) {
+    window.dispatchEvent(new Event("hiddenchain:unauthorized"));
+  }
+}
+
 export async function api<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
   const token = sessionStorage.getItem("hiddenchain_token");
   const method = (options.method || "GET").toUpperCase();
@@ -140,7 +156,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
   const headers = new Headers(requestOptions.headers);
   if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", globalThis.crypto.randomUUID());
+  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", randomUUID());
   if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
   if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
 
@@ -200,7 +216,7 @@ export async function api<T>(path: string, options: ApiRequestInit = {}): Promis
             : typeof detailRecord?.retryable === "boolean"
               ? detailRecord.retryable
               : isRetryableStatus(response.status);
-          if (response.status === 401) window.dispatchEvent(new Event("hiddenchain:unauthorized"));
+          if (response.status === 401) expireRequestSession(token);
           throw new ApiError(message, response.status, errorTraceId, { code, retryable });
         }
         if (response.status === 204) return undefined as T;
@@ -260,12 +276,13 @@ export async function downloadBlob(path: string, options: ApiCommandOptions = {}
   const token = sessionStorage.getItem("hiddenchain_token");
   const headers = new Headers(options.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", globalThis.crypto.randomUUID());
+  if (!headers.has("X-Request-ID")) headers.set("X-Request-ID", randomUUID());
   if (options.idempotencyKey && !headers.has("Idempotency-Key")) headers.set("Idempotency-Key", options.idempotencyKey);
   if (options.ifMatch && !headers.has("If-Match")) headers.set("If-Match", options.ifMatch);
   const { cacheTtlMs: _cacheTtlMs, retry: _retry, timeoutMs: _timeoutMs, idempotencyKey: _idempotencyKey, ifMatch: _ifMatch, onResponseMetadata: _onResponseMetadata, ...requestOptions } = options;
   const response = await fetch(`${API_BASE}${path}`, { ...requestOptions, headers });
   if (!response.ok) {
+    if (response.status === 401) expireRequestSession(token);
     let body: Record<string, unknown> = {};
     try { body = await response.json(); } catch { /* keep the status fallback */ }
     const detail = body.detail;

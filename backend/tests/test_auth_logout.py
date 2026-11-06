@@ -3,7 +3,39 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import AuditLog
+import pytest
+
+from app.models import AuditLog, Organization, User
+from app import security
+
+
+def test_tokens_created_at_same_instant_are_distinct(monkeypatch):
+    class FixedDatetime(security.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 1, tzinfo=tz)
+
+    monkeypatch.setattr(security, "datetime", FixedDatetime)
+    first = security.create_access_token("user", "GENERATOR", "org")
+    second = security.create_access_token("user", "GENERATOR", "org")
+    assert first != second
+
+
+@pytest.mark.parametrize("target", ["user", "organization"])
+def test_password_login_rejects_inactive_subject(client, target):
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == "generator"))
+        subject = user if target == "user" else db.get(Organization, user.org_id)
+        subject.status = "INACTIVE"
+        db.commit()
+
+    response = client.post("/api/auth/login", json={"username": "generator", "password": "generator123"})
+    assert response.status_code == 403
+    assert "access_token" not in response.json()
+    with SessionLocal() as db:
+        audit = db.scalar(select(AuditLog).where(AuditLog.action_code == "LOGIN").order_by(AuditLog.occurred_at.desc()))
+        assert audit.result == "FAILED"
+        assert audit.details_json["reason"] == "SUBJECT_NOT_ACTIVE"
 
 
 def test_logout_revokes_current_token_only_and_writes_audit(client, auth_headers):

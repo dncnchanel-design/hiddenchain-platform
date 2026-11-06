@@ -610,6 +610,7 @@ def _dashboard_connector_public_key(
     node: dict[str, Any],
     provider_org_id: str,
     energy_domain: str,
+    browser_wake_available: bool = False,
 ) -> tuple[str, str, bool]:
     parsed = urlparse(endpoint)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -625,16 +626,16 @@ def _dashboard_connector_public_key(
     try:
         response = httpx.get(
             f"{endpoint.rstrip('/')}/health",
-            timeout=min(max(settings.connector_timeout_seconds, 1.0), 8.0),
+            timeout=1.0 if browser_wake_available else min(max(settings.connector_timeout_seconds, 1.0), 8.0),
         )
     except httpx.TransportError as exc:
-        if not public_key:
+        if not public_key or browser_wake_available:
             raise _DashboardUnavailable("主体连接器身份发现暂不可用") from exc
     else:
         if response.status_code >= 400:
             if not _dashboard_retryable_status(response.status_code):
                 raise ValueError("主体连接器身份发现被拒绝")
-            if not public_key:
+            if not public_key or browser_wake_available:
                 raise _DashboardUnavailable("主体连接器身份发现暂不可用")
         else:
             health = response.json()
@@ -663,7 +664,7 @@ def _dashboard_connector_public_key(
     return public_key, key_source, latest_window_supported
 
 
-def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[str, Any]:
+def _load_subject_metric(db: Session, user: User, view: dict[str, Any], browser_wake_available: bool = False) -> dict[str, Any]:
     if view["kind"] == "regulator":
         return _regulator_metric(view)
 
@@ -700,6 +701,7 @@ def _load_subject_metric(db: Session, user: User, view: dict[str, Any]) -> dict[
             node=node or {},
             provider_org_id=user.org_id,
             energy_domain=view["energy_domain"],
+            browser_wake_available=browser_wake_available,
         )
         connector_payload = {
             "request_id": f"dashboard-{new_id()}",
@@ -858,50 +860,6 @@ def _parse_period(text: str) -> tuple[date, date]:
     return today - timedelta(days=30), today
 
 
-def _result_for_asset(db: Session, asset: DataAsset, resource: str, function: str) -> dict[str, Any]:
-    from ..models import DataUpload
-
-    uploads = db.scalars(
-        select(DataUpload)
-        .where(DataUpload.owner_org_id == asset.owner_org_id)
-        .order_by(DataUpload.created_at.desc())
-        .limit(20)
-    ).all()
-    values: list[float] = []
-    trend: list[dict[str, Any]] = []
-    curves: list[list[float]] = []
-    for upload in uploads:
-        payload = upload.summary_json if isinstance(upload.summary_json, dict) else {}
-        period = str(payload.get("period") or getattr(upload, "label", "") or f"样本 {len(trend) + 1}")
-        for key in (resource, "energy_mwh", "record_count", "load_curve"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                values.extend(float(item) for item in value if isinstance(item, (int, float)))
-                if key == "load_curve" and resource == "load":
-                    curves.append([float(item) for item in value if isinstance(item, (int, float))])
-            elif isinstance(value, (int, float)) and key == resource:
-                numeric_value = float(value)
-                values.append(numeric_value)
-                trend.append({"label": period, "value": numeric_value})
-    if not values:
-        values = [float(max(asset.metadata_json.get("record_count", 0), 0))]
-    if curves:
-        width = max(len(curve) for curve in curves)
-        trend = [
-            {"label": f"{index:02d}:00", "value": round(sum(curve[index] for curve in curves if index < len(curve)) / len([curve for curve in curves if index < len(curve)]), 2)}
-            for index in range(width)
-            if any(index < len(curve) for curve in curves)
-        ]
-    if not trend:
-        trend = [{"label": f"样本 {index + 1}", "value": round(value, 2)} for index, value in enumerate(values[:12])]
-    if function == "max": value = max(values)
-    elif function == "min": value = min(values)
-    elif function == "count": value = len(values)
-    elif function == "sum": value = sum(values)
-    else: value = sum(values) / len(values)
-    return {"value": round(value, 2), "record_count": len(values), "resource": resource, "function": FUNCTION_LABELS.get(function, function), "trend": trend[:24]}
-
-
 @router.get("/header")
 def header(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     return {
@@ -917,13 +875,14 @@ def header(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = D
 
 
 @router.get("/dashboard")
-def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
+def dashboard(wake_retry: bool = False, user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     records = _audit_records(db, 200)
     ok, chain_message = _chain_state(db)
     uploads = db.scalars(select(DataUsageRequest).order_by(DataUsageRequest.submitted_at.desc()).limit(1)).all()
     demo_projection = _demo_dashboard_projection() if settings.app_env in {"development", "test", "demo"} and user.role_code == "REGULATOR" else None
     view = _dashboard_view(db, user, demo_projection)
-    metric = _load_subject_metric(db, user, view)
+    readiness_hint = browser_connector_readiness(db, user.org_id, view["energy_domain"]) if view["kind"] != "regulator" else None
+    metric = _load_subject_metric(db, user, view, readiness_hint is not None and not wake_retry)
     is_demo = demo_projection is not None
     real_activity = bool(
         db.scalar(select(func.count(PrivacyAnalysisJob.analysis_id)))
@@ -941,7 +900,7 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
         timeline = demo_projection["timeline"]
     map_data = demo_projection["map"] if demo_projection else {"days": [], "series": {}}
     connectors = _dashboard_connectors(view, metric, ok, demo_projection)
-    readiness = browser_connector_readiness(db, user.org_id, view["energy_domain"]) if (
+    readiness = readiness_hint if (
         view["kind"] != "regulator" and metric["status"] == "unavailable" and metric.get("retryable") is True
     ) else None
     return {
@@ -980,6 +939,12 @@ def dashboard(user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session 
 @demo_router.post("/query")
 def query(payload: PrototypeQueryRequest, user: User = Depends(require_roles(*BUSINESS_ROLES)), db: Session = Depends(get_db)) -> dict[str, Any]:
     text = payload.text.strip()
+    not_executed = {
+        "execution_status": "NOT_EXECUTED",
+        "replacement_path": "/trusted-space/query",
+        "parse_endpoint": "/api/trust-space/query/parse",
+    }
+    execution_reason = "旧版原型查询未执行受控计算，无法验证时间范围及能源量；请在智能数据查询页面完成解析、确认和执行"
     translation = _manual_parse(text)
     domain = translation.energy_domain
     resource = translation.resource
@@ -995,7 +960,7 @@ def query(payload: PrototypeQueryRequest, user: User = Depends(require_roles(*BU
         function = "group_by"
     start_date, end_date = _parse_period(text)
     if not domain or not resource:
-        return {"question": text, "plan": [], "decision": {"action": "deny", "label": "禁止提供", "reason": "未能识别能源种类或数据资源"}, "result": None, "audit_id": None}
+        return {"question": text, "plan": [], "decision": {"action": "deny", "label": "禁止提供", "reason": "未能识别能源种类或数据资源；" + execution_reason}, "result": None, "audit_id": None, "raw_data_returned": False, **not_executed}
     assets = db.scalars(select(DataAsset).where(DataAsset.status == "ACTIVE")).all()
     asset = next((item for item in assets if (item.metadata_json or {}).get("domain") == domain and (item.metadata_json or {}).get("resource_id") == resource), None)
     action = "deny"
@@ -1010,20 +975,25 @@ def query(payload: PrototypeQueryRequest, user: User = Depends(require_roles(*BU
             action, reason = "compute_only", "命中已批准授权，原始明细不出域"
     if asset is None:
         reason = "数据目录中没有匹配的已发布资源"
+    # Catalog metadata and legacy access decisions cannot prove a calculation.
+    # Only the confirmed controlled-query flow may produce business results.
+    reason = execution_reason if action != "deny" else reason + "；" + execution_reason
+    action = "deny"
     target_id = sha256_json({"user": user.user_id, "text": text, "resource": resource, "start": start_date.isoformat(), "end": end_date.isoformat()})
-    add_audit_log(db, action="PROTOTYPE_QUERY_" + ("DENIED" if action == "deny" else "COMPLETED"), target_type="PROTOTYPE_QUERY", target_id=target_id, result="DENIED" if action == "deny" else "SUCCESS", user=user, details={"prototype_action": action, "resource_id": resource, "resource_name": asset.asset_name if asset else resource, "domain": domain, "start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "raw_data_returned": False})
-    evidence = _prototype_evidence(db, user, action=action, target_type="PROTOTYPE_QUERY", target_id=target_id, payload={"resource_id": resource, "decision": action, "raw_data_returned": False})
+    add_audit_log(db, action="PROTOTYPE_QUERY_DENIED", target_type="PROTOTYPE_QUERY", target_id=target_id, result="DENIED", user=user, details={"prototype_action": action, "resource_id": resource, "resource_name": asset.asset_name if asset else resource, "domain": domain, "start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "raw_data_returned": False, "reason": reason, **not_executed})
+    evidence = _prototype_evidence(db, user, action=action, target_type="PROTOTYPE_QUERY", target_id=target_id, payload={"resource_id": resource, "decision": action, "raw_data_returned": False, **not_executed})
     db.commit()
     return {
         "question": text,
-        "plan": [{"stage": "请求解析", "status": "已完成"}, {"stage": "策略裁决", "status": "已完成"}, {"stage": "受控执行", "status": "已完成" if action != "deny" else "已阻断"}, {"stage": "可信留痕", "status": "已完成"}],
+        "plan": [{"stage": "请求解析", "status": "已完成"}, {"stage": "策略裁决", "status": "已阻断"}, {"stage": "受控执行", "status": "未执行"}, {"stage": "可信留痕", "status": "已记录"}],
         "identity": {"name": _org_name(db, user.org_id), "did": _current_did(db, user)},
         "decision": {"action": action, "label": ACTION_LABELS[action], "reason": reason},
-        "result": _result_for_asset(db, asset, resource, function) if asset and action != "deny" else None,
+        "result": None,
         "resource_name": asset.asset_name if asset else resource,
         "function_name": FUNCTION_LABELS.get(function, function),
         "audit_id": evidence.evidence_id,
         "raw_data_returned": False,
+        **not_executed,
     }
 
 

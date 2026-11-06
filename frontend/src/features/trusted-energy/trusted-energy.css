@@ -354,7 +354,7 @@
 .trusted-task-banner > .energy-card-content { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 14px; padding: 12px 15px; }
 .trusted-task-banner > div > div { display: flex; flex-direction: column; gap: 3px; }
 .trusted-task-banner small { color: var(--energy-muted); font-size: 10px; }
-.trusted-task-banner strong { color: var(--energy-secondary); font-size: 11px; white-space: nowrap; }
+.trusted-task-banner strong { color: var(--energy-secondary); font-size: 11px; overflow-wrap: anywhere; }
 .trusted-state-card { margin-bottom: 12px; }
 .trusted-state-tracker { display: flex; width: 100%; min-width: 0; align-items: flex-start; padding: 2px 0 6px; overflow-x: auto; overscroll-behavior-inline: contain; }
 .trusted-state-node { position: relative; width: 110px; flex: 1; min-width: 90px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; }

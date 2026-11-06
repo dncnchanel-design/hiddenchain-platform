@@ -6,6 +6,7 @@ import { PrototypeCardTitle, PrototypePageFrame } from "../components/PrototypeP
 import { RemoteState } from "../components/ui-primitives";
 import { VisibleModuleBoundary } from "../components/VisibleModuleBoundary";
 import { loadPrototypeDashboard, type PrototypeDashboardPayload } from "../trusted-space-api";
+import { prepareConnector } from "../connector-readiness";
 
 const ACTION_NAMES: Record<string, string> = { allow: "直接提供", deny: "禁止提供", aggregate: "汇总提供", delay: "延迟提供", compute_only: "仅计算不出域" };
 const KPI_ICONS = [Database, ShieldCheck, UsersRound, Link2, Search];
@@ -68,9 +69,14 @@ function RoleFocusPanel({ view, notice, dataMode, dataStatus }: { view: Prototyp
 }
 
 export function WorkbenchPage() {
-  const remote = useRemote(loadPrototypeDashboard, []);
-  const data = remote.data;
   const retryCount = useRef(0);
+  const wakeRetry = useRef(false);
+  const remote = useRemote((signal) => {
+    const wake = wakeRetry.current;
+    wakeRetry.current = false;
+    return loadPrototypeDashboard(signal, wake);
+  }, []);
+  const data = remote.data;
   const { loading, refreshing, error, refreshError, errorStatus, refreshErrorStatus, reload } = remote;
   const metricStatus = data?.metric.status;
   const metricRetryable = data?.metric.retryable === true;
@@ -85,10 +91,54 @@ export function WorkbenchPage() {
     }
     if (loading || refreshing || !recoveryAllowed || retryCount.current >= 3) return undefined;
     let timer: number | undefined;
+    let preparing = false;
+    let readyToReload = false;
+    const controller = new AbortController();
+    let activation: AbortController | undefined;
     const schedule = () => {
       if (timer !== undefined) window.clearTimeout(timer);
       timer = undefined;
-      if (document.visibilityState === "hidden") return;
+      if (document.visibilityState === "hidden") {
+        if (activation) {
+          activation.abort();
+          activation = undefined;
+          preparing = false;
+        }
+        return;
+      }
+      if (controller.signal.aborted || preparing) return;
+      if (readyToReload) {
+        readyToReload = false;
+        preparing = true;
+        wakeRetry.current = true;
+        retryCount.current += 1;
+        void reload();
+        return;
+      }
+      if (metricRetryable && data?.connector_readiness && !error && !refreshError) {
+        preparing = true;
+        const activeRequest = new AbortController();
+        activation = activeRequest;
+        void prepareConnector(data.connector_readiness, activeRequest.signal).catch(() => false).then((ready) => {
+          if (activation !== activeRequest || activeRequest.signal.aborted) return;
+          activation = undefined;
+          preparing = false;
+          if (controller.signal.aborted) return;
+          if (ready) {
+            readyToReload = true;
+            schedule();
+          } else {
+            // A failed activation uses the existing bounded retry schedule.
+            timer = window.setTimeout(() => {
+              timer = undefined;
+              if (controller.signal.aborted || document.visibilityState === "hidden" || retryCount.current >= 3) return;
+              retryCount.current += 1;
+              void reload();
+            }, 10_000);
+          }
+        });
+        return;
+      }
       timer = window.setTimeout(() => {
         timer = undefined;
         if (document.visibilityState === "hidden" || retryCount.current >= 3) return;
@@ -99,10 +149,12 @@ export function WorkbenchPage() {
     schedule();
     document.addEventListener("visibilitychange", schedule);
     return () => {
+      controller.abort();
+      activation?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", schedule);
     };
-  }, [loading, metricStatus, recoveryAllowed, refreshing, reload]);
+  }, [data?.connector_readiness, error, loading, metricRetryable, metricStatus, recoveryAllowed, refreshError, refreshing, reload]);
   const isRegionalMap = data?.view.visualization === "regional_map";
   const index = isRegionalMap ? Math.max(0, (data?.map.days.length || 1) - 1) : 0;
 

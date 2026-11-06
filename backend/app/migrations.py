@@ -506,6 +506,14 @@ def _trusted_query_tasks(connection: Connection) -> None:
     _create_indexes(connection, TRUSTED_QUERY_TASK_INDEXES)
 
 
+def _settlement_identity_locks(connection: Connection) -> None:
+    _create_revision_tables(connection, {"settlement_identity_locks"})
+
+
+def _connector_settlement_binding(connection: Connection) -> None:
+    _add_columns(connection, "connector_ingestion_tickets", {"settlement_binding_json": "JSON"})
+
+
 def _as_naive_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
@@ -1087,6 +1095,20 @@ MIGRATIONS: tuple[Migration, ...] = (
             *(f"index:{statement}" for statement in RELIABILITY_INDEXES),
         ),
         checksum_helpers=(_create_revision_tables, _add_columns, _create_indexes),
+    ),
+    Migration(
+        "20261101_001",
+        "add atomic settlement identity reservations",
+        _settlement_identity_locks,
+        revision_schema=("table:settlement_identity_locks",),
+        checksum_helpers=(_create_revision_tables,),
+    ),
+    Migration(
+        "20261106_001",
+        "bind connector ingestion tickets to demo settlement periods",
+        _connector_settlement_binding,
+        revision_schema=("column:connector_ingestion_tickets.settlement_binding_json:JSON",),
+        checksum_helpers=(_add_columns,),
     ),
 )
 

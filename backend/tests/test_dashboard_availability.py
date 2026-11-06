@@ -71,6 +71,50 @@ def test_cold_transport_failure_recovers_to_a_verified_metric(monkeypatch, subje
     assert calls == [8.0, 8.0, 8.0]
 
 
+def test_browser_wake_can_start_without_waiting_for_pinned_cold_node(monkeypatch, subject):
+    user, view, node, _health, key = subject
+    node["public_key"] = _public_key(key)
+    calls = []
+    def get(_url, **options):
+        calls.append(options["timeout"])
+        raise httpx.ReadTimeout("cold node")
+    monkeypatch.setattr(prototype.httpx, "get", get)
+    monkeypatch.setattr(prototype.httpx, "post", lambda *_args, **_kwargs: pytest.fail("must not wait for dashboard when browser can wake node"))
+    metric = prototype._load_subject_metric(None, user, view, True)
+    assert metric["status"] == "unavailable" and metric["retryable"] is True
+    assert calls == [1.0]
+
+
+def test_browser_wake_still_rejects_wrong_node_identity(monkeypatch, subject):
+    user, view, _node, health, _key = subject
+    health["organization_id"] = "wrong-owner"
+    metric = prototype._load_subject_metric(None, user, view, True)
+    assert metric["status"] == "unavailable" and metric["retryable"] is False
+
+
+def test_browser_wake_path_still_verifies_ready_metric(subject):
+    user, view, *_ = subject
+    metric = prototype._load_subject_metric(None, user, view, True)
+    assert metric["status"] == "available" and metric["value"] == 14.0
+    assert metric["connector_audit"]["status"] == "VERIFIED"
+
+
+def test_slow_healthy_connector_recovers_after_fast_probe(monkeypatch, subject):
+    user, view, node, health, _key = subject
+    calls = []
+    def get(_url, **options):
+        calls.append(options["timeout"])
+        if options["timeout"] < 2:
+            raise httpx.ReadTimeout("healthy connector takes more than a second")
+        return _JsonResponse(health)
+    monkeypatch.setattr(prototype.httpx, "get", get)
+    first = prototype._load_subject_metric(None, user, view, True)
+    second = prototype._load_subject_metric(None, user, view, False)
+    assert first["status"] == "unavailable" and first["retryable"] is True
+    assert second["status"] == "available" and second["connector_audit"]["status"] == "VERIFIED"
+    assert calls == [1.0, 8.0]
+
+
 @pytest.mark.parametrize("fault", ["identity", "signature", "audit", "malformed"])
 def test_integrity_and_malformed_failures_stay_nonretryable(monkeypatch, subject, fault):
     user, view, _node, health, key = subject

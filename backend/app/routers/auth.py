@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -108,6 +109,19 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    organization = db.get(Organization, user.org_id)
+    if user.status != "ACTIVE" or organization is None or organization.status != "ACTIVE":
+        add_audit_log(
+            db,
+            action="LOGIN",
+            target_type="USER",
+            target_id=user.user_id,
+            result="FAILED",
+            user=user,
+            details={"reason": "SUBJECT_NOT_ACTIVE"},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号或所属组织当前不可登录")
     user.last_login_at = utc_now()
     add_audit_log(
         db,
@@ -267,6 +281,7 @@ def did_login_verify(
             detail={"code": "DID_WALLET_CONFIGURATION_INVALID", "message": "DID 钱包绑定配置无效"},
         ) from None
 
+    # A configured DID takes precedence over any older database address.
     identity = (
         db.get(DidIdentity, configured_did)
         if configured_did
@@ -274,6 +289,7 @@ def did_login_verify(
             select(DidIdentity)
             .where(
                 DidIdentity.credential_status == "VALID",
+                ~DidIdentity.did_id.in_(json.loads(settings.did_wallet_bindings_json or "{}")),
                 func.lower(DidIdentity.chain_address) == wallet_address,
             )
             .order_by(DidIdentity.created_at, DidIdentity.did_id)
@@ -285,7 +301,7 @@ def did_login_verify(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "DID_WALLET_NOT_REGISTERED", "message": "该钱包尚未登记到有效企业 DID"},
         )
-    if identity.chain_address != wallet_address:
+    if not configured_did and identity.chain_address != wallet_address:
         identity.chain_address = wallet_address
 
     organization = db.get(Organization, identity.org_id)

@@ -281,7 +281,7 @@ def test_connector_catalog_is_server_sourced_and_owner_scoped(
     assert all(set(item) == {
         "resource_id", "resource_name", "unit", "schema_version", "required_columns",
         "optional_columns", "current_version", "record_count", "status",
-    } for item in body["resources"])
+    } | ({"settlement_asset_type"} if item["resource_id"] == "generation" else set()) for item in body["resources"])
     assert client.get(
         "/api/trust-space/connectors/catalog",
         headers=auth_headers["regulator"],

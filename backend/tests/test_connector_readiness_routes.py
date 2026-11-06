@@ -93,6 +93,21 @@ def test_dashboard_activation_is_only_for_current_subject_transient_metric(clien
         assert descriptor is None
 
 
+def test_dashboard_wake_retry_only_changes_timeout_strategy(client, auth_headers, configured, monkeypatch):
+    fast_flags = []
+    def load(_db, _user, _view, fast):
+        fast_flags.append(fast)
+        return prototype._empty_subject_metric(prototype.ENTERPRISE_METRIC_SPECS["GENERATOR"],
+            status="unavailable", status_label="test-status", message="test-message", retryable=True)
+    monkeypatch.setattr(prototype, "_load_subject_metric", load)
+    for suffix in ("", "?wake_retry=true", ""):
+        response = client.get("/api/prototype/dashboard" + suffix, headers=auth_headers["generator"])
+        assert response.status_code == 200 and response.json()["connector_readiness"]["organization_id"] == "org-generator-t01"
+    response = client.get("/api/prototype/dashboard", headers=auth_headers["retailer"])
+    assert response.status_code == 200 and response.json()["connector_readiness"]["organization_id"] == "org-retailer-t01"
+    assert fast_flags == [True, False, True, True]
+
+
 def test_regulator_dashboard_never_activates_business_connectors(client, auth_headers, configured, monkeypatch):
     monkeypatch.setattr(prototype, "_load_subject_metric", lambda *_args: {
         **prototype._empty_subject_metric(prototype.ENTERPRISE_METRIC_SPECS["GENERATOR"],

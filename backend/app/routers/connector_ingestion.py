@@ -4,6 +4,7 @@ import base64
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -15,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,10 @@ from ..models import (
 )
 from ..security import canonical_json, sha256_json
 from ..services.common import add_audit_log
+from ..services.connector_settlement import (
+    SettlementBinding, SettlementSummary, persist_settlement_aggregate,
+    settlement_asset_type, settlement_projection, validate_settlement_receipt,
+)
 from ..services.local_data_boundary import parse_subject_map, subject_node_config
 from ..trust_models import DataAsset, DataAssetPassport, DataAssetVersion, DataSource
 
@@ -103,9 +108,12 @@ class StrictModel(BaseModel):
 class TicketRequest(StrictModel):
     resource_id: str = Field(min_length=1, max_length=96)
     classification: Literal["L1", "L2", "L3"] = "L3"
+    settlement_binding: SettlementBinding | None = None
 
 
 class ReceiptRegistration(StrictModel):
+    # Signature verification must see the same JSON values the connector signed.
+    model_config = ConfigDict(extra="forbid", strict=True)
     receipt_id: str = Field(min_length=8, max_length=96)
     ticket_id: str = Field(min_length=8, max_length=64)
     connector_id: str = Field(min_length=3, max_length=96)
@@ -127,6 +135,7 @@ class ReceiptRegistration(StrictModel):
     public_key: str = Field(min_length=16, max_length=128)
     signature_algorithm: Literal["Ed25519"]
     signature_valid: Literal[True]
+    settlement_summary: SettlementSummary | None = None
 
 
 def _resource(domain: str, resource_id: str) -> tuple[str, str] | None:
@@ -218,11 +227,13 @@ def _receipt_time(value: str) -> datetime:
 
 def _receipt_signed_payload(payload: ReceiptRegistration) -> dict[str, Any]:
     return payload.model_dump(
+        mode="json", exclude_none=True,
         exclude={"signature", "public_key", "signature_algorithm", "signature_valid"}
     )
 
 
 def _receipt_projection(item: ConnectorIngestionReceipt, *, replay: bool) -> dict[str, Any]:
+    settlement = settlement_projection(item)
     return {
         "receipt_id": item.receipt_id,
         "ticket_id": item.ticket_id,
@@ -240,6 +251,7 @@ def _receipt_projection(item: ConnectorIngestionReceipt, *, replay: bool) -> dic
         },
         "raw_data_centrally_stored": False,
         "idempotent_replay": replay,
+        **({"settlement": settlement} if settlement is not None else {}),
     }
 
 
@@ -321,6 +333,7 @@ def connector_catalog(
     resources = []
     for resource_id, resource_name, unit in RESOURCE_DETAILS[organization.energy_domain]:
         current = latest.get(resource_id)
+        asset_type = settlement_asset_type(organization, user.role_code, resource_id, settings.app_env)
         resources.append(
             {
                 "resource_id": resource_id,
@@ -332,6 +345,7 @@ def connector_catalog(
                 "current_version": current.version_no if current else None,
                 "record_count": current.record_count if current else None,
                 "status": "REGISTERED" if current else "NOT_REGISTERED",
+                **({"settlement_asset_type": asset_type} if asset_type else {}),
             }
         )
     return {
@@ -366,6 +380,9 @@ def issue_ingestion_ticket(
     if resource is None:
         raise HTTPException(status_code=422, detail="请从当前能源域的规范资源目录中选择")
     resource_name, _unit = resource
+    binding = payload.settlement_binding.model_dump(mode="json") if payload.settlement_binding is not None else None
+    if binding is not None and settlement_asset_type(organization, user.role_code, payload.resource_id, settings.app_env) is None:
+        raise HTTPException(403, "当前主体、资源或环境不支持新批次演示结算接入")
     now = datetime.now(UTC)
     issued_at = int(now.timestamp())
     expires_at = issued_at + TICKET_LIFETIME_SECONDS
@@ -386,6 +403,7 @@ def issue_ingestion_ticket(
         "purpose": "LOCAL_DATASET_INGEST",
         "issued_at": issued_at,
         "expires_at": expires_at,
+        **({"settlement_binding": binding} if binding is not None else {}),
     }
     private_key = _private_key()
     ticket = {
@@ -412,6 +430,7 @@ def issue_ingestion_ticket(
             purpose="LOCAL_DATASET_INGEST",
             max_bytes=MAX_INGEST_BYTES,
             claims_hash=sha256_json(claims),
+            settlement_binding_json=binding,
             status="ISSUED",
             issued_at=datetime.fromtimestamp(issued_at, UTC).replace(tzinfo=None),
             expires_at=datetime.fromtimestamp(expires_at, UTC).replace(tzinfo=None),
@@ -452,6 +471,26 @@ def register_ingestion_receipt(
     user: User = Depends(require_roles(*CONNECTOR_OWNER_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    new_files: list[Path] = []
+    try:
+        result = _register_ingestion_receipt(payload, response, user, db, new_files)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        # Only exclusive files created by this transaction belong to cleanup.
+        for path in new_files:
+            path.unlink(missing_ok=True)
+        if isinstance(exc, IntegrityError):
+            prior = db.scalar(select(ConnectorIngestionReceipt).where(ConnectorIngestionReceipt.ticket_id == payload.ticket_id))
+            if prior is not None and prior.org_id == user.org_id and prior.receipt_id == payload.receipt_id and prior.node_signature == payload.signature and sha256_json(prior.signed_payload_json) == sha256_json(_receipt_signed_payload(payload)):
+                response.status_code = status.HTTP_200_OK
+                return _receipt_projection(prior, replay=True)
+            raise HTTPException(409, "连接器回执或资源版本已被登记") from exc
+        raise
+    return result
+
+
+def _register_ingestion_receipt(payload: ReceiptRegistration, response: Response, user: User, db: Session, new_files: list[Path]) -> dict[str, Any]:
     ticket = db.get(ConnectorIngestionTicket, payload.ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="未找到一次性接入凭证")
@@ -459,6 +498,7 @@ def register_ingestion_receipt(
         raise HTTPException(status_code=403, detail="不能登记其他组织的连接器回执")
     if "MANAGE_CONNECTOR" not in set(user.permissions_json or []):
         raise HTTPException(status_code=403, detail="当前账号没有登记连接器回执的权限")
+    validate_settlement_receipt(db, ticket, payload.settlement_summary, user, content_hash=payload.content_hash, record_count=payload.record_count, app_env=settings.app_env)
     signed_payload = _receipt_signed_payload(payload)
     signed_hash = sha256_json(signed_payload)
     existing = db.get(ConnectorIngestionReceipt, payload.receipt_id)
@@ -549,7 +589,7 @@ def register_ingestion_receipt(
         select(DataAsset).where(
             DataAsset.owner_org_id == ticket.org_id,
             DataAsset.asset_code == asset_code,
-        )
+        ).with_for_update()
     )
     if asset is None:
         asset = DataAsset(
@@ -597,18 +637,27 @@ def register_ingestion_receipt(
     )
     db.add(version)
     db.flush()
-    asset.source_id = source.source_id
-    asset.asset_name = ticket.resource_name
-    asset.sensitivity_level = ticket.classification
-    asset.status = "ACTIVE"
-    asset.current_version_id = version.version_id
-    asset.metadata_json = {
-        "connector_id": ticket.connector_id,
-        "domain": ticket.energy_domain,
-        "resource_id": ticket.resource_id,
-        "ingestion_receipt_id": payload.receipt_id,
-        "raw_data_centrally_stored": False,
-    }
+    # SQLite ignores FOR UPDATE. After the INSERT has acquired its write lock,
+    # atomically check all registered versions rather than a stale ORM snapshot.
+    newer_version = select(DataAssetVersion.version_id).where(
+        DataAssetVersion.asset_id == asset.asset_id,
+        DataAssetVersion.version_no > payload.version,
+    ).exists()
+    db.execute(
+        update(DataAsset)
+        .where(DataAsset.asset_id == asset.asset_id, ~newer_version)
+        .values(source_id=source.source_id, asset_name=ticket.resource_name,
+                sensitivity_level=ticket.classification, status="ACTIVE",
+                current_version_id=version.version_id, metadata_json={
+            "connector_id": ticket.connector_id,
+            "domain": ticket.energy_domain,
+            "resource_id": ticket.resource_id,
+            "ingestion_receipt_id": payload.receipt_id,
+            "raw_data_centrally_stored": False,
+        })
+        .execution_options(synchronize_session=False)
+    )
+    db.expire(asset)
     owner_did = db.scalar(
         select(DidIdentity.did_id)
         .where(
@@ -691,12 +740,8 @@ def register_ingestion_receipt(
             "raw_data_centrally_stored": False,
         },
     )
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="连接器回执或资源版本已被登记") from exc
-    db.refresh(receipt)
+    if payload.settlement_summary is not None:
+        persist_settlement_aggregate(db, receipt, payload.settlement_summary, user, public_key=expected_public_key, new_files=new_files)
     return _receipt_projection(receipt, replay=False)
 
 
@@ -706,6 +751,8 @@ def get_ingestion_receipt(
     user: User = Depends(require_roles(*CONNECTOR_OWNER_ROLES)),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    if "MANAGE_CONNECTOR" not in set(user.permissions_json or []):
+        raise HTTPException(status_code=403, detail="当前账号没有查看连接器回执的权限")
     ticket = db.get(ConnectorIngestionTicket, ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="未找到一次性接入凭证")

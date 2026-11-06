@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -45,6 +46,7 @@ def create_access_token(user_id: str, role: str, org_id: str) -> str:
         "sub": user_id,
         "role": role,
         "org": org_id,
+        "jti": secrets.token_urlsafe(32),
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
     }
