@@ -5,6 +5,7 @@
 | 工作项 | 所有权 | 验证要求 |
 | --- | --- | --- |
 | 发布范围与门禁审阅 | 只读复核 Agent | 新服务与迁移成套提交；不混入未授权的交付材料 |
+| OSV 依赖修复 | frontend_audit；pnpm-workspace.yaml 与 pnpm-lock.yaml | minimatch 11.0.1，前端 360 项与全部构建门禁通过；无新增 ignore/exclude，独立复核后发布 |
 | 提交、推送与 Render 发布收敛 | 协调 Agent | GitHub 最终 SHA 检查通过，平台及七连接器同 SHA、健康和线上业务验收；证据 `runtime/release-20261106/` |
 
 ## 第二轮缺陷复查 — 2026-11-06

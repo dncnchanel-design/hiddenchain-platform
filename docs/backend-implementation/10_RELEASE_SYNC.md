@@ -5,6 +5,7 @@
 ```text
 AUTHORIZATION = user requested GitHub and Render publication
 SCOPE = reviewed business fixes and signed new-batch settlement ingress
+SECURITY_FIX = minimatch 10.2.6 -> 11.0.1 for GHSA-g3hv-75wg-m249; frontend 360 passed and audit zero; no new vulnerability exemptions
 TARGET = main and agent/deep-brand-green; existing eight Render demo services
 GATES = all applicable final-commit checks; platform and seven connector build_sha; live demo business acceptance
 EXECUTION_EVIDENCE = runtime/release-20261106/
